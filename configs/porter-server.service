@@ -1,0 +1,21 @@
+# porter-server systemd unit: the control plane itself, autostarted on boot
+# after Postgres and the network. Restart-always: a crashed control plane
+# must come back without human hands; durable state lives in Postgres so
+# restarts are safe (controllers reconcile on boot, snapshots restore).
+[Unit]
+Description=Porter control plane (MicroVM PaaS)
+Wants=network-online.target postgresql.service
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=porter
+Environment=PORTER_CONFIG=/etc/porter/porter.toml
+ExecStart=/usr/local/bin/porter server
+Restart=always
+RestartSec=10
+# Control plane only: untrusted workload execution stays in porter-agent.
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

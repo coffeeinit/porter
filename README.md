@@ -1,818 +1,174 @@
-# Porter — MicroVM compute, simplified.
+# Porter
 
-> **The missing control plane.**
->
-> Turn bare-metal servers, cloud VMs, and private infrastructure into a simple,
-> automated, MicroVM-native application and hosting platform.
+**A self-hosted infrastructure control plane built around Firecracker MicroVMs.** Porter brings application deployment, infrastructure operations, and tenant administration behind one Go control plane and one API.
 
-Porter is a self-hosted infrastructure control plane implemented primarily in Go.
-Its fundamental workload isolation boundary is the Firecracker MicroVM. Porter
-combines a developer-oriented PaaS experience with infrastructure administration,
-resource enforcement, hosting operations, observability, security, billing,
-automation, and AI-assisted operations.
-
-## Product thesis
-
-**Simple outside. Sophisticated inside.**
-
-A normal user should be able to:
-
-```text
-Connect GitHub
-    ↓
-Select repository
-    ↓
-Porter detects the application
-    ↓
-Review configuration
-    ↓
-Deploy
-    ↓
-Porter builds, provisions, networks, secures and operates it
-```
-
-The platform internally performs:
-
-```text
-Intent
-  ↓
-Plan
-  ↓
-Authorization / Policy / Quota
-  ↓
-Desired State
-  ↓
-Scheduling
-  ↓
-Provisioning
-  ↓
-Firecracker MicroVM
-  ↓
-Network + Storage + Gateway + DNS + TLS
-  ↓
-Health / Observability
-  ↓
-Reconciliation
-  ↓
-Usage / Billing / Audit
-```
+> **Status: development preview.** This repository is an evolving technical foundation, not a production-ready hosting platform. See [SRS.md](SRS.md) for the requirements and implementation-status snapshot. Features marked partial, planned, or deferred are not production-complete.
 
 ## What Porter is
 
-Porter is one coherent control plane for:
+Porter is designed to turn bare-metal servers, cloud VMs, and private infrastructure into a MicroVM-native application and hosting platform. Its intended scope includes:
 
-- MicroVM lifecycle
-- application deployments
-- Git-based builds
-- OCI artifact handling
-- node management
-- scheduling and reconciliation
-- networking and IPAM
-- gateway and load balancing
-- domains, DNS and certificates
-- persistent volumes
-- backup and restore
-- observability
-- security and policy
-- customers, organizations and teams
-- hosting plans, quotas and entitlements
-- subscriptions, metering and billing
-- workflows, events and webhooks
-- marketplace/extensions
-- AI-native operations
-- CLI, API and infrastructure automation
+- Git-based application builds and deployments;
+- Firecracker MicroVM lifecycle management;
+- node, project, team, and tenant administration;
+- networking, gateway, domains, DNS, and TLS;
+- persistent volumes, snapshots, and recovery;
+- authentication, scoped RBAC, audit, and operational visibility;
+- usage and commercial controls; and
+- governed automation and AI-assisted operations.
 
-## What Porter is not
+Porter is **not** a Kubernetes distribution, Docker runtime, general-purpose hypervisor, or hyperscale-cloud replacement. OCI images are build inputs, not bootable VMs: workloads run in Firecracker after an explicit guest/root-filesystem preparation step. Kubernetes, Cloudflare, and object-storage providers are integrations or future capabilities, not hidden requirements for the core control plane.
 
-Porter is not initially:
-
-- a Kubernetes distribution
-- a Docker management UI
-- a Docker replacement
-- a hyperscale cloud clone
-- a generic hypervisor
-- a complete AWS replacement
-- a container orchestration wrapper
-- a copy of cPanel, WHMCS, Vercel, Railway, Render, Coolify, Dokploy or CapRover
-
-Those products are references for useful capabilities and interaction patterns, not implementation dependencies.
-
-## Core architecture
+## Architecture
 
 ```text
-                         PORTER
-                            │
-             ┌──────────────┴──────────────┐
-             │                             │
-        Porter Cloud                  Porter Admin
-        Customer UI                  Provider Console
-             │                             │
-             └──────────────┬──────────────┘
-                            │
-                       Porter API
-                            │
-       ┌────────────────────┼────────────────────┐
-       │                    │                    │
- Resource Model       Control Plane         Event System
-       │                    │                    │
-       │          Scheduler / Controllers       │
-       │          Reconciler / Workflows        │
-       │          Policy / IAM / Billing        │
-       └────────────────────┼────────────────────┘
-                            │
-                       PostgreSQL
-                            │
-                       Porter Agent
-                            │
-              ┌─────────────┼─────────────┐
-              │             │             │
-         Firecracker      BuildKit      Linux/KVM
-              │             │             │
-              └─────────────┼─────────────┘
-                            │
-                         MicroVMs
-                            │
-             ┌──────────────┼──────────────┐
-             │              │              │
-            Apps           DBs          Workers/Jobs
+Browser / API client
+        │
+        ▼
+Go control plane ───── Vue dashboard
+        │
+        ├── PostgreSQL (durable control-plane state)
+        ├── API, authentication, RBAC, audit, controllers
+        ├── Build pipeline (BuildKit / OCI inputs)
+        └── Host agent ── Linux / KVM ── Firecracker MicroVMs
 ```
 
-Logical components should normally live in one primary Porter binary/process
-where practical. Components are architectural boundaries, not a requirement to
-create a daemon for every subsystem.
+The architectural boundaries are intentional:
 
-## Runtime boundary
+- **PostgreSQL** is the durable source of truth; Redis, when enabled, is optional acceleration.
+- **Desired state** is reconciled toward observed state through repeatable controller operations.
+- **BuildKit** performs builds; it does not run customer workloads.
+- **Firecracker** is the intended workload isolation boundary. Docker is not in the customer runtime path.
+- **Authorization and audit** belong at the control-plane/API boundary; privileged host operations stay behind the runtime/agent boundary.
+- **Secrets** must not be committed or written to logs. Local runtime configuration and enrollment credentials belong outside Git.
 
-OCI/Docker images are input and artifact formats. They are not the customer
-runtime.
+## Implementation status
+
+The status below summarizes the supplied SRS snapshot; it is not a guarantee that every path is production-hardened.
+
+| Area | Snapshot status |
+|---|---|
+| Go control API, authentication, scoped RBAC, audit/task/event spine | Implemented; tenant/RLS enforcement still has gaps |
+| Firecracker lifecycle and deployment rollout/rollback | Implemented in the codebase; production host hardening and full KVM end-to-end validation remain open |
+| Build pipeline and OCI-to-rootfs preparation | Implemented in part; runner and registry coverage has gaps |
+| Networking, multi-node placement, and preview lifecycle | Partial |
+| Volumes and snapshots | Implemented; verified restore remains open |
+| Secret injection and interactive console | Partial |
+| Registry pull and native static-site builds | Missing in the SRS snapshot |
+| Billing/commercial controls | Deferred by the current implementation plan |
+| Production release | Not yet reached; see the acceptance gates in [SRS.md](SRS.md) |
+
+Do not treat a UI screen, API route, roadmap item, or specification requirement as proof that a feature is complete. The SRS is explicit about this distinction.
+
+## Repository layout
 
 ```text
-Git / OCI / VM image
-        ↓
-Build / Import
-        ↓
-Artifact
-        ↓
-Guest filesystem + runtime preparation
-        ↓
-Firecracker MicroVM
-        ↓
-Workload process
+cmd/porter/       CLI entry point and mode dispatch
+internal/          API, auth/RBAC, server, storage, runtime, builds, networking,
+                   deployments, observability, and other control-plane packages
+migrations/        PostgreSQL schema migrations
+scripts/           development, smoke-test, and operator helpers
+tests/             API acceptance, contract, and end-to-end tests
+web/               Vue 3 dashboard and Vite build
+porter.toml.example
+SRS.md              software requirements and implementation guidance
 ```
 
-Porter must maintain an explicit guest/runtime boundary so that an OCI image is
-not incorrectly treated as a bootable VM.
+## Requirements
 
-## Data ownership
+For control-plane and dashboard development:
+
+- Go **1.26.6** toolchain (the `go.mod` toolchain directive);
+- Node.js and npm for the Vue/Vite dashboard;
+- PostgreSQL reachable at the URL in `porter.toml`;
+- Docker is optional and can be used to run a local PostgreSQL instance.
+
+Actually booting MicroVM workloads additionally requires a supported Linux host with KVM and Firecracker, plus the kernel and bootable root-filesystem artifacts configured for Porter. The local API/dashboard development flow does not itself boot guest VMs and does not require root.
+
+## Local development
+
+1. Clone the repository and create a local configuration file:
+
+   ```sh
+   git clone https://github.com/coffeeinit/porter.git
+   cd porter
+   cp porter.toml.example porter.toml
+   ```
+
+2. Edit the `[database].url` value in `porter.toml` for your PostgreSQL instance. For a disposable local database, you can run:
+
+   ```sh
+   docker run --name porter-dev-pg -d \
+     -e POSTGRES_USER=porter \
+     -e POSTGRES_PASSWORD=porter \
+     -e POSTGRES_DB=porter \
+     -p 127.0.0.1:5432:5432 \
+     postgres:16-alpine
+   ```
+
+   The `porter:porter` database credentials above are only a local-development example. Do not reuse them for a deployed environment.
+
+3. Set an initial admin password and a durable, random secret key. Keep the key stable across restarts and store it in a secret manager or another secure location; changing it can invalidate tokens and access to encrypted values.
+
+   ```sh
+   export PORTER_BOOTSTRAP_ADMIN_PASSWORD='choose-a-strong-local-password'
+   export PORTER_SECRET_KEY="$(openssl rand -hex 32)"
+   ```
+
+   Save the generated `PORTER_SECRET_KEY` securely and reuse the same value for this installation. The bootstrap password is consumed when the initial admin is created; changing this variable later does not reset an existing admin password.
+
+4. Start the API and dashboard together:
+
+   ```sh
+   bash scripts/dev-up.sh
+   ```
+
+   The API is available at `http://localhost:8080/api/v1`; the Vite dashboard is at `http://localhost:5173`. The development helper applies pending database migrations. It prints the seeded admin username (`admin`) on startup. Use the password you set above.
+
+The development helper installs dashboard dependencies on first run. Press **Ctrl-C** to stop both processes.
+
+## Build and test
+
+```sh
+# Go tests
+go test ./...
+
+# Build the dashboard assets
+make frontend
+
+# Build the Porter binary (build the dashboard first when embedding fresh assets)
+make build
+
+# Static analysis
+go vet ./...
+```
+
+The built binary is written to `bin/porter`. The available modes and utilities are:
 
 ```text
-PostgreSQL
-  = authoritative durable control-plane state
-
-Redis
-  = optional cache / acceleration / coordination
-
-Porter
-  = desired state + orchestration + reconciliation
-
-Firecracker
-  = actual MicroVM runtime
-
-Linux
-  = kernel, KVM, networking and storage primitives
-
-BuildKit
-  = build execution
+porter server       Start the control plane (also the default when run without a mode)
+porter agent        Run a host agent (requires enrollment/control credentials)
+porter ptyd          Run the guest terminal daemon
+porter migrate       Apply pending database migrations and seed the default organization
+porter kernel set    Install a kernel artifact
+porter image add     Register a bootable image
+porter version       Print the version
+porter help          Show command help
 ```
 
-Critical state must never depend solely on Redis.
+For VM boot, image preparation, and host-specific smoke tests, consult the scripts and the relevant SRS sections before running privileged operations.
 
-## Resource model
+## Configuration and security
 
-```text
-Platform
- ├─ Providers
- │   └─ Regions
- │       └─ Zones
- │           └─ Node Pools
- │               └─ Nodes
- │                   └─ MicroVMs
- │                       └─ Workloads
- │                           ├─ Deployments
- │                           ├─ Networks
- │                           ├─ Volumes
- │                           ├─ Domains
- │                           └─ Observability
- │
- └─ Customers
-     └─ Organizations
-         └─ Teams
-             └─ Projects
-                 └─ Environments
-                     └─ Services
-                         └─ Subscriptions / Usage
-```
+- `porter.toml` is a local, ignored configuration file; start from `porter.toml.example`.
+- Never commit `agent.env`, `.env` files, enrollment tokens, API keys, private keys, or deployment credentials. `agent.env.example` contains placeholders only.
+- Set `PORTER_SECRET_KEY` and `PORTER_BOOTSTRAP_ADMIN_PASSWORD` through the process environment or a secret manager, not in source control.
+- Keep development listeners and sample database credentials bound to trusted local interfaces only.
 
-The infrastructure graph and business graph are separate dimensions that are
-cross-linked by resource IDs and relationships.
+## Requirements and roadmap
 
-## Universal resource contract
+See [SRS.md](SRS.md) for the normative product requirements, core invariants, honest implementation-status table, and release acceptance gates. The roadmap is staged: runtime and deployment foundations first, followed by gateway/DNS/TLS, multi-node operations, recovery, observability, commerce, and advanced orchestration. Production claims should wait until the SRS's release gates pass.
 
-Every major resource should expose:
+## License
 
-```text
-metadata
-spec
-status
-conditions
-generation
-observedGeneration
-owner/dependencies
-labels
-annotations
-events
-relationships
-permissions
-usage
-```
-
-`spec` is desired state. `status` is observed state.
-
-## Reconciliation
-
-Porter is declarative internally:
-
-```text
-Desired State
-     ↓
-Observe Actual State
-     ↓
-Calculate Diff
-     ↓
-Plan
-     ↓
-Authorize
-     ↓
-Act
-     ↓
-Verify
-     ↓
-Update Status
-     ↓
-Repeat
-```
-
-Operations must be idempotent. Process crashes, duplicate requests, delayed
-events and agent reconnects must not corrupt the resource model.
-
-## Deployment flow
-
-```text
-GitHub
-  ↓
-Webhook / Manual Trigger
-  ↓
-Source Retrieval
-  ↓
-Application Detection
-  ↓
-Build Plan
-  ↓
-BuildKit
-  ↓
-OCI Artifact
-  ↓
-Artifact Validation / Security Checks
-  ↓
-Runtime Preparation
-  ↓
-Admission / Quota
-  ↓
-Scheduler
-  ↓
-Volume / Network Allocation
-  ↓
-Firecracker MicroVM
-  ↓
-Health Checks
-  ↓
-Gateway Registration
-  ↓
-DNS / Certificate
-  ↓
-Traffic Activation
-  ↓
-Healthy
-```
-
-The UI must show these states rather than a generic spinner.
-
-## Networking
-
-Porter owns the networking abstraction while using Linux primitives underneath.
-
-```text
-Internet
-   ↓
-DNS
-   ↓
-Edge / Cloudflare (optional)
-   ↓
-Porter Gateway
-   ↓
-Load Balancer
-   ↓
-Network Policy
-   ↓
-MicroVM
-   ↓
-Workload
-```
-
-Networking includes:
-
-- IPAM
-- private networks
-- public networks
-- IPv4/IPv6
-- TAP/bridge integration
-- routing
-- NAT
-- ingress/egress policy
-- security groups
-- service discovery
-- internal DNS
-- bandwidth accounting
-- gateway routing
-- TCP/UDP/HTTP/HTTPS/WebSocket
-
-Cloudflare is a first-class integration for DNS, edge security, CDN, WAF,
-DDoS protection and related capabilities, but is not a hard Porter dependency.
-
-## Storage
-
-Storage must be split into distinct abstractions:
-
-```text
-Ephemeral
-  → VM root filesystem / scratch
-
-Persistent Block
-  → application data / databases / VM disks
-
-Object Storage
-  → artifacts / uploads / backups / exports
-
-Backup Storage
-  → disaster-recovery copies
-```
-
-Porter should expose logical storage classes rather than forcing users to
-understand filesystems and physical devices.
-
-Object storage is provider-neutral. S3-compatible services and customer-managed
-MinIO are supported through an `ObjectStore` abstraction.
-
-```text
-Porter
-  ↓
-ObjectStore
-  ├─ AWS S3
-  ├─ Cloudflare R2
-  ├─ Backblaze B2
-  ├─ Wasabi
-  ├─ Hetzner Object Storage
-  └─ Customer MinIO
-```
-
-MinIO is not a mandatory hidden dependency.
-
-## Built-in services
-
-Porter should expose common application infrastructure through a consistent
-service model:
-
-```text
-Database
-Object Storage
-Cache
-Queue
-Email
-OTP / Verification
-Cron / Scheduler
-Webhooks
-Search
-Log Analytics
-Secrets
-```
-
-A service should be native when it is broadly useful, deeply integrated with
-Porter lifecycle/security/billing/observability, and has a stable abstraction.
-Specialized external systems belong in extensions or marketplace packages.
-
-## Commerce
-
-Porter is an infrastructure-commerce control plane.
-
-```text
-Customer
-  ↓
-Product
-  ↓
-Plan
-  ↓
-Entitlements
-  ↓
-Subscription
-  ↓
-Service
-  ↓
-Usage Events
-  ↓
-Meters
-  ↓
-Charges
-  ↓
-Invoice
-  ↓
-Payment
-  ↓
-Subscription State
-  ↓
-Provisioning / Restriction Workflow
-```
-
-Usage must be traceable from invoice line to resource to infrastructure.
-
-Supported concepts include:
-
-- fixed recurring pricing
-- usage pricing
-- tiered and graduated pricing
-- package allowances
-- commitments
-- add-ons
-- credits
-- coupons
-- taxes
-- proration
-- trials
-- prepaid/postpaid models
-- spending limits
-- dunning
-- refunds and disputes
-
-Billing state must not directly terminate a workload. It emits policy-driven
-service actions that go through the normal provisioning workflow.
-
-## Kubernetes capability strategy
-
-Porter adopts useful control-plane primitives without adopting Kubernetes as
-its architecture.
-
-```text
-Kubernetes                 Porter
-Pod                    →   MicroVM / workload instance
-Deployment             →   Application
-StatefulSet            →   Stateful Service
-DaemonSet              →   Node Workload
-Job                    →   Batch Job
-CronJob                →   Scheduled Job
-Service/Ingress        →   Service / Gateway
-CNI                    →   Porter Network Controller
-CSI                    →   Porter Volume Interface
-HPA                    →   Porter Autoscaler
-RBAC                   →   Porter IAM
-ResourceQuota          →   Porter Quotas
-NetworkPolicy          →   Porter Network Policy
-CRD/Operators          →   Porter Extensions / Controllers
-```
-
-Porter is not Kubernetes-compatible and should not expose Kubernetes-specific
-objects such as Pods, CNI configuration, CSI configuration, or namespace-heavy
-UX as the primary user model.
-
-## AI operations
-
-AI is a governed operator.
-
-```text
-User Intent
-  ↓
-Agent Context
-  ↓
-Inspect
-  ↓
-Plan
-  ↓
-Policy / Permissions
-  ↓
-Approval if required
-  ↓
-Porter API
-  ↓
-Execute
-  ↓
-Verify
-  ↓
-Audit
-```
-
-AI uses the same API and authorization model as humans. There is no hidden
-superuser AI API.
-
-AI tools are typed resource operations, not arbitrary shell execution.
-
-## Safety model
-
-Automation classes:
-
-```text
-READ
-  → automatic
-
-LOW-RISK CHANGE
-  → policy controlled
-
-PRODUCTION CHANGE
-  → policy / approval
-
-DESTRUCTIVE ACTION
-  → explicit approval by default
-```
-
-Every important operation is observable and auditable.
-
-## Product UX
-
-**UI reference materials** — see [`imagepromt.md`](imagepromt.md) (repo root) for
-ready-to-use **AI image-generation prompts** that render product UI screenshots of
-the intended customer surfaces (dashboard, app detail/deploy, network & TLS,
-usage & billing). These are a UX moodboard for layout, navigation, status-language,
-and density. Couple them with the plain-text WHMCS `templates/*.tpl` study under
-`references/whmcs-906/` (readable UI layer) as a second, real-world UI reference.
-
-The product follows:
-
-**Apple-level simplicity × Zerodha-level precision × Zoho-level operational breadth**
-
-These are product qualities, not visual-copying requirements.
-
-Three experience levels:
-
-```text
-Level 1: Intent
-  "Deploy my API"
-
-Level 2: Guided control
-  runtime / scaling / domain / resources
-
-Level 3: Infrastructure
-  MicroVM / scheduler / network / storage / node / policy
-```
-
-Common operations should approach three meaningful interactions:
-
-```text
-Create Application
- → Choose Source
- → Review
- → Deploy
-
-Add Domain
- → Enter Domain
- → Confirm
- → Done
-
-Scale
- → Choose Replicas
- → Review Impact
- → Apply
-```
-
-## Porter Admin
-
-Porter Admin unifies business and infrastructure administration.
-
-```text
-Customers
-Organizations
-Users
-Resellers
-Products
-Plans
-Subscriptions
-Billing
-Invoices
-Payments
-Usage
-Domains
-Support
-Providers
-Regions
-Zones
-Nodes
-Node Pools
-VMs
-Deployments
-Networks
-Storage
-Gateway
-DNS
-Certificates
-Observability
-Security
-Automation
-Audit
-```
-
-The same control plane serves:
-
-- platform administrators
-- infrastructure operators
-- billing operators
-- support agents
-- resellers
-- customer administrators
-- developers
-- auditors
-- AI agents
-
-RBAC controls visibility and actions.
-
-## Porter Doctor
-
-`porter doctor` and its UI equivalent provide deterministic diagnostics for:
-
-```text
-Node
-KVM
-Firecracker
-BuildKit
-Kernel
-Networking
-Storage
-DNS
-TLS
-Gateway
-PostgreSQL
-Scheduler
-Capacity
-Agent
-Control Plane
-```
-
-AI may consume Doctor output, but Doctor must remain useful without AI.
-
-## Development order
-
-### Phase 1 — Runtime foundation
-
-Go, PostgreSQL, systemd, Firecracker, KVM, basic networking, node bootstrap,
-VM lifecycle, persistence and reconciliation.
-
-### Phase 2 — Build and deploy
-
-GitHub integration, BuildKit, OCI artifacts, artifact storage, deployment
-controller, logs and health checks.
-
-### Phase 3 — Public application platform
-
-Gateway, domains, DNS, TLS, HTTP routing, WebSocket and load balancing.
-
-### Phase 4 — Multi-node orchestration
-
-Node manager, scheduler, capacity, placement, drain, replicas, replacement and
-migration/redeploy.
-
-### Phase 5 — Platform services
-
-Environments, secrets, volumes, autoscaling, deployment strategies, rollback,
-databases, object storage, queues and email.
-
-### Phase 6 — Operations
-
-Metrics, logs, traces, events, alerts, incidents, SLOs, topology and synthetic
-monitoring.
-
-### Phase 7 — Commercial platform
-
-Customers, products, plans, subscriptions, entitlements, metering, invoices,
-payments, quotas, resellers, support and marketplace.
-
-### Phase 8 — AI
-
-Agent identity, permissions, infrastructure search, diagnosis, planning,
-remediation, incident analysis and natural-language operations.
-
-## Release path
-
-```text
-v0.1.0-beta
-v0.2.0
-v0.3.0
-v0.4.0
-v0.5.0
-v0.6.0
-v0.7.0
-v0.8.0
-v0.9.0
-v0.10.0
-v1.0.0-alpha
-v1.1.0-final
-```
-
-The first vertical slice is more important than feature count:
-
-```text
-GitHub
- ↓
-Build
- ↓
-Artifact
- ↓
-Guest preparation
- ↓
-Firecracker
- ↓
-Network
- ↓
-Gateway
- ↓
-Domain
- ↓
-HTTPS
- ↓
-Healthy application
-```
-
-## Agent implementation rule
-
-An implementation agent must treat `SRS.md` as the normative product requirement
-and `ARCHITECTURE_FLOW.md` as the normative architecture/flow contract.
-
-When a requirement is not implemented yet:
-
-- do not fake it;
-- mark it planned/experimental;
-- preserve the resource model;
-- preserve API boundaries;
-- preserve desired/actual state;
-- add tests;
-- document deviations.
-
-The implementation must prefer a small number of coherent Go components over
-a daemon zoo.
-
-## Repository contract
-
-Recommended high-level structure:
-
-```text
-porter/
-├── cmd/
-│   ├── porter/
-│   └── porter-cli/
-├── internal/
-│   ├── api/
-│   ├── auth/
-│   ├── rbac/
-│   ├── policy/
-│   ├── resource/
-│   ├── controller/
-│   ├── scheduler/
-│   ├── runtime/
-│   ├── firecracker/
-│   ├── agent/
-│   ├── network/
-│   ├── gateway/
-│   ├── dns/
-│   ├── certificate/
-│   ├── storage/
-│   ├── build/
-│   ├── deployment/
-│   ├── observability/
-│   ├── billing/
-│   ├── workflow/
-│   ├── incident/
-│   ├── marketplace/
-│   └── ai/
-├── migrations/
-├── web/
-├── api/
-├── configs/
-├── scripts/
-├── tests/
-├── SRS.md
-├── ARCHITECTURE_FLOW.md
-└── README.md
-```
-
-This structure is illustrative. The architectural boundaries and contracts are
-more important than exact directories.
-
-## Quality invariant
-
-> Every complex infrastructure capability must have a simple default path,
-> precise information, clear explanation, safe automation, and an explicit
-> advanced escape hatch.
+No license file was included with the supplied backend archive. Until a license is added by the project owner, all rights remain reserved; do not assume permission to reuse or redistribute this code.

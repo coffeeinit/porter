@@ -1,49 +1,19 @@
-# Go build output
-backend/porter
-backend/porter.sha256
-backend/*.exe
+# Build artifacts
+/bin/
+/porter
+/porter.exe
+/porter.sha256
 
-# Local runtime state — never commit these
-backend/porter.db
-backend/porter.db-*
-backend/*.log
-backend/porter.pid
-backend/porter.toml.local
-
-# Secrets — never commit real tokens/keys
+# Local state and configuration
+/porter.db
+/porter.db-journal
+/porter.toml
+/.data/
+/agent.env
 .env
-*.env
-*_rsa
-*_rsa.pub
-*.pem
+.env.*
+!.env.example
 
-# Frontend build output — source-only repo, built via `make frontend`
-# or `npm run build`. Keep the placeholder index.html tracked so
-# go:embed has something to embed before the real build runs.
-backend/web/dist/assets/
-backend/web/dist/*.html
-!backend/web/dist/index.html
-
-# Node
-frontend/node_modules/
-frontend/.vite/
-
-# Firecracker/VM runtime artifacts (reproducible, not source)
-vms/rootfs.ext4
-vms/vmlinux
-backend/rootfs.ext4
-backend/vmlinux
-
-# Reference material — upstream docs, vendored projects, large binaries.
-# Not part of the Porter backend source; kept out of version control.
-references/
-
-# Release archives
-porter.zip
-
-# OS/editor cruft
-.DS_Store
-*.swp
-
-# reference frontend (not part of porter build)
-frontendsample/
+# Frontend dependencies and logs
+/web/node_modules/
+*.log
