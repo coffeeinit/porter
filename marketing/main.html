@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WORKSHOP — Digital Freelance Agency</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+
+:root{
+  --ink:#111;
+  --paper:#f4f0e8;
+  --yellow:#f5d547;
+  --pink:#ff6fae;
+  --blue:#6fc9ff;
+  --green:#8ee28e;
+  --white:#fffdf7;
+  --border:3px solid var(--ink);
+  --shadow:7px 7px 0 var(--ink);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Space Grotesk",sans-serif}
+a{color:inherit;text-decoration:none}
+button,.btn{font:700 15px "Space Grotesk";cursor:pointer}
+.wrap{max-width:1400px;margin:auto;padding:0 22px}
+nav{display:flex;justify-content:space-between;align-items:center;border-bottom:var(--border);padding:18px 0;position:sticky;top:0;background:var(--paper);z-index:20}
+.logo{font-size:25px;font-weight:700;letter-spacing:-1px}
+.logo span{display:inline-block;background:var(--yellow);border:var(--border);padding:3px 7px;transform:rotate(-2deg)}
+.navlinks{display:flex;gap:28px;font-family:"DM Mono";font-size:12px;text-transform:uppercase}
+.navlinks a:hover{text-decoration:underline}
+.hero{min-height:650px;display:grid;grid-template-columns:1.35fr .65fr;gap:30px;padding:70px 0 55px}
+.kicker{font:500 12px "DM Mono";text-transform:uppercase;margin-bottom:22px}
+h1{font-size:clamp(70px,10vw,154px);line-height:.82;letter-spacing:-8px;margin:0 0 35px;max-width:900px}
+h1 .mark{background:var(--pink);padding:0 12px;border:var(--border);display:inline-block;transform:rotate(-1deg)}
+.hero-copy{font-size:20px;line-height:1.35;max-width:650px}
+.actions{display:flex;gap:14px;margin-top:28px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;border:var(--border);padding:16px 20px;background:var(--yellow);box-shadow:var(--shadow);transition:.12s}
+.btn:hover{transform:translate(4px,4px);box-shadow:3px 3px 0 var(--ink)}
+.btn.alt{background:var(--white)}
+.status{align-self:end;background:var(--green);border:var(--border);box-shadow:var(--shadow);padding:22px;transform:rotate(2deg)}
+.status .big{font-size:55px;font-weight:700;line-height:.9;margin:18px 0}
+.mono{font-family:"DM Mono";font-size:12px;text-transform:uppercase}
+.marquee{overflow:hidden;border-top:var(--border);border-bottom:var(--border);background:var(--ink);color:var(--paper);white-space:nowrap}
+.marquee div{display:inline-block;padding:15px 0;font:500 13px "DM Mono";animation:move 18s linear infinite}
+@keyframes move{to{transform:translateX(-50%)}}
+.section{padding:85px 0;border-bottom:var(--border)}
+.section-head{display:flex;justify-content:space-between;align-items:end;margin-bottom:40px}
+.section h2{font-size:clamp(45px,6vw,85px);line-height:.9;letter-spacing:-4px;margin:0}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);border-left:var(--border);border-top:var(--border)}
+.card{min-height:245px;padding:22px;border-right:var(--border);border-bottom:var(--border);position:relative}
+.card:nth-child(2){background:var(--blue)}
+.card:nth-child(3){background:var(--yellow)}
+.card:nth-child(4){background:var(--pink)}
+.card:nth-child(5){background:var(--green)}
+.card:nth-child(6){background:var(--white)}
+.num{font:12px "DM Mono";position:absolute;top:18px;right:18px}
+.card h3{font-size:29px;letter-spacing:-1px;margin:60px 0 12px}
+.card p{font-size:14px;line-height:1.45;margin:0}
+.projects{display:grid;grid-template-columns:1.4fr .6fr;gap:25px}
+.project{border:var(--border);box-shadow:var(--shadow);min-height:440px;padding:25px;position:relative;display:flex;flex-direction:column;justify-content:space-between;background:var(--blue)}
+.project:nth-child(2){background:var(--pink);min-height:300px}
+.project:nth-child(3){background:var(--yellow);min-height:300px}
+.project-title{font-size:clamp(45px,6vw,85px);font-weight:700;letter-spacing:-5px;line-height:.85;max-width:700px}
+.project-meta{display:flex;justify-content:space-between;font:12px "DM Mono";text-transform:uppercase;border-top:2px solid var(--ink);padding-top:13px}
+.process{display:grid;grid-template-columns:repeat(5,1fr);border:var(--border)}
+.step{padding:25px;min-height:240px;border-right:var(--border)}
+.step:last-child{border-right:0}
+.step:nth-child(odd){background:var(--white)}
+.step b{font:16px "DM Mono"}
+.step h3{font-size:30px;margin:70px 0 8px;letter-spacing:-1px}
+.about{display:grid;grid-template-columns:1fr 1fr;gap:60px}
+.about p{font-size:30px;line-height:1.12;letter-spacing:-1px;margin:0}
+.stats{display:grid;grid-template-columns:1fr 1fr;border:var(--border)}
+.stat{padding:25px;border-right:var(--border);border-bottom:var(--border)}
+.stat:nth-child(2n){border-right:0}
+.stat:nth-last-child(-n+2){border-bottom:0}
+.stat strong{font-size:55px;letter-spacing:-3px}
+.contact{background:var(--yellow);border:var(--border);padding:50px;box-shadow:var(--shadow);display:flex;justify-content:space-between;align-items:center;gap:30px}
+.contact h2{font-size:clamp(50px,7vw,100px);letter-spacing:-6px;line-height:.8;margin:0}
+footer{padding:45px 0;display:flex;justify-content:space-between;font:12px "DM Mono";text-transform:uppercase}
+@media(max-width:900px){
+ .hero,.projects,.about{grid-template-columns:1fr}
+ .grid{grid-template-columns:repeat(2,1fr)}
+ .process{grid-template-columns:1fr 1fr}
+ .step:nth-child(2n){border-right:0}
+ .step{border-bottom:var(--border)}
+ h1{letter-spacing:-5px}
+}
+@media(max-width:600px){
+ .navlinks{display:none}
+ .hero{padding-top:50px}
+ h1{font-size:66px}
+ .grid,.process{grid-template-columns:1fr}
+ .step{border-right:0}
+ .section{padding:60px 0}
+ .contact{padding:30px;display:block}
+ .contact .btn{margin-top:35px}
+ footer{display:block;line-height:2}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav>
+  <a class="logo" href="#">WORK<span>SHOP</span></a>
+  <div class="navlinks"><a href="#services">Services</a><a href="#work">Work</a><a href="#process">Process</a><a href="#contact">Contact</a></div>
+  <a class="btn" href="#contact">HIRE US →</a>
+</nav>
+
+<section class="hero">
+  <div>
+    <div class="kicker">Independent digital engineering agency / Est. 2026</div>
+    <h1>WE BUILD <span class="mark">DIGITAL</span> THINGS.</h1>
+    <p class="hero-copy">Websites, SaaS products, automation and software systems for companies that need to move fast without sacrificing engineering quality.</p>
+    <div class="actions"><a class="btn" href="#contact">START A PROJECT →</a><a class="btn alt" href="#work">SEE OUR WORK ↓</a></div>
+  </div>
+  <div class="status">
+    <div class="mono">● Project availability</div>
+    <div class="big">OPEN<br>FOR WORK</div>
+    <div class="mono">2–3 new projects / month</div>
+  </div>
+</section>
+</div>
+
+<div class="marquee"><div>WEB DEVELOPMENT ★ SAAS ★ AI AUTOMATION ★ CLOUD ★ MOBILE ★ UI/UX ★ API ENGINEERING ★ CYBERSECURITY ★ WEB DEVELOPMENT ★ SAAS ★ AI AUTOMATION ★ CLOUD ★ MOBILE ★ UI/UX ★ API ENGINEERING ★ CYBERSECURITY ★</div></div>
+
+<div class="wrap">
+<section class="section" id="services">
+  <div class="section-head"><h2>WHAT WE DO.</h2><span class="mono">[ 01 — SERVICES ]</span></div>
+  <div class="grid">
+    <article class="card"><span class="num">01</span><h3>WEB / SAAS</h3><p>Marketing sites, dashboards, SaaS products and customer portals built for real-world use.</p></article>
+    <article class="card"><span class="num">02</span><h3>AI / AUTOMATION</h3><p>AI features, internal tools, agents and workflows that remove repetitive work.</p></article>
+    <article class="card"><span class="num">03</span><h3>CLOUD / DEVOPS</h3><p>Production infrastructure, deployment pipelines, APIs, monitoring and performance work.</p></article>
+    <article class="card"><span class="num">04</span><h3>SECURITY</h3><p>Application security reviews, hardening, audits and security-minded engineering.</p></article>
+    <article class="card"><span class="num">05</span><h3>MOBILE</h3><p>Cross-platform and native mobile experiences connected to reliable backend systems.</p></article>
+    <article class="card"><span class="num">06</span><h3>UI / UX</h3><p>Interfaces with clear hierarchy, distinctive visual systems and practical interaction design.</p></article>
+  </div>
+</section>
+
+<section class="section" id="work">
+  <div class="section-head"><h2>SELECTED WORK.</h2><span class="mono">[ 02 — PROJECTS ]</span></div>
+  <div class="projects">
+    <article class="project"><div><span class="mono">CASE 001 / SAAS</span><div class="project-title">OPERATIONS<br>PLATFORM.</div></div><div class="project-meta"><span>Product design + engineering</span><span>2026</span></div></article>
+    <article class="project"><div><span class="mono">CASE 002 / WEB</span><div class="project-title">BRAND<br>SYSTEM.</div></div><div class="project-meta"><span>Website + identity</span><span>2026</span></div></article>
+    <article class="project"><div><span class="mono">CASE 003 / AI</span><div class="project-title">AI<br>WORKFLOW.</div></div><div class="project-meta"><span>Automation + integration</span><span>2026</span></div></article>
+  </div>
+</section>
+
+<section class="section" id="process">
+  <div class="section-head"><h2>NO MYSTERY.</h2><span class="mono">[ 03 — PROCESS ]</span></div>
+  <div class="process">
+    <div class="step"><b>01</b><h3>DISCOVER</h3><p>Define the actual problem.</p></div>
+    <div class="step"><b>02</b><h3>DESIGN</h3><p>Turn requirements into a concrete plan.</p></div>
+    <div class="step"><b>03</b><h3>BUILD</h3><p>Ship production-quality software.</p></div>
+    <div class="step"><b>04</b><h3>SHIP</h3><p>Deploy, test and hand over.</p></div>
+    <div class="step"><b>05</b><h3>SUPPORT</h3><p>Keep improving after launch.</p></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="about">
+    <div><div class="kicker">WHY US / 04</div><h2>SMALL TEAM.<br>BIG OUTPUT.</h2></div>
+    <div>
+      <p>We work directly with founders and teams. No layers of account managers. No bloated process. Just designers and engineers solving the problem in front of us.</p>
+      <div class="stats" style="margin-top:35px">
+        <div class="stat"><strong>01</strong><br><span class="mono">Direct team</span></div>
+        <div class="stat"><strong>0</strong><br><span class="mono">Agency layers</span></div>
+        <div class="stat"><strong>∞</strong><br><span class="mono">Iterations</span></div>
+        <div class="stat"><strong>24/7</strong><br><span class="mono">Systems thinking</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="contact">
+  <div class="contact">
+    <h2>HAVE A<br>PROBLEM?</h2>
+    <div><p style="font-size:18px;max-width:330px">Tell us what you're trying to build. We'll turn it into a practical scope, timeline and plan.</p><a class="btn" href="mailto:hello@workshop.agency">TELL US ABOUT IT →</a></div>
+  </div>
+</section>
+
+<footer>
+  <div>WORKSHOP™ — DIGITAL ENGINEERING AGENCY</div>
+  <div>HELLO@WORKSHOP.AGENCY · © 2026</div>
+</footer>
+</div>
+<script>
+document.querySelectorAll('a[href^="#"]').forEach(a=>{
+  a.addEventListener('click',e=>{
+    const el=document.querySelector(a.getAttribute('href'));
+    if(el){e.preventDefault();el.scrollIntoView({behavior:'smooth'});}
+  });
+});
+</script>
+</body>
+</html>
