@@ -64,7 +64,11 @@ Do not treat a UI screen, API route, roadmap item, or specification requirement 
 
 The repository includes **23 demo HTML prototypes** and their paired PNG screenshots in [`web/reference-ui/`](web/reference-ui/). These are design references with mock data—not live product screens, production metrics, or evidence that every depicted feature is implemented. See the [full reference gallery](web/reference-ui/index.html).
 
-![Porter cloud-platform console demo reference; all status and metric values are illustrative mock data](web/reference-ui/images/porter_cloud_platform_console.png)
+| Platform overview | Cloud-native platform |
+|---|---|
+| ![Porter cloud-platform console demo reference](web/reference-ui/images/porter_cloud_platform_console.png) | ![Porter cloud-native console demo reference](web/reference-ui/images/porter_cloud_native_hosting_platform_console.png) |
+| **Application deployment** | **MicroVM fleet placement** |
+| ![Porter application deployment detail demo reference](web/reference-ui/images/porter_application_detail_api_production.png) | ![Porter MicroVM fleet placement demo reference](web/reference-ui/images/porter_nodes_microvm_fleet_placement.png) |
 
 To browse the gallery and open individual HTML prototypes locally:
 
