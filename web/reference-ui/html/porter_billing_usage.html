@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Porter - Cloud Infrastructure Control Plane</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-secondary-container": "#636469", "surface-container-lowest": "#ffffff", "outline": "#727786", "background": "#f9f9ff", "secondary": "#5d5e63", "surface-variant": "#dce3f2", "error-container": "#ffdad6", "surface-container": "#e7eefd", "secondary-container": "#e2e2e8", "inverse-on-surface": "#ebf1ff", "on-secondary": "#ffffff", "on-primary-container": "#fffdff", "inverse-surface": "#2a313c", "inverse-primary": "#b0c6ff", "on-error-container": "#93000a", "on-secondary-fixed": "#1a1c20", "error": "#ba1a1a", "on-tertiary-fixed-variant": "#005232", "tertiary-fixed-dim": "#5fdd9d", "on-tertiary-container": "#fefffa", "surface-dim": "#d3dae9", "on-secondary-fixed-variant": "#45474b", "on-tertiary": "#ffffff", "on-primary-fixed": "#001945", "primary-fixed-dim": "#b0c6ff", "surface": "#f9f9ff", "on-tertiary-fixed": "#002111", "on-background": "#151c27", "on-primary": "#ffffff", "on-primary-fixed-variant": "#00429c", "secondary-fixed-dim": "#c6c6cb", "on-error": "#ffffff", "tertiary-container": "#008755", "surface-container-high": "#e2e8f7", "surface-tint": "#0058cb", "on-surface-variant": "#424655", "tertiary-fixed": "#7dfab7", "surface-container-low": "#eff3ff", "primary-fixed": "#d9e2ff", "surface-container-highest": "#dce3f2", "surface-bright": "#f9f9ff", "outline-variant": "#c2c6d7", "on-surface": "#151c27", "primary-container": "#146ef5", "primary": "#0056c8", "tertiary": "#006b43", "secondary-fixed": "#e2e2e8" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-xs": "0.25rem", "space-xl": "1.5rem", "margin": "1.5rem", "gutter": "1rem", "space-lg": "1rem", "space-md": "0.75rem", "space-sm": "0.5rem" }, "fontFamily": { "body-base": ["Inter"], "body-sm": ["Inter"], "body-base-medium": ["Inter"], "headline-md": ["Inter"], "display-xl": ["Inter"], "headline-lg": ["Inter"], "code-base": ["JetBrains Mono"], "code-sm": ["JetBrains Mono"], "caption-xs": ["Inter"], "body-sm-medium": ["Inter"], "headline-sm": ["Inter"] }, "fontSize": { "body-base": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "body-base-medium": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "display-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "code-base": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "400" }], "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "caption-xs": ["11px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "body-sm-medium": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "500" }], "headline-sm": ["15px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }] } } } };</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-14 z-50 bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-14 w-full px-space-xl flex items-center justify-between gap-space-lg"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center shadow-sm"><span class="font-headline-sm text-headline-sm text-inverse-on-surface leading-none font-bold">P</span></div><span class="font-headline-md text-headline-md font-bold text-on-surface tracking-tight">Porter</span></div><span class="px-space-xs py-0.5 rounded-lg bg-surface-container font-caption-xs text-caption-xs text-primary font-medium tracking-wide uppercase">ADMIN</span><div class="h-4 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium text-on-surface"><span class="material-symbols-outlined text-secondary text-[16px]">cloud_done</span><span>Acme Cloud / us-east-prod</span><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div><div class="flex-1 max-w-xl mx-auto px-space-md"><div class="relative flex items-center w-full"><span class="material-symbols-outlined absolute left-space-md text-outline text-[18px] pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 rounded-lg bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-space-sm flex items-center px-1.5 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm shadow-sm border-0">⌘K</div></div></div><div class="flex items-center gap-space-sm"><button aria-label="Notifications" class="relative w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary font-caption-xs text-caption-xs flex items-center justify-center leading-none font-bold">3</span></button><button aria-label="Documentation &amp; Help" class="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">help</span></button><div class="h-5 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-sm pl-1 pr-2 py-1 rounded-lg hover:bg-surface-container-high transition-colors"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)] overflow-y-auto"><div class="flex flex-col"><div class="p-space-md border-b-0"><div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"><div class="flex items-center gap-space-sm min-w-0"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col truncate"><span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">Acme Cloud</span><span class="font-code-sm text-code-sm text-secondary truncate">us-east-prod</span></div></div><span class="material-symbols-outlined text-secondary text-[16px]">unfold_more</span></div></div><nav class="flex flex-col px-space-sm space-y-space-sm pb-space-md" data-active-classes="bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg"><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Core Compute</span></div><div class="space-y-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#"><span class="material-symbols-outlined text-[18px]">grid_view</span><span>Applications</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#"><span class="material-symbols-outlined text-[18px]">rocket_launch</span><span>Deployments</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Configuration &amp; Ingress</span></div><div class="space-y-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#"><span class="material-symbols-outlined text-[18px]">language</span><span>Domains &amp; DNS</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#"><span class="material-symbols-outlined text-[18px]">tune</span><span>Environment Variables</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#"><span class="material-symbols-outlined text-[18px]">key</span><span>Secrets</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Runtime &amp; Ops</span></div><div class="space-y-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#"><span class="material-symbols-outlined text-[18px]">terminal</span><span>Logs Explorer</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#"><span class="material-symbols-outlined text-[18px]">insights</span><span>Metrics &amp; Observability</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#"><span class="material-symbols-outlined text-[18px]">database</span><span>Storage &amp; Volumes</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#"><span class="material-symbols-outlined text-[18px]">hub</span><span>Networking &amp; Gateways</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#"><span class="material-symbols-outlined text-[18px]">schedule</span><span>Cron &amp; Scheduled Jobs</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#"><span class="material-symbols-outlined text-[18px]">history</span><span>Backups &amp; Recovery</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Team &amp; Commercial</span></div><div class="space-y-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#"><span class="material-symbols-outlined text-[18px]">group</span><span>Team &amp; Access</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#"><span class="material-symbols-outlined text-[18px]">assignment</span><span>Tasks &amp; Operations</span></a><a aria-current="page" class="flex items-center gap-space-sm px-space-sm py-1.5 transition-colors bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg" data-path="billing-and-usage" href="#"><span class="material-symbols-outlined text-[18px]">credit_card</span><span>Billing &amp; Usage</span></a></div></nav></div><div class="p-space-md mt-auto"><div class="p-space-md rounded-xl bg-surface-container-low shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-space-sm"><div class="flex items-center justify-between"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm font-semibold text-on-surface">PRO PLAN</span></div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-container-lowest font-caption-xs text-caption-xs text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span>Operational</span></div><div class="space-y-1"><div class="flex justify-between font-caption-xs text-caption-xs text-secondary"><span>Monthly Quota</span><span class="font-code-sm text-code-sm text-on-surface font-semibold">$284 / $500 (41%)</span></div><div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden"><div class="h-full rounded-full bg-primary" style="width: 41%;"></div></div></div><div class="pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-secondary"><div class="flex items-center gap-space-sm"><a class="hover:text-primary transition-colors" href="#">Docs</a><span>•</span><a class="hover:text-primary transition-colors" href="#">API</a></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></div></aside><div class="pl-64"><main class="relative pt-14 min-h-screen bg-background w-full px-space-xl py-space-xl"><div class="flex flex-col w-full">
+<div class="w-full space-y-space-lg">
+<!-- Breadcrumb & Control Header -->
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center gap-space-xs font-caption-xs text-caption-xs text-secondary">
+<span class="hover:text-primary transition-colors cursor-pointer">Home</span>
+<span class="text-outline-variant">/</span>
+<span class="hover:text-primary transition-colors cursor-pointer">Team &amp; Commercial</span>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface font-semibold">Billing &amp; Usage</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<h1 class="font-headline-lg text-headline-lg font-bold text-on-surface tracking-tight">Commercial Billing &amp; Metered Usage</h1>
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-surface-container font-caption-xs text-caption-xs text-primary font-semibold tracking-wide">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+            PRO TIER ACTIVE
+          </span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary max-w-2xl">
+          Transparent consumption tracking, real-time resource metering, budget alerts, and verifiable invoice line items.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm shrink-0">
+<button class="flex items-center gap-space-xs px-3.5 py-2 rounded-lg bg-surface-container-lowest text-on-surface hover:bg-surface-container transition-all font-body-sm-medium text-body-sm-medium shadow-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">credit_card</span>
+<span>Manage Payment Methods</span>
+</button>
+<button class="flex items-center gap-space-xs px-3.5 py-2 rounded-lg bg-primary-container text-on-primary hover:bg-primary transition-all font-body-sm-medium text-body-sm-medium shadow-sm">
+<span>Upgrade Plan</span>
+<span class="material-symbols-outlined text-[18px]">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Top Summary KPI Cards -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- KPI 1 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Current Month Spend</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl font-bold text-on-surface">$284.20</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+            41% of $500 Budget
+          </span>
+</div>
+<div class="pt-space-xs flex items-center justify-between text-secondary">
+<span class="font-caption-xs text-caption-xs flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-outline">schedule</span>
+            Billing cycle ends Sep 30 (19 days left)
+          </span>
+<div class="w-12 h-5">
+<svg class="w-full h-full" fill="none" viewbox="0 0 48 20">
+<path class="text-primary" d="M1 17L12 13L24 15L36 7L47 3" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- KPI 2 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Total Compute Billed</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl font-bold text-on-surface">1,842</span>
+<span class="font-body-sm-medium text-body-sm-medium text-secondary">vCPU Hrs</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">memory</span>
+</div>
+</div>
+<div class="pt-space-xs flex items-center justify-between text-secondary">
+<span class="font-caption-xs text-caption-xs flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-tertiary">check_circle</span>
+            Across 38 running Firecracker MicroVMs
+          </span>
+<div class="w-12 h-5">
+<svg class="w-full h-full" fill="none" viewbox="0 0 48 20">
+<path class="text-tertiary" d="M1 18L12 16L24 11L36 9L47 4" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- KPI 3 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Memory Consumption</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl font-bold text-on-surface">4,280</span>
+<span class="font-body-sm-medium text-body-sm-medium text-secondary">GB-Hrs</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">developer_board</span>
+</div>
+</div>
+<div class="pt-space-xs flex items-center justify-between text-secondary">
+<span class="font-code-sm text-code-sm text-secondary font-medium">
+            $0.0045 / GB-hour allocation rate
+          </span>
+<div class="w-12 h-5">
+<svg class="w-full h-full" fill="none" viewbox="0 0 48 20">
+<path class="text-primary" d="M1 14L12 12L24 13L36 6L47 5" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+<!-- KPI 4 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-start justify-between">
+<div class="space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Storage &amp; Egress</span>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl font-bold text-on-surface">$42.80</span>
+</div>
+</div>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">database</span>
+</div>
+</div>
+<div class="pt-space-xs flex items-center justify-between text-secondary">
+<span class="font-caption-xs text-caption-xs truncate max-w-[200px]" title="312 GB NVMe block + 1.4 TB transfer">
+            312 GB NVMe block + 1.4 TB transfer
+          </span>
+<div class="w-12 h-5">
+<svg class="w-full h-full" fill="none" viewbox="0 0 48 20">
+<path class="text-primary" d="M1 16L12 15L24 14L36 10L47 7" stroke="currentColor" stroke-linecap="round" stroke-width="2"></path>
+</svg>
+</div>
+</div>
+</div>
+</div>
+<!-- Main Plan & Quota Card -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm space-y-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md">
+<div class="space-y-1">
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-md text-headline-md font-bold text-on-surface">Pro Infrastructure Tier</span>
+<span class="px-2 py-0.5 rounded-lg bg-surface-container font-caption-xs text-caption-xs text-primary font-semibold">$500.00 / month commitment</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">
+            Includes global Anycast edge routing, real-time microVM telemetry snapshots, multi-region failover, and dedicated SLA support.
+          </p>
+</div>
+<div class="flex items-center gap-space-md">
+<div class="text-right">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Headroom Balance</span>
+<div class="font-headline-md text-headline-md font-bold text-tertiary-container">$215.80 (56.8%)</div>
+</div>
+</div>
+</div>
+<!-- Quota Progress Bar -->
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="text-secondary font-medium">Quota Consumed: <strong class="text-on-surface font-semibold font-code-sm">$284.20</strong> of $500.00</span>
+<span class="text-secondary font-code-sm">Soft Warning: 80% ($400.00)</span>
+</div>
+<div class="relative w-full h-3 rounded-full bg-surface-container-high overflow-hidden flex">
+<div class="h-full bg-primary transition-all rounded-l-full" style="width: 56.84%;"></div>
+<div class="absolute top-0 bottom-0 w-0.5 bg-outline" style="left: 80%;" title="Soft Warning Threshold: 80%"></div>
+</div>
+</div>
+<!-- Budget & Safeguard Details -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-space-md pt-space-xs">
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[20px] shrink-0 mt-0.5">notifications_active</span>
+<div class="space-y-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Budget Alerts Active</span>
+<p class="font-caption-xs text-caption-xs text-secondary">Email dispatch at 75%, 90%, and 100% capacity triggers to engineering leads.</p>
+</div>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-secondary text-[20px] shrink-0 mt-0.5">lock_open</span>
+<div class="space-y-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Auto-Freeze: Disabled</span>
+<p class="font-caption-xs text-caption-xs text-secondary">Workloads continue uninterrupted via elastic pay-as-you-go standard overage.</p>
+</div>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<span class="material-symbols-outlined text-tertiary text-[20px] shrink-0 mt-0.5">verified_user</span>
+<div class="space-y-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Cryptographic Invoicing</span>
+<p class="font-caption-xs text-caption-xs text-secondary">Hardware TPM counter logs verify runtime allocations down to microsecond slices.</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Metered Resource Usage Breakdown Table -->
+<div class="rounded-xl bg-surface-container-lowest shadow-sm overflow-hidden space-y-0">
+<div class="p-space-lg flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Metered Resource Usage Breakdown</h2>
+<p class="font-body-sm text-body-sm text-secondary">Real-time dimension telemetry and billing rates for Acme Cloud infrastructure.</p>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="font-code-sm text-code-sm text-outline px-2.5 py-1 rounded-lg bg-surface-container-low">Telemetry: Live (Sync 15s)</span>
+</div>
+</div>
+<div class="w-full overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[850px]">
+<thead>
+<tr class="bg-surface-container-low text-secondary font-caption-xs text-caption-xs uppercase tracking-wider font-semibold">
+<th class="py-space-sm px-space-lg">Metered Resource &amp; Code</th>
+<th class="py-space-sm px-space-md">Unit Dimension</th>
+<th class="py-space-sm px-space-md text-right">Consumed Quantity</th>
+<th class="py-space-sm px-space-md text-right">Unit Rate</th>
+<th class="py-space-sm px-space-md text-right">Subtotal Cost</th>
+<th class="py-space-sm px-space-lg text-right">Trend vs Last Mo</th>
+</tr>
+</thead>
+<tbody class="font-body-sm text-body-sm text-on-surface">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">memory</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">MicroVM vCPU Runtime</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.compute.vcpu</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">vCPU-Hours</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">1,842.5 hrs</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.042 / hr</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$77.38</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-tertiary-container font-semibold">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> +4.2%
+                </span>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">developer_board</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">MicroVM Dedicated RAM</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.compute.memory</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">GB-Hours</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">4,280.0 hrs</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.0045 / hr</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$19.26</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-tertiary-container font-semibold">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> +2.1%
+                </span>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">storage</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">NVMe High-IOPS Block Storage</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.storage.nvme</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">GB-Month</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">250 GB</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.12 / GB-mo</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$30.00</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-secondary font-semibold">
+                  Flat
+                </span>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">hard_drive</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Standard SSD Storage &amp; Snapshots</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.storage.ssd</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">GB-Month</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">160 GB</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.06 / GB-mo</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$9.60</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-secondary font-semibold">
+                  Flat
+                </span>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">hub</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Edge Ingress &amp; Anycast Egress</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.network.bandwidth</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">Gigabytes</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">1,420 GB</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.05 / GB</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$71.00</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-secondary font-semibold">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> +8.4%
+                </span>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">terminal</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">BuildKit Automated Build Minutes</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.build.minutes</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">Minutes</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">384 mins</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.015 / min</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$5.76</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-tertiary-container font-semibold">
+<span class="material-symbols-outlined text-[14px]">trending_down</span> -12.0%
+                </span>
+</td>
+</tr>
+<!-- Row 7 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-secondary">cloud_sync</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Immutable Backup Vault Storage</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.backup.r2_s3</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">GB-Month</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">312 GB</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$0.02 / GB-mo</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$6.24</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-secondary font-semibold">
+<span class="material-symbols-outlined text-[14px]">trending_up</span> +15.0%
+                </span>
+</td>
+</tr>
+<!-- Row 8 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors">
+<td class="py-3 px-space-lg">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">language</span>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Custom Domains &amp; Dedicated Anycast IPs</div>
+<div class="font-code-sm text-code-sm text-secondary">meter.network.anycast_ip</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md text-secondary font-code-sm">IP-Month</td>
+<td class="py-3 px-space-md text-right font-code-sm font-semibold">2 IPs</td>
+<td class="py-3 px-space-md text-right font-code-sm text-secondary">$5.00 / mo</td>
+<td class="py-3 px-space-md text-right font-code-sm font-bold text-on-surface">$10.00</td>
+<td class="py-3 px-space-lg text-right">
+<span class="inline-flex items-center gap-0.5 font-code-sm text-code-sm text-secondary font-semibold">
+                  Flat
+                </span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- Bottom Split Section -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg">
+<!-- Left Card: Invoices -->
+<div class="lg:col-span-7 rounded-xl bg-surface-container-lowest shadow-sm p-space-lg space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<div>
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface">Invoice History &amp; Line Items</h3>
+<p class="font-body-sm text-body-sm text-secondary">Audit-compliant billing records and cryptographically signed exports.</p>
+</div>
+<button class="flex items-center gap-1 font-body-sm-medium text-body-sm-medium text-primary hover:underline">
+<span>View All</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+<div class="space-y-space-xs pt-space-xs">
+<!-- Invoice 1 -->
+<div class="p-space-md rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<div class="space-y-1">
+<div class="flex items-center gap-space-sm">
+<span class="font-code-base text-code-base font-bold text-on-surface">INV-2026-08</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">Paid</span>
+</div>
+<div class="font-caption-xs text-caption-xs text-secondary">
+                  Billing Period: Aug 1 - Aug 31, 2026 • Paid on Aug 31
+                </div>
+</div>
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">$412.50</span>
+<div class="flex items-center gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Download PDF">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Audit JSON">
+<span class="material-symbols-outlined text-[18px]">data_object</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Invoice 2 -->
+<div class="p-space-md rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<div class="space-y-1">
+<div class="flex items-center gap-space-sm">
+<span class="font-code-base text-code-base font-bold text-on-surface">INV-2026-07</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">Paid</span>
+</div>
+<div class="font-caption-xs text-caption-xs text-secondary">
+                  Billing Period: Jul 1 - Jul 31, 2026 • Paid on Jul 31
+                </div>
+</div>
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">$389.20</span>
+<div class="flex items-center gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Download PDF">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Audit JSON">
+<span class="material-symbols-outlined text-[18px]">data_object</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Invoice 3 -->
+<div class="p-space-md rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<div class="space-y-1">
+<div class="flex items-center gap-space-sm">
+<span class="font-code-base text-code-base font-bold text-on-surface">INV-2026-06</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">Paid</span>
+</div>
+<div class="font-caption-xs text-caption-xs text-secondary">
+                  Billing Period: Jun 1 - Jun 30, 2026 • Paid on Jun 30
+                </div>
+</div>
+<div class="flex items-center gap-space-md">
+<span class="font-headline-sm text-headline-sm font-bold text-on-surface">$356.10</span>
+<div class="flex items-center gap-1">
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Download PDF">
+<span class="material-symbols-outlined text-[18px]">picture_as_pdf</span>
+</button>
+<button class="p-1.5 rounded hover:bg-surface-container-high text-secondary hover:text-on-surface transition-colors" title="Audit JSON">
+<span class="material-symbols-outlined text-[18px]">data_object</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="pt-space-md flex items-center gap-space-sm text-secondary font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[16px] text-primary">key</span>
+<span>Every invoice line item cryptographically correlates with verifiable meter timestamps and resource UUIDs.</span>
+</div>
+</div>
+<!-- Right Card: Payment Method & Commercial Billing Contacts -->
+<div class="lg:col-span-5 rounded-xl bg-surface-container-lowest shadow-sm p-space-lg space-y-space-md flex flex-col justify-between">
+<div class="space-y-space-md">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-md text-headline-md font-bold text-on-surface">Payment &amp; Organization</h3>
+<button class="text-primary hover:underline font-body-sm-medium text-body-sm-medium">Edit Details</button>
+</div>
+<!-- Card Info -->
+<div class="p-space-md rounded-lg bg-surface-container-low space-y-space-sm">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<div class="w-10 h-7 rounded bg-surface-container-highest flex items-center justify-center font-caption-xs text-caption-xs font-bold text-on-surface">
+                  MC
+                </div>
+<div>
+<div class="font-body-sm-medium text-body-sm-medium text-on-surface font-semibold">Mastercard ending in 8842</div>
+<div class="font-caption-xs text-caption-xs text-secondary">Expires 08/29 • Primary Card</div>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-caption-xs text-caption-xs text-primary font-medium">Auto-Recharge</span>
+</div>
+</div>
+<!-- Metadata Properties -->
+<div class="space-y-space-sm text-body-sm">
+<div class="flex flex-col space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase text-secondary font-semibold">Legal Organization &amp; Address</span>
+<span class="font-body-sm text-body-sm text-on-surface">Acme Systems Inc.</span>
+<span class="font-body-sm text-body-sm text-secondary">548 Market St, San Francisco, CA 94104</span>
+</div>
+<div class="flex items-center justify-between pt-space-xs">
+<div class="flex flex-col space-y-0.5">
+<span class="font-caption-xs text-caption-xs uppercase text-secondary font-semibold">Tax Identification</span>
+<span class="font-code-sm text-code-sm text-on-surface font-medium">US EIN 84-2918491</span>
+</div>
+<span class="inline-flex items-center gap-1 font-caption-xs text-caption-xs text-tertiary-container font-semibold">
+<span class="material-symbols-outlined text-[14px]">check</span> Verified
+              </span>
+</div>
+<div class="flex flex-col space-y-0.5 pt-space-xs">
+<span class="font-caption-xs text-caption-xs uppercase text-secondary font-semibold">Invoice Dispatch Recipient</span>
+<span class="font-code-sm text-code-sm text-primary">invoices@acme.cloud</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Automated monthly receipts bundled with microsecond CSV telemetry.</span>
+</div>
+</div>
+</div>
+<div class="pt-space-md">
+<button class="w-full py-2 px-3 rounded-lg bg-surface-container-high hover:bg-surface-variant text-on-surface transition-colors font-body-sm-medium text-body-sm-medium text-center">
+            Download Tax Exemption Forms
+          </button>
+</div>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

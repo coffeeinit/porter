@@ -60,6 +60,20 @@ The status below summarizes the supplied SRS snapshot; it is not a guarantee tha
 
 Do not treat a UI screen, API route, roadmap item, or specification requirement as proof that a feature is complete. The SRS is explicit about this distinction.
 
+## UI reference gallery
+
+The repository includes **23 demo HTML prototypes** and their paired PNG screenshots in [`web/reference-ui/`](web/reference-ui/). These are design references with mock data—not live product screens, production metrics, or evidence that every depicted feature is implemented. See the [full reference gallery](web/reference-ui/index.html).
+
+![Porter cloud-platform console demo reference; all status and metric values are illustrative mock data](web/reference-ui/images/porter_cloud_platform_console.png)
+
+To browse the gallery and open individual HTML prototypes locally:
+
+```sh
+python3 -m http.server 8787 --directory web/reference-ui
+```
+
+Then open `http://localhost:8787` in a browser.
+
 ## Repository layout
 
 ```text
@@ -70,6 +84,7 @@ migrations/        PostgreSQL schema migrations
 scripts/           development, smoke-test, and operator helpers
 tests/             API acceptance, contract, and end-to-end tests
 web/               Vue 3 dashboard and Vite build
+web/reference-ui/  demo HTML prototypes, PNG screenshots, and a reference gallery
 porter.toml.example
 SRS.md              software requirements and implementation guidance
 ```

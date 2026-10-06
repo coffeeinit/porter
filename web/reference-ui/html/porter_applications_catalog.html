@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "primary-fixed": "#d9e2ff",
+          "tertiary": "#006b43",
+          "on-surface": "#151c27",
+          "tertiary-fixed": "#7dfab7",
+          "secondary-container": "#e2e2e8",
+          "outline": "#727786",
+          "tertiary-container": "#008755",
+          "primary-container": "#146ef5",
+          "background": "#f9f9ff",
+          "surface-container-lowest": "#ffffff",
+          "outline-variant": "#c2c6d7",
+          "inverse-on-surface": "#ebf1ff",
+          "secondary-fixed": "#e2e2e8",
+          "inverse-surface": "#2a313c",
+          "primary": "#0056c8",
+          "on-error": "#ffffff",
+          "on-primary-container": "#fffdff",
+          "on-primary-fixed": "#001945",
+          "primary-fixed-dim": "#b0c6ff",
+          "on-surface-variant": "#424655",
+          "surface-dim": "#d3dae9",
+          "surface-container": "#e7eefd",
+          "error-container": "#ffdad6",
+          "secondary-fixed-dim": "#c6c6cb",
+          "on-tertiary-container": "#fefffa",
+          "on-secondary-fixed-variant": "#45474b",
+          "surface-variant": "#dce3f2",
+          "on-primary-fixed-variant": "#00429c",
+          "on-secondary-container": "#636469",
+          "surface-tint": "#0058cb",
+          "surface": "#f9f9ff",
+          "inverse-primary": "#b0c6ff",
+          "on-tertiary-fixed": "#002111",
+          "on-secondary": "#ffffff",
+          "surface-container-highest": "#dce3f2",
+          "tertiary-fixed-dim": "#5fdd9d",
+          "on-tertiary-fixed-variant": "#005232",
+          "surface-bright": "#f9f9ff",
+          "on-tertiary": "#ffffff",
+          "surface-container-high": "#e2e8f7",
+          "secondary": "#5d5e63",
+          "on-error-container": "#93000a",
+          "error": "#ba1a1a",
+          "surface-container-low": "#eff3ff",
+          "on-background": "#151c27",
+          "on-secondary-fixed": "#1a1c20",
+          "on-primary": "#ffffff"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.125rem",
+          "lg": "0.25rem",
+          "xl": "0.5rem",
+          "full": "0.75rem"
+        },
+        "spacing": {
+          "space-xl": "1.5rem",
+          "space-md": "0.75rem",
+          "space-xs": "0.25rem",
+          "gutter": "1rem",
+          "margin": "1.5rem",
+          "space-sm": "0.5rem",
+          "space-lg": "1rem"
+        },
+        "fontFamily": {
+          "headline-md": [
+            "Inter"
+          ],
+          "caption-xs": [
+            "Inter"
+          ],
+          "body-base": [
+            "Inter"
+          ],
+          "headline-sm": [
+            "Inter"
+          ],
+          "code-base": [
+            "JetBrains Mono"
+          ],
+          "code-sm": [
+            "JetBrains Mono"
+          ],
+          "body-base-medium": [
+            "Inter"
+          ],
+          "body-sm-medium": [
+            "Inter"
+          ],
+          "display-xl": [
+            "Inter"
+          ],
+          "headline-lg": [
+            "Inter"
+          ],
+          "body-sm": [
+            "Inter"
+          ]
+        },
+        "fontSize": {
+          "headline-md": [
+            "18px",
+            {
+              "lineHeight": "24px",
+              "letterSpacing": "-0.015em",
+              "fontWeight": "600"
+            }
+          ],
+          "caption-xs": [
+            "11px",
+            {
+              "lineHeight": "16px",
+              "letterSpacing": "0.02em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-sm": [
+            "15px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "600"
+            }
+          ],
+          "code-base": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "400"
+            }
+          ],
+          "code-sm": [
+            "11px",
+            {
+              "lineHeight": "14px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base-medium": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-sm-medium": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "display-xl": [
+            "32px",
+            {
+              "lineHeight": "40px",
+              "letterSpacing": "-0.025em",
+              "fontWeight": "600"
+            }
+          ],
+          "headline-lg": [
+            "24px",
+            {
+              "lineHeight": "32px",
+              "letterSpacing": "-0.02em",
+              "fontWeight": "600"
+            }
+          ],
+          "body-sm": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "400"
+            }
+          ]
+        }
+      }
+    }
+  }</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-[58px] z-50 bg-surface-container-lowest/90 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)] flex items-center justify-between px-space-lg"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center"><span class="font-headline-sm text-headline-sm text-surface-container-lowest">P</span></div><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Porter</span></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center bg-surface-container p-0.5 rounded-lg"><button class="px-space-sm py-0.5 rounded-lg bg-surface-container-lowest font-body-sm-medium text-body-sm-medium text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]" type="button">Customer</button><button class="px-space-sm py-0.5 rounded-lg font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" type="button">Admin</button></div></div><div class="flex-1 max-w-xl mx-space-xl"><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[18px] text-on-surface-variant pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container transition-all" placeholder="Search resources, applications, deployments..." type="text"/><div class="absolute right-2 flex items-center"><kbd class="px-1.5 py-0.5 font-code-sm text-code-sm text-on-surface-variant bg-surface-container rounded-DEFAULT border border-outline-variant/50">⌘K</kbd></div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><button class="relative p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary-container text-on-primary-container font-caption-xs text-caption-xs flex items-center justify-center">7</span></button><button class="p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">menu</span></button></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors cursor-pointer"><div class="flex flex-col text-left"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Systems</span><span class="font-caption-xs text-caption-xs text-on-surface-variant leading-none">Production</span></div><span class="material-symbols-outlined text-[16px] text-on-surface-variant">arrow_drop_down</span></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><aside class="fixed left-0 top-[58px] bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between overflow-y-auto shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="p-space-md flex flex-col gap-space-md"><div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between cursor-pointer"><div class="flex items-center gap-space-sm"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Systems</span><span class="font-caption-xs text-caption-xs text-on-surface-variant">Production</span></div></div><span class="material-symbols-outlined text-[18px] text-on-surface-variant">unfold_more</span></div><div class="flex flex-col gap-space-md"><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Main</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="overview" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">grid_view</span><span class="font-body-sm text-body-sm">Overview</span></div></a><a aria-current="page" class="flex items-center justify-between px-space-sm py-1.5 transition-colors bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg" data-path="applications" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">rocket_launch</span><span class="font-body-sm text-body-sm">Applications</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">12</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="deployments" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">north_east</span><span class="font-body-sm text-body-sm">Deployments</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">38</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="projects" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">folder</span><span class="font-body-sm text-body-sm">Projects</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">6</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="environments" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">layers</span><span class="font-body-sm text-body-sm">Environments</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">9</span></a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Configuration</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="domains" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">public</span><span class="font-body-sm text-body-sm">Domains</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">8</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="variables" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">tune</span><span class="font-body-sm text-body-sm">Variables</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">54</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="secrets" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">shield</span><span class="font-body-sm text-body-sm">Secrets</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">23</span></a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Runtime &amp; Ops</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="logs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">terminal</span><span class="font-body-sm text-body-sm">Logs</span></div></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="metrics" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">bar_chart</span><span class="font-body-sm text-body-sm">Metrics</span></div></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="storage" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">hard_drive</span><span class="font-body-sm text-body-sm">Storage</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">410GB</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="networking" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">share</span><span class="font-body-sm text-body-sm">Networking</span></div></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="cron-and-jobs" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">repeat</span><span class="font-body-sm text-body-sm">Cron &amp; Jobs</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">4</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="backups" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">archive</span><span class="font-body-sm text-body-sm">Backups</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">18</span></a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Team &amp; Settings</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="team" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">group</span><span class="font-body-sm text-body-sm">Team</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">8</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="usage" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">show_chart</span><span class="font-body-sm text-body-sm">Usage</span></div></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="billing" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">credit_card</span><span class="font-body-sm text-body-sm">Billing</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">$284</span></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="settings" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">settings</span><span class="font-body-sm text-body-sm">Settings</span></div></a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors" data-path="support" href="#"><div class="flex items-center gap-space-sm"><span class="material-symbols-outlined text-[18px]">help</span><span class="font-body-sm text-body-sm">Support</span></div><span class="px-1.5 py-0.2 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">2</span></a></nav></div></div></div><div class="p-space-md border-t border-outline-variant/30 flex flex-col gap-space-md bg-surface-container-lowest"><div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-body-sm-medium text-body-sm-medium text-on-surface">Pro Plan</span><span class="px-1.5 py-0.2 rounded bg-tertiary-fixed font-caption-xs text-caption-xs text-on-tertiary-fixed font-medium">Healthy</span></div><div class="w-full bg-secondary-container h-1.5 rounded-full overflow-hidden"><div class="bg-primary-container h-full w-[41%]"></div></div><span class="font-caption-xs text-caption-xs text-on-surface-variant">41% allocated ($284 / $500)</span></div><div class="flex items-center justify-between text-caption-xs font-caption-xs text-on-surface-variant"><div class="flex items-center gap-space-sm"><a class="hover:text-on-surface transition-colors" data-path="docs-and-guides" href="#">Docs &amp; Guides</a><span>·</span><a class="hover:text-on-surface transition-colors" data-path="api-keys" href="#">API Keys</a></div><span class="font-code-sm text-code-sm text-outline">v2.8.4</span></div></div></aside><div class="pl-64"><main class="pt-[58px] min-h-screen bg-background"><div class="w-full max-w-[1440px] mx-auto p-space-xl"><div class="flex flex-col w-full gap-space-lg">
+<!-- Top Breadcrumbs -->
+<div class="flex items-center justify-between">
+<nav class="flex items-center gap-space-xs font-caption-xs text-caption-xs text-on-surface-variant">
+<a class="hover:text-on-surface transition-colors flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[16px]">home</span>
+<span>Home</span>
+</a>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">Applications</span>
+</nav>
+<div class="flex items-center gap-space-xs text-caption-xs font-caption-xs text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-tertiary-container ring-4 ring-tertiary-fixed/40 animate-pulse"></span>
+<span>Control Plane: Synced</span>
+<span class="text-outline-variant">·</span>
+<span class="font-code-sm text-code-sm">ap-south-1a</span>
+</div>
+</div>
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-space-md">
+<div class="flex flex-col gap-1 max-w-2xl">
+<div class="flex items-center gap-space-sm flex-wrap">
+<h1 class="font-display-xl text-display-xl text-on-surface tracking-tight">Applications</h1>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+          12 running
+        </span>
+<span class="px-2 py-0.5 rounded-lg bg-surface-container font-code-sm text-code-sm text-on-surface-variant">
+          Orchestration: Firecracker v1.4
+        </span>
+</div>
+<p class="font-body-base text-body-base text-on-surface-variant">
+        Deploy code, inspect MicroVM runtime health, and manage service lifecycles across environments.
+      </p>
+</div>
+<div class="flex items-center gap-space-sm self-start md:self-auto shrink-0">
+<button class="h-9 px-space-sm rounded-lg bg-surface-container-lowest text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors shadow-sm flex items-center gap-1.5 font-body-sm-medium text-body-sm-medium" type="button">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span>Documentation</span>
+</button>
+<button class="h-9 px-space-sm rounded-lg bg-surface-container-lowest text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors shadow-sm flex items-center gap-1.5 font-body-sm-medium text-body-sm-medium" type="button">
+<span class="material-symbols-outlined text-[18px]">tune</span>
+<span>Filters</span>
+</button>
+<button class="h-9 px-space-md rounded-lg bg-primary-container hover:bg-primary text-on-primary-container hover:text-on-primary transition-all shadow-md shadow-primary-container/20 flex items-center gap-1.5 font-body-sm-medium text-body-sm-medium active:scale-[0.98]" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Deploy Application</span>
+</button>
+</div>
+</div>
+<!-- KPI Stat Widgets (4 Cards) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Stat Card 1 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Total Applications</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container-low flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[20px]">rocket_launch</span>
+</div>
+</div>
+<div class="mt-space-md flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface font-semibold">12</span>
+<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-medium">
+          11 healthy · 1 degraded
+        </span>
+</div>
+<div class="mt-space-sm flex items-center gap-1 font-caption-xs text-caption-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check_circle</span>
+<span>91.6% operational SLA target</span>
+</div>
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-primary-fixed/20 rounded-full blur-2xl pointer-events-none"></div>
+</div>
+<!-- Stat Card 2 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Running Replicas</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container-low flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[20px]">layers</span>
+</div>
+</div>
+<div class="mt-space-md flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface font-semibold">38</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">active pods</span>
+</div>
+<div class="mt-space-sm flex items-center justify-between font-caption-xs text-caption-xs text-on-surface-variant">
+<span>Across 48 Firecracker MicroVMs</span>
+<span class="font-code-sm text-code-sm text-outline">tap0-38</span>
+</div>
+<div class="absolute -right-6 -bottom-6 w-24 h-24 bg-tertiary-fixed/20 rounded-full blur-2xl pointer-events-none"></div>
+</div>
+<!-- Stat Card 3 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Total vCPU Allocated</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container-low flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[20px]">memory</span>
+</div>
+</div>
+<div class="mt-space-md flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface font-semibold">28 <span class="font-headline-md text-headline-md font-normal text-on-surface-variant">vCPU</span></span>
+</div>
+<div class="mt-space-sm flex flex-col gap-1">
+<div class="flex justify-between font-caption-xs text-caption-xs text-on-surface-variant">
+<span>34% of organization pool</span>
+<span class="font-code-sm text-code-sm text-outline">28 / 82</span>
+</div>
+<div class="w-full bg-secondary-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[34%] rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Stat Card 4 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-start justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Memory Consumed</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container-low flex items-center justify-center text-primary-container">
+<span class="material-symbols-outlined text-[20px]">speed</span>
+</div>
+</div>
+<div class="mt-space-md flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface font-semibold">54.2 <span class="font-headline-md text-headline-md font-normal text-on-surface-variant">GB</span></span>
+</div>
+<div class="mt-space-sm flex flex-col gap-1">
+<div class="flex justify-between font-caption-xs text-caption-xs text-on-surface-variant">
+<span>42.3% of 128 GB quota</span>
+<span class="font-code-sm text-code-sm text-outline">73.8 GB free</span>
+</div>
+<div class="w-full bg-secondary-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-tertiary-container h-full w-[42.3%] rounded-full"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Interactive Filter & Search Toolbar -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-md">
+<div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-space-md">
+<!-- Search Input -->
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-on-surface-variant pointer-events-none">search</span>
+<input class="w-full h-9 pl-9 pr-14 bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container transition-all" id="app-search-input" placeholder="Filter by application name, git repo, or domain..." type="text"/>
+<div class="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center">
+<kbd class="px-1.5 py-0.5 font-code-sm text-code-sm text-on-surface-variant bg-surface-container rounded-DEFAULT">⌘F</kbd>
+</div>
+</div>
+<!-- View Toggle and Quick Counter -->
+<div class="flex items-center justify-between lg:justify-end gap-space-md shrink-0">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">
+          Showing <span class="font-body-sm-medium text-body-sm-medium text-on-surface">12</span> applications · Sorted by last updated
+        </span>
+<div class="flex items-center bg-surface-container p-0.5 rounded-lg">
+<button class="px-space-sm py-1 rounded-lg bg-surface-container-lowest font-body-sm-medium text-body-sm-medium text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)] flex items-center gap-1" id="btn-view-list" type="button">
+<span class="material-symbols-outlined text-[16px]">view_list</span>
+<span class="hidden sm:inline">List</span>
+</button>
+<button class="px-space-sm py-1 rounded-lg font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors flex items-center gap-1" id="btn-view-grid" type="button">
+<span class="material-symbols-outlined text-[16px]">grid_view</span>
+<span class="hidden sm:inline">Grid</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Filter Pills -->
+<div class="flex items-center gap-space-xs overflow-x-auto pb-0.5">
+<button class="filter-chip active px-space-sm py-1 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium shrink-0 transition-colors" type="button">
+        All (12)
+      </button>
+<button class="filter-chip px-space-sm py-1 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-body-sm text-body-sm shrink-0 transition-colors" type="button">
+        Production (8)
+      </button>
+<button class="filter-chip px-space-sm py-1 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-body-sm text-body-sm shrink-0 transition-colors" type="button">
+        Staging (3)
+      </button>
+<button class="filter-chip px-space-sm py-1 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-body-sm text-body-sm shrink-0 transition-colors" type="button">
+        Preview (1)
+      </button>
+<div class="h-4 w-px bg-outline-variant/60 shrink-0 mx-1"></div>
+<button class="filter-chip px-space-sm py-1 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-body-sm text-body-sm shrink-0 transition-colors flex items-center gap-1.5" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+        Healthy (11)
+      </button>
+<button class="filter-chip px-space-sm py-1 rounded-lg bg-surface-container-low text-on-surface-variant hover:bg-surface-container hover:text-on-surface font-body-sm text-body-sm shrink-0 transition-colors flex items-center gap-1.5" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+        Needs Attention (1)
+      </button>
+</div>
+</div>
+<!-- Rich Applications Data Table Container -->
+<div class="rounded-xl bg-surface-container-lowest shadow-sm overflow-hidden flex flex-col">
+<!-- Batch Action Selection Bar (Conditional / Interactive) -->
+<div class="bg-surface-container-low px-space-lg py-2 flex items-center justify-between text-body-sm text-body-sm text-on-surface-variant" id="batch-toolbar">
+<div class="flex items-center gap-space-md">
+<label class="flex items-center gap-2 cursor-pointer select-none">
+<input class="rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" id="select-all-checkbox" type="checkbox"/>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Select all 12 services</span>
+</label>
+<span class="text-outline-variant">·</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant" id="selected-count-label">0 selected</span>
+</div>
+<div class="flex items-center gap-space-xs">
+<button class="h-7 px-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1 shadow-sm" type="button">
+<span class="material-symbols-outlined text-[15px]">restart_alt</span>
+<span>Restart selected</span>
+</button>
+<button class="h-7 px-2.5 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1 shadow-sm" type="button">
+<span class="material-symbols-outlined text-[15px]">pause_circle</span>
+<span>Pause selected</span>
+</button>
+<button class="h-7 px-2.5 rounded-lg bg-surface-container-lowest hover:bg-error-container text-error font-body-sm text-body-sm transition-colors flex items-center gap-1 shadow-sm" type="button">
+<span class="material-symbols-outlined text-[15px]">delete</span>
+<span>Deprovision</span>
+</button>
+</div>
+</div>
+<!-- Table Frame -->
+<div class="overflow-x-auto w-full">
+<table class="w-full text-left border-collapse min-w-[1050px]">
+<thead>
+<tr class="bg-surface-container-low text-outline font-caption-xs text-caption-xs uppercase tracking-wider">
+<th class="w-10 pl-space-lg py-3 text-center">
+<span class="sr-only">Selection</span>
+</th>
+<th class="py-3 px-space-md font-semibold">Application &amp; Repo</th>
+<th class="py-3 px-space-md font-semibold">Environment &amp; Region</th>
+<th class="py-3 px-space-md font-semibold">Replicas &amp; Runtime</th>
+<th class="py-3 px-space-md font-semibold">Allocated Resources</th>
+<th class="py-3 px-space-md font-semibold">Gateway &amp; Ingress</th>
+<th class="py-3 px-space-md font-semibold">Last Deployed</th>
+<th class="py-3 px-space-md font-semibold">Status</th>
+<th class="py-3 pr-space-lg text-right font-semibold">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-low text-body-sm text-body-sm">
+<!-- Row 1: api-production -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed flex items-center justify-center text-primary shrink-0 font-code-sm text-code-sm font-semibold">
+                  API
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">api-production</a>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant">HTTP/2</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/api · <span class="text-on-surface">main</span> (8f42c91)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-semibold">
+                  Production
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  ap-south-1 (Mumbai)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">3 / 3 replicas</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                  Firecracker MicroVM
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">2 vCPU</span>
+<span class="text-on-surface-variant">4 GB</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[45%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<a class="inline-flex items-center gap-1 font-code-sm text-code-sm text-primary hover:underline" href="https://api.example.com" target="_blank">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+<span>api.example.com</span>
+</a>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant">Let's Encrypt · Auto-renew</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v2.8.4</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">4m ago by webhook</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container animate-ping"></span>
+                Healthy
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Restart MicroVMs" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: web-storefront -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-on-surface shrink-0 font-code-sm text-code-sm font-semibold">
+                  UI
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">web-storefront</a>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant">Next.js 14</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/storefront · <span class="text-on-surface">main</span> (4c10ab8)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-semibold">
+                  Production
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  ap-south-1 (Mumbai)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">4 / 4 replicas</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                  Firecracker MicroVM
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">4 vCPU</span>
+<span class="text-on-surface-variant">8 GB</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[60%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<a class="inline-flex items-center gap-1 font-code-sm text-code-sm text-primary hover:underline" href="https://www.example.com" target="_blank">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+<span>www.example.com</span>
+</a>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant">Cloudflare CDN Proxy</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v1.12.0</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">1h ago by maya.chen</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+                Healthy
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Restart MicroVMs" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3: checkout-service (Degraded) -->
+<tr class="hover:bg-error-container/10 transition-colors group bg-error-container/5">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-error-container flex items-center justify-center text-error shrink-0 font-code-sm text-code-sm font-semibold">
+                  CHK
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">checkout-service</a>
+<span class="px-1.5 py-0.2 rounded bg-error-container font-caption-xs text-caption-xs text-on-error-container font-medium">Memory Warning</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/checkout · <span class="text-on-surface">staging-fix</span> (a914de2)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-semibold">
+                  Production
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  ap-south-1 (Mumbai)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1.5">
+<span class="font-body-sm-medium text-body-sm-medium text-error">2 / 3 replicas</span>
+<span class="px-1.5 py-0.2 rounded bg-error-container font-caption-xs text-caption-xs text-error font-medium">1 restarting</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Firecracker MicroVM</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">2 vCPU</span>
+<span class="text-error font-body-sm-medium text-body-sm-medium">3.9 / 4 GB (98%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-error h-full w-[98%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<a class="inline-flex items-center gap-1 font-code-sm text-code-sm text-primary hover:underline" href="https://checkout.example.com" target="_blank">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+<span>checkout.example.com</span>
+</a>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant">Rate limited (300 req/s)</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v3.1.2</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">18m ago by deploy-bot</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-error-container text-on-error-container font-caption-xs text-caption-xs font-semibold cursor-help" title="Memory pressure warning on node-17">
+<span class="w-2 h-2 rounded-full bg-error animate-pulse"></span>
+                Degraded
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg bg-error-container hover:bg-error/20 text-error transition-colors" title="Force Redeploy" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4: worker-billing -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-secondary-fixed flex items-center justify-center text-on-secondary-fixed shrink-0 font-code-sm text-code-sm font-semibold">
+                  WRK
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">worker-billing</a>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant">Go Daemon</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/billing-worker · <span class="text-on-surface">main</span> (72bf901)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-semibold">
+                  Production
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  eu-central-1 (Frankfurt)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">2 / 2 replicas</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Background Worker</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">1 vCPU</span>
+<span class="text-on-surface-variant">2 GB</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[25%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-code-sm text-code-sm text-on-surface flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-outline">hub</span>
+<span>Internal queue</span>
+</span>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant font-code-sm">sqs-event-bus (ap-south-1)</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v1.4.1</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">2d ago</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+                Healthy
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Restart" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5: staging-api -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center text-on-surface-variant shrink-0 font-code-sm text-code-sm font-semibold">
+                  STG
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">staging-api</a>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant">develop</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/api · <span class="text-on-surface">develop</span> (61e892c)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-secondary-container text-on-secondary-container font-caption-xs text-caption-xs font-semibold">
+                  Staging
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  ap-south-1 (Mumbai)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">1 / 1 replica</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Firecracker MicroVM</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">1 vCPU</span>
+<span class="text-on-surface-variant">2 GB</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[30%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<a class="inline-flex items-center gap-1 font-code-sm text-code-sm text-primary hover:underline" href="https://staging.api.example.com" target="_blank">
+<span class="material-symbols-outlined text-[14px] text-tertiary">lock</span>
+<span>staging.api.example.com</span>
+</a>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant">Basic Auth Protected</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v2.9.0-rc1</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">35m ago</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+                Healthy
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Restart" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 6: etl-pipeline-sync -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="pl-space-lg py-3.5 text-center">
+<input class="row-checkbox rounded text-primary-container focus:ring-primary-container h-4 w-4 bg-surface-container-lowest" type="checkbox"/>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-secondary-container flex items-center justify-center text-on-surface shrink-0 font-code-sm text-code-sm font-semibold">
+                  ETL
+                </div>
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<a class="font-headline-sm text-headline-sm text-on-surface hover:text-primary transition-colors" href="#">etl-pipeline-sync</a>
+<span class="px-1.5 py-0.2 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant">Batch Cron</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1 mt-0.5">
+<span class="material-symbols-outlined text-[14px]">commit</span>
+                    acme/data-pipelines · <span class="text-on-surface">main</span> (1094ba3)
+                  </span>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1">
+<span class="inline-flex items-center w-fit px-2 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-semibold">
+                  Production
+                </span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px]">location_on</span>
+                  ap-south-1 (Mumbai)
+                </span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">6 / 6 replicas</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Batch MicroVM (High IO)</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col gap-1 max-w-[140px]">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">8 vCPU</span>
+<span class="text-on-surface-variant">16 GB</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[72%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-code-sm text-code-sm text-on-surface flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-outline">vpn_lock</span>
+<span>Private VPC</span>
+</span>
+<span class="block font-caption-xs text-caption-xs text-on-surface-variant font-code-sm">10.30.0.0/16</span>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface">v0.9.4</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">5d ago</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-tertiary-fixed text-on-tertiary-fixed font-caption-xs text-caption-xs font-semibold">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+                Healthy
+              </span>
+</td>
+<td class="py-3.5 pr-space-lg text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">
+                  Overview
+                </button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Restart" type="button">
+<span class="material-symbols-outlined text-[18px]">restart_alt</span>
+</button>
+<button class="p-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Bottom Pagination & Summary Footer -->
+<div class="p-space-md bg-surface-container-low flex flex-col sm:flex-row items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-sm text-caption-xs font-caption-xs text-on-surface-variant">
+<span>Showing <strong class="font-semibold text-on-surface">1 - 6</strong> of <strong class="font-semibold text-on-surface">12</strong> applications</span>
+<span class="text-outline-variant">·</span>
+<div class="flex items-center gap-1">
+<span>Per page:</span>
+<select class="bg-surface-container-lowest text-on-surface rounded px-1.5 py-0.5 text-caption-xs font-caption-xs focus:outline-none focus:ring-1 focus:ring-primary-container">
+<option>10</option>
+<option selected="">20</option>
+<option>50</option>
+</select>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container text-outline font-body-sm text-body-sm cursor-not-allowed flex items-center gap-1" disabled="" type="button">
+<span class="material-symbols-outlined text-[16px]">chevron_left</span>
+<span>Previous</span>
+</button>
+<button class="px-3 py-1 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium" type="button">
+          1
+        </button>
+<button class="px-3 py-1 rounded-lg hover:bg-surface-container text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm transition-colors" type="button">
+          2
+        </button>
+<button class="px-2.5 py-1 rounded-lg bg-surface-container hover:bg-surface-container-high text-on-surface font-body-sm text-body-sm transition-colors flex items-center gap-1" type="button">
+<span>Next</span>
+<span class="material-symbols-outlined text-[16px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- MicroVM Lifecycle & Golden Path Architecture Visual Guide -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col gap-space-md">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-primary-fixed flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">conversion_path</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface">Firecracker MicroVM Deployment Pipeline</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Deterministic 7-step execution chain from git webhook to zero-downtime traffic shift</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-outline">Kernel 6.1.43-lts · jailer isolated</span>
+</div>
+<!-- 7-Step Deployment Stepper Graphic -->
+<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-space-sm pt-2">
+<!-- Step 1 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">01</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Spec Parsed</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Dockerfile &amp; env vars</span>
+</div>
+<!-- Step 2 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">02</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">RootFS Built</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">SquashFS container image</span>
+</div>
+<!-- Step 3 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">03</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Kernel Attach</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">vmlinux stripped ELF</span>
+</div>
+<!-- Step 4 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">04</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">MicroVM Spun</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">&lt; 12ms hypervisor boot</span>
+</div>
+<!-- Step 5 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">05</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">TAP Wired</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Bridge IP allocation</span>
+</div>
+<!-- Step 6 -->
+<div class="p-space-sm rounded-lg bg-primary-fixed/30 flex flex-col gap-1.5 relative ring-1 ring-primary-container">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-primary-container">06</span>
+<span class="w-3 h-3 rounded-full bg-primary-container animate-pulse"></span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-primary leading-tight">Health Probe</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">HTTP /healthz 200 OK</span>
+</div>
+<!-- Step 7 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-1.5 relative opacity-60">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm text-outline">07</span>
+<span class="material-symbols-outlined text-[16px] text-outline">hourglass_empty</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Traffic Shift</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">0% -&gt; 100% Envoy switch</span>
+</div>
+</div>
+</div>
+<!-- Documentation Callout Banner -->
+<div class="p-space-lg rounded-xl bg-surface-container-low flex flex-col sm:flex-row items-start sm:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-md">
+<div class="w-10 h-10 rounded-lg bg-primary-container text-on-primary-container flex items-center justify-center shrink-0 shadow-sm">
+<span class="material-symbols-outlined text-[24px]">alt_route</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-sm text-headline-sm text-on-surface">Need auto-scaling or canary deployments?</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">Configure Deployment Strategies, CPU threshold triggers, and blue/green cuts in application settings.</span>
+</div>
+</div>
+<a class="px-space-md py-2 rounded-lg bg-surface-container-lowest hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors shadow-sm flex items-center gap-1.5 shrink-0" href="#">
+<span>Read Golden Path Guide</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+<script>
+  // Simple vanilla micro-interactions
+  (function() {
+    // Checkbox selection management
+    const selectAll = document.getElementById('select-all-checkbox');
+    const rowCheckboxes = document.querySelectorAll('.row-checkbox');
+    const selectedCountLabel = document.getElementById('selected-count-label');
+
+    function updateCount() {
+      const checked = document.querySelectorAll('.row-checkbox:checked').length;
+      if (selectedCountLabel) {
+        selectedCountLabel.textContent = `${checked} selected`;
+      }
+      if (selectAll) {
+        selectAll.checked = checked === rowCheckboxes.length && rowCheckboxes.length > 0;
+        selectAll.indeterminate = checked > 0 && checked < rowCheckboxes.length;
+      }
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function() {
+        rowCheckboxes.forEach(cb => cb.checked = selectAll.checked);
+        updateCount();
+      });
+    }
+
+    rowCheckboxes.forEach(cb => {
+      cb.addEventListener('change', updateCount);
+    });
+
+    // View toggler states
+    const btnList = document.getElementById('btn-view-list');
+    const btnGrid = document.getElementById('btn-view-grid');
+
+    if (btnList && btnGrid) {
+      btnList.addEventListener('click', function() {
+        btnList.classList.add('bg-surface-container-lowest', 'text-on-surface', 'shadow-[0_1px_2px_rgba(0,0,0,0.04)]');
+        btnList.classList.remove('text-on-surface-variant');
+        btnGrid.classList.remove('bg-surface-container-lowest', 'text-on-surface', 'shadow-[0_1px_2px_rgba(0,0,0,0.04)]');
+        btnGrid.classList.add('text-on-surface-variant');
+      });
+
+      btnGrid.addEventListener('click', function() {
+        btnGrid.classList.add('bg-surface-container-lowest', 'text-on-surface', 'shadow-[0_1px_2px_rgba(0,0,0,0.04)]');
+        btnGrid.classList.remove('text-on-surface-variant');
+        btnList.classList.remove('bg-surface-container-lowest', 'text-on-surface', 'shadow-[0_1px_2px_rgba(0,0,0,0.04)]');
+        btnList.classList.add('text-on-surface-variant');
+      });
+    }
+
+    // Filter chip pill active toggle
+    const filterChips = document.querySelectorAll('.filter-chip');
+    filterChips.forEach(chip => {
+      chip.addEventListener('click', function() {
+        filterChips.forEach(c => {
+          c.classList.remove('bg-primary-container', 'text-on-primary-container');
+          c.classList.add('bg-surface-container-low', 'text-on-surface-variant');
+        });
+        chip.classList.remove('bg-surface-container-low', 'text-on-surface-variant');
+        chip.classList.add('bg-primary-container', 'text-on-primary-container');
+      });
+    });
+
+    // Global shortcut trigger (⌘F) for search input
+    window.addEventListener('keydown', function(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        const input = document.getElementById('app-search-input');
+        if (input) {
+          e.preventDefault();
+          input.focus();
+        }
+      }
+    });
+  })();
+</script></div></main></div></body></html>

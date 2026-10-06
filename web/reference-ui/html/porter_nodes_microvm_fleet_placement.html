@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Porter - Cloud Infrastructure Control Plane</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-secondary-container": "#636469", "surface-container-lowest": "#ffffff", "outline": "#727786", "background": "#f9f9ff", "secondary": "#5d5e63", "surface-variant": "#dce3f2", "error-container": "#ffdad6", "surface-container": "#e7eefd", "secondary-container": "#e2e2e8", "inverse-on-surface": "#ebf1ff", "on-secondary": "#ffffff", "on-primary-container": "#fffdff", "inverse-surface": "#2a313c", "inverse-primary": "#b0c6ff", "on-error-container": "#93000a", "on-secondary-fixed": "#1a1c20", "error": "#ba1a1a", "on-tertiary-fixed-variant": "#005232", "tertiary-fixed-dim": "#5fdd9d", "on-tertiary-container": "#fefffa", "surface-dim": "#d3dae9", "on-secondary-fixed-variant": "#45474b", "on-tertiary": "#ffffff", "on-primary-fixed": "#001945", "primary-fixed-dim": "#b0c6ff", "surface": "#f9f9ff", "on-tertiary-fixed": "#002111", "on-background": "#151c27", "on-primary": "#ffffff", "on-primary-fixed-variant": "#00429c", "secondary-fixed-dim": "#c6c6cb", "on-error": "#ffffff", "tertiary-container": "#008755", "surface-container-high": "#e2e8f7", "surface-tint": "#0058cb", "on-surface-variant": "#424655", "tertiary-fixed": "#7dfab7", "surface-container-low": "#eff3ff", "primary-fixed": "#d9e2ff", "surface-container-highest": "#dce3f2", "surface-bright": "#f9f9ff", "outline-variant": "#c2c6d7", "on-surface": "#151c27", "primary-container": "#146ef5", "primary": "#0056c8", "tertiary": "#006b43", "secondary-fixed": "#e2e2e8" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-xs": "0.25rem", "space-xl": "1.5rem", "margin": "1.5rem", "gutter": "1rem", "space-lg": "1rem", "space-md": "0.75rem", "space-sm": "0.5rem" }, "fontFamily": { "body-base": ["Inter"], "body-sm": ["Inter"], "body-base-medium": ["Inter"], "headline-md": ["Inter"], "display-xl": ["Inter"], "headline-lg": ["Inter"], "code-base": ["JetBrains Mono"], "code-sm": ["JetBrains Mono"], "caption-xs": ["Inter"], "body-sm-medium": ["Inter"], "headline-sm": ["Inter"] }, "fontSize": { "body-base": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "body-base-medium": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "display-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "code-base": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "400" }], "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "caption-xs": ["11px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "body-sm-medium": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "500" }], "headline-sm": ["15px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }] } } } };</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-14 z-50 bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-14 w-full px-space-xl flex items-center justify-between gap-space-lg"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center shadow-sm"><span class="font-headline-sm text-headline-sm text-inverse-on-surface leading-none font-bold">P</span></div><span class="font-headline-md text-headline-md font-bold text-on-surface tracking-tight">Porter</span></div><span class="px-space-xs py-0.5 rounded-lg bg-surface-container font-caption-xs text-caption-xs text-primary font-medium tracking-wide uppercase">ADMIN</span><div class="h-4 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium text-on-surface"><span class="material-symbols-outlined text-secondary text-[16px]">cloud_done</span><span>Acme Cloud / us-east-prod</span><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div><div class="flex-1 max-w-xl mx-auto px-space-md"><div class="relative flex items-center w-full"><span class="material-symbols-outlined absolute left-space-md text-outline text-[18px] pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 rounded-lg bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-space-sm flex items-center px-1.5 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm shadow-sm border-0">⌘K</div></div></div><div class="flex items-center gap-space-sm"><button aria-label="Notifications" class="relative w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary font-caption-xs text-caption-xs flex items-center justify-center leading-none font-bold">3</span></button><button aria-label="Documentation &amp; Help" class="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">help</span></button><div class="h-5 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-sm pl-1 pr-2 py-1 rounded-lg hover:bg-surface-container-high transition-colors"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)] overflow-y-auto"><div class="flex flex-col"><div class="p-space-md border-b-0"><div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"><div class="flex items-center gap-space-sm min-w-0"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col truncate"><span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">Acme Cloud</span><span class="font-code-sm text-code-sm text-secondary truncate">us-east-prod</span></div></div><span class="material-symbols-outlined text-secondary text-[16px]">unfold_more</span></div></div><nav class="flex flex-col px-space-sm space-y-space-sm pb-space-md" data-active-classes="bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg"><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Infrastructure &amp; Compute</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="projects-and-environments" href="#">Projects &amp; Environments</a><a aria-current="page" class="flex items-center px-space-sm py-1.5 transition-colors bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg" data-path="nodes-and-microvms" href="#">Nodes &amp; MicroVMs</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#">Applications</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#">Deployments</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Configuration &amp; Ingress</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#">Domains &amp; DNS</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#">Environment Variables</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#">Secrets</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Runtime &amp; Ops</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#">Logs Explorer</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#">Metrics &amp; Observability</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#">Storage &amp; Volumes</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#">Networking &amp; Gateways</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#">Cron &amp; Scheduled Jobs</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#">Backups &amp; Recovery</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Team &amp; Commercial</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#">Team &amp; Access</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#">Tasks &amp; Operations</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#">Billing &amp; Usage</a></div></nav></div><div class="p-space-md mt-auto"><div class="p-space-md rounded-xl bg-surface-container-low shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-space-sm"><div class="flex items-center justify-between"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm font-semibold text-on-surface">PRO PLAN</span></div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-container-lowest font-caption-xs text-caption-xs text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span>Operational</span></div><div class="space-y-1"><div class="flex justify-between font-caption-xs text-caption-xs text-secondary"><span>Monthly Quota</span><span class="font-code-sm text-code-sm text-on-surface font-semibold">$284 / $500 (41%)</span></div><div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden"><div class="h-full rounded-full bg-primary" style="width: 41%;"></div></div></div><div class="pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-secondary"><div class="flex items-center gap-space-sm"><a class="hover:text-primary transition-colors" href="#">Docs</a><span>•</span><a class="hover:text-primary transition-colors" href="#">API</a></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></div></aside><div class="pl-64"><main class="relative pt-14 min-h-screen bg-background w-full px-space-xl py-space-xl"><div class="flex flex-col w-full space-y-space-xl">
+<!-- Context Header & Actions -->
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center gap-space-xs font-caption-xs text-caption-xs text-secondary">
+<span class="hover:text-primary cursor-pointer">Home</span>
+<span>/</span>
+<span class="hover:text-primary cursor-pointer">Infrastructure &amp; Runtime</span>
+<span>/</span>
+<span class="text-on-surface font-body-sm-medium">Nodes &amp; MicroVMs</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Nodes &amp; MicroVM Fleet Placement</h1>
+<p class="font-body-sm text-body-sm text-secondary max-w-3xl">
+        Physical host infrastructure, KVM hypervisor readiness, Firecracker jailer root isolation, node pool bin-packing, and microVM instance scheduling.
+      </p>
+</div>
+<div class="flex items-center gap-space-sm self-start md:self-auto flex-wrap">
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-lowest text-on-surface hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium shadow-sm flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary">tune</span>
+<span>Scheduler Topology Config</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container text-on-surface hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium shadow-sm flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-secondary">outbox</span>
+<span>Drain Maintenance Wizard</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-primary text-on-primary hover:bg-on-primary-fixed-variant transition-colors font-body-sm-medium text-body-sm-medium shadow-sm flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]">add_circle</span>
+<span>Enroll Node</span>
+</button>
+</div>
+</div>
+<!-- KPI Tiers -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Card 1 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-secondary uppercase tracking-wider font-semibold">Fleet Nodes</span>
+<span class="material-symbols-outlined text-[18px] text-primary">dns</span>
+</div>
+<div>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface font-bold tracking-tight">48</span>
+<span class="font-headline-sm text-headline-sm text-secondary">Active</span>
+</div>
+<div class="flex items-center gap-space-xs mt-1">
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">44 Ready</span>
+<span class="text-secondary text-caption-xs">•</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">3 Draining</span>
+<span class="text-secondary text-caption-xs">•</span>
+<span class="font-code-sm text-code-sm text-outline">1 Maint</span>
+</div>
+</div>
+<div class="pt-space-xs font-caption-xs text-caption-xs text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check_circle</span>
+<span>Spread across 3 availability zones</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-secondary uppercase tracking-wider font-semibold">Total Allocated Capacity</span>
+<span class="material-symbols-outlined text-[18px] text-primary">memory</span>
+</div>
+<div>
+<div class="flex items-baseline justify-between">
+<span class="font-display-xl text-display-xl text-on-surface font-bold tracking-tight">71.4%</span>
+<span class="font-code-sm text-code-sm text-secondary">Target: 80%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-surface-container-high overflow-hidden mt-2">
+<div class="h-full rounded-full bg-primary" style="width: 71.4%;"></div>
+</div>
+</div>
+<div class="pt-space-xs font-caption-xs text-caption-xs text-secondary truncate">
+        1,142 / 1,536 vCPU · 4.8 / 6.1 TB RAM
+      </div>
+</div>
+<!-- Card 3 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-secondary uppercase tracking-wider font-semibold">Running MicroVMs</span>
+<span class="px-1.5 py-0.5 rounded-lg bg-surface-container-low text-tertiary font-code-sm text-code-sm font-semibold flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+          100% Jailer
+        </span>
+</div>
+<div>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface font-bold tracking-tight">1,936</span>
+<span class="font-body-sm-medium text-body-sm-medium text-secondary">Instances</span>
+</div>
+<div class="flex items-center gap-space-xs mt-1 text-on-surface-variant font-code-sm text-code-sm">
+<span>Firecracker v1.4.1</span>
+<span class="text-secondary">•</span>
+<span>Zero Escape Risk</span>
+</div>
+</div>
+<div class="pt-space-xs font-caption-xs text-caption-xs text-secondary flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-tertiary">bolt</span>
+<span>Average boot latency: 12.4ms</span>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-secondary uppercase tracking-wider font-semibold">Scheduler Health</span>
+<span class="material-symbols-outlined text-[18px] text-tertiary">hub</span>
+</div>
+<div>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-headline-lg text-headline-lg text-on-surface font-bold tracking-tight">Nominal</span>
+<span class="font-caption-xs text-caption-xs px-2 py-0.5 rounded bg-surface-container text-primary font-semibold">Bin-Pack</span>
+</div>
+<div class="font-code-sm text-code-sm text-secondary mt-1 flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span>Consensus: Raft quorum (5/5)</span>
+</div>
+</div>
+<div class="pt-space-xs font-caption-xs text-caption-xs text-secondary flex items-center gap-1 truncate">
+<span class="material-symbols-outlined text-[14px] text-secondary">lock</span>
+<span>Zero-split brain advisory lock active</span>
+</div>
+</div>
+</div>
+<!-- Section 1: Node Pools & Capacity Distribution -->
+<div class="space-y-space-md">
+<div class="flex items-center justify-between">
+<div>
+<h2 class="font-headline-sm text-headline-sm font-bold text-on-surface">Node Pools &amp; Workload Topologies</h2>
+<p class="font-body-sm text-body-sm text-secondary">Partitioned isolation rings configured for workload affinities and execution constraints.</p>
+</div>
+<div class="flex items-center gap-space-xs">
+<span class="font-caption-xs text-caption-xs text-secondary">Bin-pack Efficiency:</span>
+<span class="font-code-sm text-code-sm text-tertiary font-bold">93.8%</span>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-md">
+<!-- Pool 1 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm space-y-space-md flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-primary">general-compute-zone-a</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-tertiary font-caption-xs text-caption-xs font-semibold">98% OK</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">24 bare-metal hosts • AMD EPYC 9654 (96c/192t)</p>
+<div class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary">terminal</span>
+<span>Kernel 6.1-lts (KVM)</span>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-secondary">Pool Saturation</span>
+<span class="font-code-sm text-code-sm font-bold text-on-surface">76%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 76%;"></div>
+</div>
+<div class="flex justify-between font-caption-xs text-caption-xs text-secondary pt-1">
+<span>768 MicroVMs</span>
+<span>576 / 768 vCPU</span>
+</div>
+</div>
+</div>
+<!-- Pool 2 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm space-y-space-md flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-primary">high-memory-db-pool</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-tertiary font-caption-xs text-caption-xs font-semibold">100% OK</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">12 bare-metal hosts • NVMe direct passthrough</p>
+<div class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary">storage</span>
+<span>2TB PCIe 5.0 U.2 RAID0</span>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-secondary">Pool Saturation</span>
+<span class="font-code-sm text-code-sm font-bold text-on-surface">64%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 64%;"></div>
+</div>
+<div class="flex justify-between font-caption-xs text-caption-xs text-secondary pt-1">
+<span>384 MicroVMs</span>
+<span>3.1 / 4.8 TB RAM</span>
+</div>
+</div>
+</div>
+<!-- Pool 3 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm space-y-space-md flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-primary">edge-ingress-pool</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-tertiary font-caption-xs text-caption-xs font-semibold">100% OK</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">8 bare-metal hosts • DPDK / SR-IOV enabled</p>
+<div class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary">router</span>
+<span>100GbE BGP Anycast</span>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-secondary">Pool Saturation</span>
+<span class="font-code-sm text-code-sm font-bold text-on-surface">42%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 42%;"></div>
+</div>
+<div class="flex justify-between font-caption-xs text-caption-xs text-secondary pt-1">
+<span>412 MicroVMs</span>
+<span>134 Gbps Ingress</span>
+</div>
+</div>
+</div>
+<!-- Pool 4 -->
+<div class="p-space-md rounded-xl bg-surface-container-lowest shadow-sm space-y-space-md flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-primary">builder-worker-pool</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm">1 Draining</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">4 bare-metal hosts • High-burst ephemeral I/O</p>
+<div class="font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-secondary">handyman</span>
+<span>BuildKit Cgroup v2 Rootless</span>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="text-secondary">Pool Saturation</span>
+<span class="font-code-sm text-code-sm font-bold text-on-surface">88%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 88%;"></div>
+</div>
+<div class="flex justify-between font-caption-xs text-caption-xs text-secondary pt-1">
+<span>372 MicroVMs</span>
+<span>Hotpatch in progress</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 2: Physical Nodes Inventory & MicroVM Density Table -->
+<div class="rounded-xl bg-surface-container-lowest shadow-sm overflow-hidden flex flex-col">
+<!-- Toolbar -->
+<div class="p-space-md bg-surface-container-lowest flex flex-col md:flex-row md:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-sm flex-wrap">
+<button class="px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium shadow-sm flex items-center gap-1">
+<span>All Nodes</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-lowest text-primary font-code-sm text-code-sm">48</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium flex items-center gap-1">
+<span>Ready</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-tertiary font-code-sm text-code-sm">44</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium flex items-center gap-1">
+<span>Draining</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-on-surface-variant font-code-sm text-code-sm">3</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-low text-on-surface hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium flex items-center gap-1">
+<span>Maintenance</span>
+<span class="px-1.5 py-0.2 rounded-full bg-surface-container-highest text-secondary font-code-sm text-code-sm">1</span>
+</button>
+</div>
+<div class="relative flex items-center w-full md:w-80">
+<span class="material-symbols-outlined absolute left-space-sm text-outline text-[18px]">search</span>
+<input class="w-full h-9 pl-9 pr-space-md rounded-lg bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary shadow-sm transition-all" id="nodeSearchInput" placeholder="Search hostname, IP, pool, kernel..." type="text"/>
+</div>
+</div>
+<!-- Table -->
+<div class="overflow-x-auto w-full">
+<table class="w-full text-left font-body-sm text-body-sm border-collapse">
+<thead class="bg-surface-container-low font-caption-xs text-caption-xs text-secondary font-semibold uppercase tracking-wider">
+<tr>
+<th class="py-2.5 px-space-md">Node Name &amp; Hardware ID</th>
+<th class="py-2.5 px-space-md">Zone &amp; Metal Provider</th>
+<th class="py-2.5 px-space-md">Hypervisor / Jailer</th>
+<th class="py-2.5 px-space-md">MicroVM Density</th>
+<th class="py-2.5 px-space-md">vCPU Allocation</th>
+<th class="py-2.5 px-space-md">RAM Saturation</th>
+<th class="py-2.5 px-space-md">Status</th>
+<th class="py-2.5 px-space-md text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y-0 text-on-surface">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors bg-surface-container-lowest">
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm font-semibold text-primary">node-01.us-east-prod.internal</span>
+<button class="text-secondary hover:text-on-surface" title="Copy Hostname"><span class="material-symbols-outlined text-[14px]">content_copy</span></button>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">node_01 · x86_64 / Zen4 AMD EPYC</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium">us-east-1a</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Equinix Metal (Bare-Metal)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-low text-tertiary font-code-sm text-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                KVM Ready · Jailer v1.4.1
+              </span>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">42 MicroVMs</span>
+<span class="px-1 py-0.2 rounded bg-surface-container text-primary font-caption-xs text-caption-xs font-semibold">Packed</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary truncate max-w-[160px]" title="api-prod-r1, web-storefront-r2, worker-event-09">api-prod-r1, web-storefront-r2...</span>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">32 / 32 vCPU</span>
+<span class="font-code-sm text-code-sm text-tertiary font-bold">100%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 100%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">98 / 128 GB</span>
+<span class="font-code-sm text-code-sm text-secondary font-bold">76%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 76%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-low text-tertiary font-body-sm-medium text-body-sm-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Ready
+              </span>
+</td>
+<td class="py-space-md px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Inspect MicroVMs">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Terminal SSH Agent">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Cordon / Drain">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors bg-surface-container-lowest">
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm font-semibold text-primary">node-02.us-east-prod.internal</span>
+<button class="text-secondary hover:text-on-surface" title="Copy Hostname"><span class="material-symbols-outlined text-[14px]">content_copy</span></button>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">node_02 · x86_64 / Zen4 AMD EPYC</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium">us-east-1b</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Equinix Metal (Bare-Metal)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-low text-tertiary font-code-sm text-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                KVM Ready · Jailer v1.4.1
+              </span>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">38 MicroVMs</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary truncate max-w-[160px]" title="billing-engine-v4, stripe-webhook-proc">billing-engine-v4, stripe-wh...</span>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">28 / 32 vCPU</span>
+<span class="font-code-sm text-code-sm text-secondary font-bold">87.5%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 87.5%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">82 / 128 GB</span>
+<span class="font-code-sm text-code-sm text-secondary font-bold">64%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 64%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-low text-tertiary font-body-sm-medium text-body-sm-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>
+                Ready
+              </span>
+</td>
+<td class="py-space-md px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Inspect MicroVMs">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Terminal SSH Agent">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Cordon / Drain">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3: Draining -->
+<tr class="hover:bg-surface-container-low transition-colors bg-surface-container-lowest">
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm font-semibold text-primary">node-17.us-east-prod.internal</span>
+<button class="text-secondary hover:text-on-surface" title="Copy Hostname"><span class="material-symbols-outlined text-[14px]">content_copy</span></button>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">node_17 · Intel Xeon Platinum 8480+</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium">us-east-1c</span>
+<span class="font-caption-xs text-caption-xs text-secondary">AWS Direct Connect Outpost</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                Seccomp Active · Jailer v1.4.1
+              </span>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">3 MicroVMs</span>
+<span class="px-1 py-0.2 rounded bg-surface-container text-on-surface-variant font-caption-xs text-caption-xs font-semibold">Evacuating</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary truncate max-w-[160px]" title="web-storefront (migrating)">web-storefront (migrating)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">6 / 64 vCPU</span>
+<span class="font-code-sm text-code-sm text-secondary font-bold">9.3%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-on-surface-variant" style="width: 9.3%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold">16 / 256 GB</span>
+<span class="font-code-sm text-code-sm text-secondary font-bold">6.2%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-on-surface-variant" style="width: 6.2%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-body-sm-medium text-body-sm-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-outline animate-pulse"></span>
+                Draining
+              </span>
+</td>
+<td class="py-space-md px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Inspect MicroVMs">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Terminal SSH Agent">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Cordon / Drain">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4: Maintenance -->
+<tr class="hover:bg-surface-container-low transition-colors bg-surface-container-lowest">
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm font-semibold text-primary">node-32.us-east-prod.internal</span>
+<button class="text-secondary hover:text-on-surface" title="Copy Hostname"><span class="material-symbols-outlined text-[14px]">content_copy</span></button>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">node_32 · AMD EPYC 7763 (Milan)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium">us-east-1a</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Equinix Metal (Bare-Metal)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-high text-secondary font-code-sm text-code-sm font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>
+                Kernel Updating (6.6)
+              </span>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-1">
+<span class="font-code-sm text-code-sm font-bold text-outline">0 MicroVMs</span>
+<span class="px-1 py-0.2 rounded bg-surface-container-highest text-secondary font-caption-xs text-caption-xs font-semibold">Cordoned</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">Drain complete</span>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold text-outline">0 / 64 vCPU</span>
+<span class="font-code-sm text-code-sm text-outline font-bold">0%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-outline" style="width: 0%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md min-w-[140px]">
+<div class="space-y-1">
+<div class="flex justify-between font-caption-xs text-caption-xs">
+<span class="font-code-sm text-code-sm font-semibold text-outline">0 / 256 GB</span>
+<span class="font-code-sm text-code-sm text-outline font-bold">0%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden">
+<div class="h-full rounded-full bg-outline" style="width: 0%;"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container-high text-primary font-body-sm-medium text-body-sm-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+                Maintenance
+              </span>
+</td>
+<td class="py-space-md px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Inspect MicroVMs">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Terminal SSH Agent">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary hover:text-on-surface" title="Uncordon Node">
+<span class="material-symbols-outlined text-[18px]">play_circle</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer / Pagination -->
+<div class="p-space-sm bg-surface-container-low flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<div class="flex items-center gap-space-sm">
+<span>Showing 4 of 48 registered bare-metal hypervisors</span>
+<span>•</span>
+<span class="text-tertiary flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Heartbeat check synchronized: 2s ago</span>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container-high transition-colors disabled:opacity-50" disabled="">Previous</button>
+<button class="px-2 py-1 rounded bg-primary text-on-primary font-bold">1</button>
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container-high transition-colors">2</button>
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container-high transition-colors">3</button>
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface shadow-sm hover:bg-surface-container-high transition-colors">Next</button>
+</div>
+</div>
+</div>
+<!-- Section 3: Bottom Split Grid -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-space-md">
+<!-- Left: Hypervisor Preflight & Isolation -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Hypervisor Preflight &amp; Isolation Guarantees</h3>
+<span class="px-2 py-0.5 rounded bg-surface-container text-tertiary font-code-sm text-code-sm font-bold">Compliant CIS L2</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Cryptographic root filesystem verification and micro-jail enforcement checks.</p>
+</div>
+<div class="space-y-space-sm">
+<!-- Item 1 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<div class="p-1 rounded bg-surface-container-lowest text-tertiary mt-0.5">
+<span class="material-symbols-outlined text-[18px]">verified_user</span>
+</div>
+<div class="flex-1 space-y-0.5">
+<div class="flex items-center justify-between">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Hardware Virtualization</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">/dev/kvm OK</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">
+              Direct access verified across AMD-V &amp; Intel VT-x registers. MicroVM nested virtualization disabled to mitigate microcode side-channel exploits.
+            </p>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<div class="p-1 rounded bg-surface-container-lowest text-tertiary mt-0.5">
+<span class="material-symbols-outlined text-[18px]">pie_chart</span>
+</div>
+<div class="flex-1 space-y-0.5">
+<div class="flex items-center justify-between">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">cgroups v2 Resource Accounting</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">Strict Unified Hierarchy</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">
+              Deterministic per-slice caps: <code class="font-code-sm text-code-sm text-on-surface">cpu.max</code>, <code class="font-code-sm text-code-sm text-on-surface">memory.high</code>, and <code class="font-code-sm text-code-sm text-on-surface">io.weight</code> guaranteed per Firecracker jailer root.
+            </p>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<div class="p-1 rounded bg-surface-container-lowest text-tertiary mt-0.5">
+<span class="material-symbols-outlined text-[18px]">security</span>
+</div>
+<div class="flex-1 space-y-0.5">
+<div class="flex items-center justify-between">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Firecracker Jailer Chroot &amp; Seccomp-BPF</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">UID 10001 (Drop 300+ Syscalls)</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">
+              Isolated user namespaces. Jailer process drops privileges prior to MicroVM execution; strict seccomp filters disallow socket hijacking.
+            </p>
+</div>
+</div>
+<!-- Item 4 -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex items-start gap-space-sm">
+<div class="p-1 rounded bg-surface-container-lowest text-tertiary mt-0.5">
+<span class="material-symbols-outlined text-[18px]">network_ping</span>
+</div>
+<div class="flex-1 space-y-0.5">
+<div class="flex items-center justify-between">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Host Kernel Bypass</span>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">Linux TAP Zero-Copy</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary">
+              Zero-copy ring buffer TAP devices directly wired to bridge namespaces, preventing packet leakages into global host interfaces.
+            </p>
+</div>
+</div>
+</div>
+<div class="pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<span>Fleet Attestation: <strong class="text-on-surface">SHA-256 Measured Boot OK</strong></span>
+<button class="text-primary hover:underline font-body-sm-medium flex items-center gap-1">
+<span>Inspect Root Jail Specs</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</button>
+</div>
+</div>
+<!-- Right: Live MicroVM Scheduler Placements Stream -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between space-y-space-md">
+<div class="space-y-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-space-xs">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary-container animate-pulse"></span>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Live MicroVM Scheduler Placements</h3>
+</div>
+<span class="font-code-sm text-code-sm text-secondary">Stream: /var/run/porter-sched.sock</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Real-time bin-pack placement events, live migrations, and kernel allocations.</p>
+</div>
+<!-- Feed Container -->
+<div class="space-y-space-sm font-code-sm text-code-sm overflow-hidden">
+<!-- Event 1: Placed -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col space-y-1 hover:bg-surface-container transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.2 rounded bg-surface-container-lowest text-tertiary font-bold">[Placed]</span>
+<span class="text-on-surface font-semibold">vm-a7c21</span>
+<span class="text-secondary">(api-production)</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">Just now</span>
+</div>
+<div class="flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<span>Allocated to <strong class="text-primary font-code-sm">node-01.us-east-prod</strong></span>
+<span class="text-tertiary font-bold">Affinity Match: 94/100</span>
+</div>
+</div>
+<!-- Event 2: Migrating -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col space-y-1 hover:bg-surface-container transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.2 rounded bg-surface-container-highest text-on-surface-variant font-bold">[Migrating]</span>
+<span class="text-on-surface font-semibold">vm-b7d10</span>
+<span class="text-secondary">(web-storefront)</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">42s ago</span>
+</div>
+<div class="flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<span>Evacuating <code class="text-on-surface">node-17</code> → <code class="text-primary">node-04</code></span>
+<span class="text-on-surface-variant font-medium">Reason: node-17 hotpatch</span>
+</div>
+</div>
+<!-- Event 3: Provisioned -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col space-y-1 hover:bg-surface-container transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.2 rounded bg-surface-container-lowest text-primary font-bold">[Provisioned]</span>
+<span class="text-on-surface font-semibold">vm-cron-884</span>
+<span class="text-secondary">(stripe-reconcile)</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">2m ago</span>
+</div>
+<div class="flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<span>Bound to <strong class="text-primary font-code-sm">node-08.us-east-prod</strong></span>
+<span class="text-tertiary font-semibold">Boot Latency: 11ms (JIT)</span>
+</div>
+</div>
+<!-- Event 4: Scaled Down -->
+<div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col space-y-1 hover:bg-surface-container transition-colors">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="px-1.5 py-0.2 rounded bg-surface-container-high text-secondary font-bold">[Terminated]</span>
+<span class="text-on-surface font-semibold">vm-job-190</span>
+<span class="text-secondary">(image-opt-queue)</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">5m ago</span>
+</div>
+<div class="flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<span>Clean teardown on <code class="text-on-surface">node-12</code></span>
+<span class="text-secondary">TAP ring buffer flushed</span>
+</div>
+</div>
+</div>
+<div class="pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-secondary">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check</span>
+<span>Scheduler Raft heartbeat: 100% stable</span>
+</div>
+<button class="text-primary hover:underline font-body-sm-medium flex items-center gap-1">
+<span>Open Real-time Telemetry</span>
+<span class="material-symbols-outlined text-[14px]">open_in_new</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<script>
+  (function() {
+    // Quick interactive search filtering on node table rows
+    const searchInput = document.getElementById('nodeSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', function(e) {
+        const term = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+          const text = row.textContent.toLowerCase();
+          if (text.includes(term)) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+          }
+        });
+      });
+    }
+  })();
+</script></main></div></body></html>

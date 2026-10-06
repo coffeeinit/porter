@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="A local catalog of Porter UI demo prototypes and their separate screenshot references." />
+  <title>Porter UI reference gallery</title>
+  <style>
+    :root { color-scheme: light; --ink:#111318; --paper:#f4f0e8; --card:#fffdf7; --blue:#146ef5; --yellow:#f5d547; --line:2px solid var(--ink); --mono:"DM Mono",ui-monospace,SFMono-Regular,Menlo,monospace; --sans:"Space Grotesk",Inter,ui-sans-serif,system-ui,sans-serif; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.5 var(--sans); }
+    .shell { width:min(1320px,calc(100% - 40px)); margin-inline:auto; }
+    header { padding:34px 0 24px; border-bottom:var(--line); } .kicker,.eyebrow,.file { font-family:var(--mono); letter-spacing:.05em; text-transform:uppercase; }
+    .kicker { margin:0 0 12px; font-size:10px; } h1 { max-width:900px; margin:0; font-size:clamp(42px,7vw,88px); line-height:.9; letter-spacing:-.08em; }
+    header p:last-child { max-width:720px; margin:20px 0 0; color:#50545c; } .summary { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+    .pill { padding:5px 8px; border:1px solid var(--ink); background:var(--yellow); font:9px var(--mono); } .pill:nth-child(2) { background:#cfe0ff; }
+    main { padding:25px 0 64px; } .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr)); gap:22px; }
+    .card { min-width:0; overflow:hidden; background:var(--card); border:var(--line); box-shadow:4px 4px 0 var(--ink); } .preview { display:block; background:#eef1f7; border-bottom:var(--line); }
+    .preview img { display:block; width:100%; height:290px; object-fit:contain; object-position:center top; }
+    .card-info { display:flex; align-items:end; justify-content:space-between; gap:18px; padding:15px; } .eyebrow { margin:0 0 5px; color:#5e626b; font-size:8px; }
+    h2 { margin:0; font-size:19px; line-height:1.1; letter-spacing:-.04em; } .file { margin:8px 0 0; color:#686d76; font-size:7px; overflow-wrap:anywhere; }
+    .open { flex:0 0 auto; padding:8px 10px; border:var(--line); background:var(--blue); color:white; font-weight:700; font-size:12px; text-decoration:none; } .open:hover { transform:translate(2px,2px); }
+    footer { padding:16px 0 28px; border-top:var(--line); color:#5e626b; font:9px var(--mono); }
+    @media(max-width:560px) { .shell { width:calc(100% - 28px); } header { padding-top:24px; } .card-info { align-items:start; flex-direction:column; } .preview img { height:235px; } }
+  </style>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <header><div class="shell"><p class="kicker">PORTER / DESIGN REFERENCES</p><h1>UI screens,<br />all in one place.</h1><p>Browse each demo prototype and its paired screenshot. These are design references with mock data—not a live dashboard, production metrics, or proof that every depicted feature is shipped.</p><div class="summary"><span class="pill">23 HTML DEMOS</span><span class="pill">23 MATCHED PNGS</span></div></div></header>
+  <main class="shell"><div class="grid">      <article class="card">
+        <a class="preview" href="html/porter_application_detail_api_production.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Application Detail Api Production HTML prototype">
+          <img src="images/porter_application_detail_api_production.png" alt="Porter Application Detail Api Production demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Application Detail Api Production</h2><p class="file">html/porter_application_detail_api_production.html · images/porter_application_detail_api_production.png</p></div><a class="open" href="html/porter_application_detail_api_production.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_applications_catalog.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Applications Catalog HTML prototype">
+          <img src="images/porter_applications_catalog.png" alt="Porter Applications Catalog demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Applications Catalog</h2><p class="file">html/porter_applications_catalog.html · images/porter_applications_catalog.png</p></div><a class="open" href="html/porter_applications_catalog.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_backups_recovery.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_backups_recovery.png" alt="Porter Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Cloud Infrastructure Control Plane</h2><p class="file">html/porter_backups_recovery.html · images/porter_backups_recovery.png</p></div><a class="open" href="html/porter_backups_recovery.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_billing_usage.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter - Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_billing_usage.png" alt="Porter - Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter - Cloud Infrastructure Control Plane</h2><p class="file">html/porter_billing_usage.html · images/porter_billing_usage.png</p></div><a class="open" href="html/porter_billing_usage.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_cloud_native_hosting_platform_console.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Cloud Native Hosting Platform Console HTML prototype">
+          <img src="images/porter_cloud_native_hosting_platform_console.png" alt="Porter Cloud Native Hosting Platform Console demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Cloud Native Hosting Platform Console</h2><p class="file">html/porter_cloud_native_hosting_platform_console.html · images/porter_cloud_native_hosting_platform_console.png</p></div><a class="open" href="html/porter_cloud_native_hosting_platform_console.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_cloud_platform_console.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter — Cloud Platform Console HTML prototype">
+          <img src="images/porter_cloud_platform_console.png" alt="Porter — Cloud Platform Console demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter — Cloud Platform Console</h2><p class="file">html/porter_cloud_platform_console.html · images/porter_cloud_platform_console.png</p></div><a class="open" href="html/porter_cloud_platform_console.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_cron_scheduled_jobs.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_cron_scheduled_jobs.png" alt="Porter Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Cloud Infrastructure Control Plane</h2><p class="file">html/porter_cron_scheduled_jobs.html · images/porter_cron_scheduled_jobs.png</p></div><a class="open" href="html/porter_cron_scheduled_jobs.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_deployment_detail_v2.8.4.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Deployment Detail V2.8.4 HTML prototype">
+          <img src="images/porter_deployment_detail_v2.8.4.png" alt="Porter Deployment Detail V2.8.4 demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Deployment Detail V2.8.4</h2><p class="file">html/porter_deployment_detail_v2.8.4.html · images/porter_deployment_detail_v2.8.4.png</p></div><a class="open" href="html/porter_deployment_detail_v2.8.4.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_domains_dns.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Domains Dns HTML prototype">
+          <img src="images/porter_domains_dns.png" alt="Porter Domains Dns demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Domains Dns</h2><p class="file">html/porter_domains_dns.html · images/porter_domains_dns.png</p></div><a class="open" href="html/porter_domains_dns.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_environment_variables.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Environment Variables HTML prototype">
+          <img src="images/porter_environment_variables.png" alt="Porter Environment Variables demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Environment Variables</h2><p class="file">html/porter_environment_variables.html · images/porter_environment_variables.png</p></div><a class="open" href="html/porter_environment_variables.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_logs_explorer.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Logs Explorer HTML prototype">
+          <img src="images/porter_logs_explorer.png" alt="Porter Logs Explorer demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Logs Explorer</h2><p class="file">html/porter_logs_explorer.html · images/porter_logs_explorer.png</p></div><a class="open" href="html/porter_logs_explorer.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_marketplace_integrations_directory.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Marketplace Integrations Directory HTML prototype">
+          <img src="images/porter_marketplace_integrations_directory.png" alt="Porter Marketplace Integrations Directory demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Marketplace Integrations Directory</h2><p class="file">html/porter_marketplace_integrations_directory.html · images/porter_marketplace_integrations_directory.png</p></div><a class="open" href="html/porter_marketplace_integrations_directory.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_metrics_observability.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Metrics Observability HTML prototype">
+          <img src="images/porter_metrics_observability.png" alt="Porter Metrics Observability demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Metrics Observability</h2><p class="file">html/porter_metrics_observability.html · images/porter_metrics_observability.png</p></div><a class="open" href="html/porter_metrics_observability.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_networking_gateways.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_networking_gateways.png" alt="Porter Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Cloud Infrastructure Control Plane</h2><p class="file">html/porter_networking_gateways.html · images/porter_networking_gateways.png</p></div><a class="open" href="html/porter_networking_gateways.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_nodes_microvm_fleet_placement.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter - Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_nodes_microvm_fleet_placement.png" alt="Porter - Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter - Cloud Infrastructure Control Plane</h2><p class="file">html/porter_nodes_microvm_fleet_placement.html · images/porter_nodes_microvm_fleet_placement.png</p></div><a class="open" href="html/porter_nodes_microvm_fleet_placement.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_projects_environments.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter - Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_projects_environments.png" alt="Porter - Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter - Cloud Infrastructure Control Plane</h2><p class="file">html/porter_projects_environments.html · images/porter_projects_environments.png</p></div><a class="open" href="html/porter_projects_environments.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_secrets_management.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Secrets Management HTML prototype">
+          <img src="images/porter_secrets_management.png" alt="Porter Secrets Management demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Secrets Management</h2><p class="file">html/porter_secrets_management.html · images/porter_secrets_management.png</p></div><a class="open" href="html/porter_secrets_management.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_storage_volumes.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter Storage Volumes HTML prototype">
+          <img src="images/porter_storage_volumes.png" alt="Porter Storage Volumes demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter Storage Volumes</h2><p class="file">html/porter_storage_volumes.html · images/porter_storage_volumes.png</p></div><a class="open" href="html/porter_storage_volumes.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_tasks_operations.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter - Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_tasks_operations.png" alt="Porter - Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter - Cloud Infrastructure Control Plane</h2><p class="file">html/porter_tasks_operations.html · images/porter_tasks_operations.png</p></div><a class="open" href="html/porter_tasks_operations.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_team_access.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter - Cloud Infrastructure Control Plane HTML prototype">
+          <img src="images/porter_team_access.png" alt="Porter - Cloud Infrastructure Control Plane demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter - Cloud Infrastructure Control Plane</h2><p class="file">html/porter_team_access.html · images/porter_team_access.png</p></div><a class="open" href="html/porter_team_access.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_workspace_home.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter — Workspace Overview HTML prototype">
+          <img src="images/porter_workspace_home.png" alt="Porter — Workspace Overview demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter — Workspace Overview</h2><p class="file">html/porter_workspace_home.html · images/porter_workspace_home.png</p></div><a class="open" href="html/porter_workspace_home.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_workspace_home_with_sidebar.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter — Workspace Overview HTML prototype">
+          <img src="images/porter_workspace_home_with_sidebar.png" alt="Porter — Workspace Overview demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter — Workspace Overview</h2><p class="file">html/porter_workspace_home_with_sidebar.html · images/porter_workspace_home_with_sidebar.png</p></div><a class="open" href="html/porter_workspace_home_with_sidebar.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article>
+      <article class="card">
+        <a class="preview" href="html/porter_workspace_home_with_styled_sidebar.html" target="_blank" rel="noopener noreferrer" aria-label="Open Porter — Workspace Overview HTML prototype">
+          <img src="images/porter_workspace_home_with_styled_sidebar.png" alt="Porter — Workspace Overview demo screenshot reference" loading="lazy" decoding="async" />
+        </a>
+        <div class="card-info"><div><p class="eyebrow">PORTER UI REFERENCE</p><h2>Porter — Workspace Overview</h2><p class="file">html/porter_workspace_home_with_styled_sidebar.html · images/porter_workspace_home_with_styled_sidebar.png</p></div><a class="open" href="html/porter_workspace_home_with_styled_sidebar.html" target="_blank" rel="noopener noreferrer">Open HTML ↗</a></div>
+      </article></div></main>
+  <footer><div class="shell">PORTER UI REFERENCE GALLERY · HTML PROTOTYPES AND SCREENSHOTS ARE STORED SEPARATELY</div></footer>
+</body>
+</html>

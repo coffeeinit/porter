@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "primary-fixed": "#d9e2ff",
+          "tertiary": "#006b43",
+          "on-surface": "#151c27",
+          "tertiary-fixed": "#7dfab7",
+          "secondary-container": "#e2e2e8",
+          "outline": "#727786",
+          "tertiary-container": "#008755",
+          "primary-container": "#146ef5",
+          "background": "#f9f9ff",
+          "surface-container-lowest": "#ffffff",
+          "outline-variant": "#c2c6d7",
+          "inverse-on-surface": "#ebf1ff",
+          "secondary-fixed": "#e2e2e8",
+          "inverse-surface": "#2a313c",
+          "primary": "#0056c8",
+          "on-error": "#ffffff",
+          "on-primary-container": "#fffdff",
+          "on-primary-fixed": "#001945",
+          "primary-fixed-dim": "#b0c6ff",
+          "on-surface-variant": "#424655",
+          "surface-dim": "#d3dae9",
+          "surface-container": "#e7eefd",
+          "error-container": "#ffdad6",
+          "secondary-fixed-dim": "#c6c6cb",
+          "on-tertiary-container": "#fefffa",
+          "on-secondary-fixed-variant": "#45474b",
+          "surface-variant": "#dce3f2",
+          "on-primary-fixed-variant": "#00429c",
+          "on-secondary-container": "#636469",
+          "surface-tint": "#0058cb",
+          "surface": "#f9f9ff",
+          "inverse-primary": "#b0c6ff",
+          "on-tertiary-fixed": "#002111",
+          "on-secondary": "#ffffff",
+          "surface-container-highest": "#dce3f2",
+          "tertiary-fixed-dim": "#5fdd9d",
+          "on-tertiary-fixed-variant": "#005232",
+          "surface-bright": "#f9f9ff",
+          "on-tertiary": "#ffffff",
+          "surface-container-high": "#e2e8f7",
+          "secondary": "#5d5e63",
+          "on-error-container": "#93000a",
+          "error": "#ba1a1a",
+          "surface-container-low": "#eff3ff",
+          "on-background": "#151c27",
+          "on-secondary-fixed": "#1a1c20",
+          "on-primary": "#ffffff"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.125rem",
+          "lg": "0.25rem",
+          "xl": "0.5rem",
+          "full": "0.75rem"
+        },
+        "spacing": {
+          "space-xl": "1.5rem",
+          "space-md": "0.75rem",
+          "space-xs": "0.25rem",
+          "gutter": "1rem",
+          "margin": "1.5rem",
+          "space-sm": "0.5rem",
+          "space-lg": "1rem"
+        },
+        "fontFamily": {
+          "headline-md": [
+            "Inter"
+          ],
+          "caption-xs": [
+            "Inter"
+          ],
+          "body-base": [
+            "Inter"
+          ],
+          "headline-sm": [
+            "Inter"
+          ],
+          "code-base": [
+            "JetBrains Mono"
+          ],
+          "code-sm": [
+            "JetBrains Mono"
+          ],
+          "body-base-medium": [
+            "Inter"
+          ],
+          "body-sm-medium": [
+            "Inter"
+          ],
+          "display-xl": [
+            "Inter"
+          ],
+          "headline-lg": [
+            "Inter"
+          ],
+          "body-sm": [
+            "Inter"
+          ]
+        },
+        "fontSize": {
+          "headline-md": [
+            "18px",
+            {
+              "lineHeight": "24px",
+              "letterSpacing": "-0.015em",
+              "fontWeight": "600"
+            }
+          ],
+          "caption-xs": [
+            "11px",
+            {
+              "lineHeight": "16px",
+              "letterSpacing": "0.02em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-sm": [
+            "15px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "600"
+            }
+          ],
+          "code-base": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "400"
+            }
+          ],
+          "code-sm": [
+            "11px",
+            {
+              "lineHeight": "14px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base-medium": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-sm-medium": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "display-xl": [
+            "32px",
+            {
+              "lineHeight": "40px",
+              "letterSpacing": "-0.025em",
+              "fontWeight": "600"
+            }
+          ],
+          "headline-lg": [
+            "24px",
+            {
+              "lineHeight": "32px",
+              "letterSpacing": "-0.02em",
+              "fontWeight": "600"
+            }
+          ],
+          "body-sm": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "400"
+            }
+          ]
+        }
+      }
+    }
+  }</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-14 z-50 bg-surface-container-lowest/90 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)] flex items-center justify-between px-space-lg"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center"><span class="font-headline-sm text-headline-sm text-surface-container-lowest">P</span></div><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Porter</span></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center bg-surface-container p-0.5 rounded-lg"><button class="px-space-sm py-0.5 rounded-lg bg-surface-container-lowest font-body-sm-medium text-body-sm-medium text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]" type="button">Customer</button><button class="px-space-sm py-0.5 rounded-lg font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" type="button">Admin</button></div></div><div class="flex-1 max-w-xl mx-space-xl"><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[18px] text-on-surface-variant pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container transition-all" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-2 flex items-center"><kbd class="px-1.5 py-0.5 font-code-sm text-code-sm text-on-surface-variant bg-surface-container rounded-DEFAULT border border-outline-variant/50">⌘K</kbd></div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><button class="relative p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary-container text-on-primary-container font-caption-xs text-caption-xs flex items-center justify-center">3</span></button><button class="p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">help_outline</span></button></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors cursor-pointer"><div class="flex flex-col text-left"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Cloud</span><span class="font-caption-xs text-caption-xs text-on-surface-variant leading-none">us-east-prod</span></div><span class="material-symbols-outlined text-[16px] text-on-surface-variant">arrow_drop_down</span></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between overflow-y-auto shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="p-space-md flex flex-col gap-space-md"><div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between cursor-pointer"><div class="flex items-center gap-space-sm"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Cloud</span><span class="font-caption-xs text-caption-xs text-on-surface-variant">us-east-prod</span></div></div><span class="material-symbols-outlined text-[18px] text-on-surface-variant">unfold_more</span></div><div class="flex flex-col gap-space-md"><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Core Compute</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#">Applications</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#">Deployments</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Configuration &amp; Ingress</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#">Domains &amp; DNS</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#">Environment Variables</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#">Secrets</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Runtime &amp; Ops</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#">Logs Explorer</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#">Metrics &amp; Observability</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#">Storage &amp; Volumes</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#">Networking &amp; Gateways</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#">Cron &amp; Scheduled Jobs</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#">Backups &amp; Recovery</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Team &amp; Commercial</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#">Team &amp; Access</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#">Tasks &amp; Operations</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#">Billing &amp; Usage</a></nav></div></div></div><div class="p-space-md border-t border-outline-variant/30 flex flex-col gap-space-md bg-surface-container-lowest"><div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-body-sm-medium text-body-sm-medium text-on-surface">Pro Plan</span><span class="px-1.5 py-0.2 rounded bg-tertiary-fixed font-caption-xs text-caption-xs text-on-tertiary-fixed font-medium">Operational</span></div><div class="w-full bg-secondary-container h-1.5 rounded-full overflow-hidden"><div class="bg-primary-container h-full w-[41%]"></div></div><span class="font-caption-xs text-caption-xs text-on-surface-variant">41% quota ($284 / $500/mo)</span></div><div class="flex items-center justify-between text-caption-xs font-caption-xs text-on-surface-variant"><div class="flex items-center gap-space-sm"><span class="text-on-surface-variant">Docs</span><span>·</span><span class="text-on-surface-variant">API</span></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></aside><div class="pl-64"><main class="pt-14 min-h-screen bg-background"><div class="w-full max-w-[1440px] mx-auto p-space-xl"><div class="flex flex-col w-full">
+<!-- Breadcrumbs & Global Control Actions -->
+<div class="flex flex-col md:flex-row md:items-center md:justify-between gap-space-md mb-space-lg">
+<nav class="flex items-center gap-space-xs text-on-surface-variant font-body-sm text-body-sm">
+<span class="hover:text-on-surface transition-colors cursor-pointer">Home</span>
+<span class="text-outline-variant">/</span>
+<span class="hover:text-on-surface transition-colors cursor-pointer">Runtime &amp; Ops</span>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">Storage &amp; Volumes</span>
+</nav>
+<div class="flex items-center gap-space-sm flex-wrap">
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm hover:bg-surface-container-high transition-all flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant">history</span>
+<span>Snapshot Schedule</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm hover:bg-surface-container-high transition-all flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px] text-on-surface-variant">tune</span>
+<span>Storage Pool Policy</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium shadow-sm hover:opacity-95 transition-all flex items-center gap-space-xs" onclick="document.getElementById('createVolumeModal').classList.remove('hidden')" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Create Volume</span>
+</button>
+</div>
+</div>
+<!-- Header Banner -->
+<div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-space-lg mb-space-xl">
+<div class="flex flex-col gap-1 max-w-2xl">
+<div class="flex items-center gap-2">
+<span class="px-2 py-0.5 rounded font-caption-xs text-caption-xs uppercase tracking-wider bg-surface-container-high text-primary-container font-medium">Block Layer</span>
+<span class="font-caption-xs text-caption-xs text-outline font-code-sm">nvme-pci-passthrough</span>
+</div>
+<h1 class="font-headline-lg text-headline-lg text-on-surface tracking-tight">Persistent Storage &amp; Volumes</h1>
+<p class="font-body-base text-body-base text-on-surface-variant">
+        Dedicated block storage volumes, automated point-in-time snapshots, and zero-downtime attachment for stateful MicroVM clusters.
+      </p>
+</div>
+<!-- Cluster Region Readout -->
+<div class="flex items-center gap-space-md bg-surface-container-lowest px-space-md py-space-sm rounded-xl shadow-sm self-start lg:self-auto">
+<div class="flex items-center gap-space-xs">
+<div class="w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Pool us-east-prod-1</span>
+</div>
+<span class="text-outline-variant">·</span>
+<span class="font-code-sm text-code-sm text-outline">Ceph NVMe-oF Engine</span>
+</div>
+</div>
+<!-- Storage Metrics KPI Cards (4) with Visual Inline Richness -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-space-md mb-space-xl">
+<!-- Card 1: Total Allocated -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Total Storage Allocated</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">hard_drive</span>
+</div>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface tracking-tight">410</span>
+<span class="font-body-base-medium text-body-base-medium text-on-surface-variant">GB</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Distributed across 6 isolated volumes</p>
+</div>
+<div class="mt-space-md pt-space-xs">
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[34%] rounded-full"></div>
+</div>
+</div>
+</div>
+<!-- Card 2: Storage Pool Capacity -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Pool Capacity</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[18px]">pie_chart</span>
+</div>
+</div>
+<div class="mt-space-md flex items-end justify-between">
+<div>
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface tracking-tight">1.2</span>
+<span class="font-body-base-medium text-body-base-medium text-on-surface-variant">TB Max</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">34% consumed (790 GB unallocated)</p>
+</div>
+<!-- Donut Visual SVG -->
+<svg class="w-12 h-12 -mb-1" viewbox="0 0 36 36">
+<path class="text-surface-container" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"></path>
+<path class="text-tertiary-container" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-dasharray="34, 100" stroke-linecap="round" stroke-width="3.5"></path>
+</svg>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-outline">
+<span>Provisioned: 410 GB</span>
+<span class="text-tertiary font-body-sm-medium">Healthy</span>
+</div>
+</div>
+<!-- Card 3: Active Snapshots -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Active Snapshots</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">camera_roll</span>
+</div>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface tracking-tight">28</span>
+<span class="font-body-base-medium text-body-base-medium text-on-surface-variant">Recovery Points</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">Daily rotation · 30-day retention lock</p>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center gap-space-xs">
+<span class="w-2 h-2 rounded-full bg-tertiary-container"></span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Latest: 24 mins ago (postgres-primary)</span>
+</div>
+</div>
+<!-- Card 4: IOPS Performance -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Average IOPS</span>
+<div class="w-8 h-8 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+</div>
+</div>
+<div class="mt-space-md">
+<div class="flex items-baseline gap-space-xs">
+<span class="font-display-xl text-display-xl text-on-surface tracking-tight">3,200</span>
+<span class="font-body-base-medium text-body-base-medium text-on-surface-variant">IOPS</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-0.5">NVMe High-Performance tier</p>
+</div>
+<!-- Mini Sparkline IOPS Chart -->
+<div class="mt-space-md pt-space-xs flex items-center justify-between">
+<svg class="w-24 h-5 text-primary-container overflow-visible" viewbox="0 0 100 20">
+<polyline fill="none" points="0,15 15,12 30,14 45,7 60,11 75,5 90,8 100,4" stroke="currentColor" stroke-width="2"></polyline>
+</svg>
+<span class="font-caption-xs text-caption-xs text-tertiary font-body-sm-medium">Sub-0.4ms latency</span>
+</div>
+</div>
+</div>
+<!-- Filter, Search Bar & Bulk Actions -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm mb-space-md flex flex-col md:flex-row items-stretch md:items-center justify-between gap-space-md">
+<div class="flex items-center gap-space-md flex-1 max-w-xl">
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-3 top-2.5 text-[18px] text-on-surface-variant pointer-events-none">search</span>
+<input class="w-full h-9 pl-9 pr-3 bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container transition-all" id="volumeSearchInput" placeholder="Filter by volume ID, name, or mount path..." type="text"/>
+</div>
+<div class="flex items-center bg-surface-container p-0.5 rounded-lg text-body-sm font-body-sm">
+<button class="tier-tab-btn px- space-sm py-1 rounded bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm" type="button">All Tiers</button>
+<button class="tier-tab-btn px-space-sm py-1 rounded text-on-surface-variant hover:text-on-surface" type="button">NVMe High IOPS</button>
+<button class="tier-tab-btn px-space-sm py-1 rounded text-on-surface-variant hover:text-on-surface" type="button">Standard SSD</button>
+<button class="tier-tab-btn px-space-sm py-1 rounded text-on-surface-variant hover:text-on-surface" type="button">Cold Archive</button>
+</div>
+</div>
+<div class="flex items-center gap-space-sm justify-end">
+<div class="relative">
+<select class="h-9 px-space-sm bg-surface-container-low text-on-surface font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container cursor-pointer pr-8 appearance-none">
+<option>Status: All (Attached &amp; Available)</option>
+<option>Attached Only</option>
+<option>Unattached Only</option>
+<option>Snapshots Enabled</option>
+</select>
+<span class="material-symbols-outlined absolute right-2 top-2 text-[16px] text-on-surface-variant pointer-events-none">expand_more</span>
+</div>
+<button class="p-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface-variant hover:text-on-surface transition-colors" title="Refresh Table" type="button">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+</button>
+</div>
+</div>
+<!-- Persistent Volumes Inventory Table -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden mb-space-xl">
+<div class="overflow-x-auto min-w-[1024px]">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-caption-xs text-caption-xs uppercase tracking-wider border-b border-surface-container">
+<th class="py-space-sm px-space-lg font-caption-xs text-caption-xs">Volume Name &amp; ID</th>
+<th class="py-space-sm px-space-md font-caption-xs text-caption-xs">Capacity &amp; Utilization</th>
+<th class="py-space-sm px-space-md font-caption-xs text-caption-xs">Storage Tier</th>
+<th class="py-space-sm px-space-md font-caption-xs text-caption-xs">Attached Workload &amp; Mount</th>
+<th class="py-space-sm px-space-md font-caption-xs text-caption-xs">Snapshots &amp; Backup</th>
+<th class="py-space-sm px-space-md font-caption-xs text-caption-xs">Status</th>
+<th class="py-space-sm px-space-lg text-right font-caption-xs text-caption-xs">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container/60 font-body-sm text-body-sm text-on-surface">
+<!-- Row 1: api-data -->
+<tr class="hover:bg-surface-container-low/40 transition-colors">
+<td class="py-space-md px-space-lg">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">folder</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">api-data</span>
+<span class="font-code-sm text-code-sm text-outline">vol_1092</span>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-1 w-36">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">20 GB</span>
+<span class="text-on-surface-variant">7.4 GB (37%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[37%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[13px] text-primary">bolt</span>
+<span>NVMe SSD</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">api-production</span>
+<span class="font-code-sm text-code-sm text-outline">/var/lib/app</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[15px] text-tertiary">check_circle</span>
+<span>Daily (18 snapshots)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+                Attached
+              </span>
+</td>
+<td class="py-space-md px-space-lg text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" onclick="openResizeModal('api-data', 'vol_1092', 20)" type="button">Resize</button>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">Snapshot</button>
+<button class="px-2 py-1 rounded text-error hover:bg-error-container/30 font-caption-xs text-caption-xs transition-colors" type="button">Detach</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: postgres-primary-data -->
+<tr class="hover:bg-surface-container-low/40 transition-colors">
+<td class="py-space-md px-space-lg">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[16px]">database</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">postgres-primary-data</span>
+<span class="font-code-sm text-code-sm text-outline">vol_1044</span>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-1 w-36">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">250 GB</span>
+<span class="text-on-surface-variant">142 GB (56%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[56%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary-fixed text-on-primary-fixed font-caption-xs text-caption-xs font-medium">
+<span class="material-symbols-outlined text-[13px]">speed</span>
+<span>NVMe High IOPS</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">postgres-primary</span>
+<span class="font-code-sm text-code-sm text-outline">/var/lib/postgresql/data</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<div class="flex items-center gap-space-xs text-tertiary">
+<span class="material-symbols-outlined text-[15px]">sync</span>
+<span class="font-caption-xs text-caption-xs font-medium">Cont. WAL + Hourly</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-outline">48 snapshots retained</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+                Attached
+              </span>
+</td>
+<td class="py-space-md px-space-lg text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" onclick="openResizeModal('postgres-primary-data', 'vol_1044', 250)" type="button">Resize</button>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">Snapshot</button>
+<button class="px-2 py-1 rounded text-error hover:bg-error-container/30 font-caption-xs text-caption-xs transition-colors" type="button">Detach</button>
+</div>
+</td>
+</tr>
+<!-- Row 3: build-cache-vol -->
+<tr class="hover:bg-surface-container-low/40 transition-colors">
+<td class="py-space-md px-space-lg">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">build-cache-vol</span>
+<span class="font-code-sm text-code-sm text-outline">vol_1088</span>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-1 w-36">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">120 GB</span>
+<span class="text-on-surface-variant">88 GB (73%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[73%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[13px]">dns</span>
+<span>Standard SSD</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">builder-pool-01</span>
+<span class="font-code-sm text-code-sm text-outline">/var/lib/buildkit</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="font-caption-xs text-caption-xs text-outline italic">None (Ephemeral)</span>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+                Attached
+              </span>
+</td>
+<td class="py-space-md px-space-lg text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" onclick="openResizeModal('build-cache-vol', 'vol_1088', 120)" type="button">Resize</button>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">Snapshot</button>
+<button class="px-2 py-1 rounded text-error hover:bg-error-container/30 font-caption-xs text-caption-xs transition-colors" type="button">Detach</button>
+</div>
+</td>
+</tr>
+<!-- Row 4: media-uploads -->
+<tr class="hover:bg-surface-container-low/40 transition-colors">
+<td class="py-space-md px-space-lg">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">perm_media</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">media-uploads</span>
+<span class="font-code-sm text-code-sm text-outline">vol_1104</span>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-1 w-36">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">500 GB</span>
+<span class="text-on-surface-variant">180 GB (36%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[36%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[13px]">dns</span>
+<span>Standard SSD</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">web-storefront</span>
+<span class="font-code-sm text-code-sm text-outline">/mnt/uploads</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[15px] text-tertiary">check_circle</span>
+<span>Weekly (4 snapshots)</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+                Attached
+              </span>
+</td>
+<td class="py-space-md px-space-lg text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" onclick="openResizeModal('media-uploads', 'vol_1104', 500)" type="button">Resize</button>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">Snapshot</button>
+<button class="px-2 py-1 rounded text-error hover:bg-error-container/30 font-caption-xs text-caption-xs transition-colors" type="button">Detach</button>
+</div>
+</td>
+</tr>
+<!-- Row 5: staging-db-vol -->
+<tr class="hover:bg-surface-container-low/40 transition-colors">
+<td class="py-space-md px-space-lg">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded-lg bg-surface-container flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[16px]">database</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">staging-db-vol</span>
+<span class="font-code-sm text-code-sm text-outline">vol_1120</span>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col gap-1 w-36">
+<div class="flex items-center justify-between font-caption-xs text-caption-xs">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">20 GB</span>
+<span class="text-on-surface-variant">3.2 GB (16%)</span>
+</div>
+<div class="w-full bg-surface-container h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary-container h-full w-[16%] rounded-full"></div>
+</div>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container font-caption-xs text-caption-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[13px] text-primary">bolt</span>
+<span>NVMe SSD</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">staging-api</span>
+<span class="font-code-sm text-code-sm text-outline">/var/lib/db</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<div class="flex items-center gap-space-xs text-on-surface-variant">
+<span class="material-symbols-outlined text-[15px] text-outline">schedule</span>
+<span>Manual Snapshots</span>
+</div>
+</td>
+<td class="py-space-md px-space-md">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+                Attached
+              </span>
+</td>
+<td class="py-space-md px-space-lg text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" onclick="openResizeModal('staging-db-vol', 'vol_1120', 20)" type="button">Resize</button>
+<button class="px-2 py-1 rounded bg-surface-container-low hover:bg-surface-container text-on-surface font-caption-xs text-caption-xs transition-colors" type="button">Snapshot</button>
+<button class="px-2 py-1 rounded text-error hover:bg-error-container/30 font-caption-xs text-caption-xs transition-colors" type="button">Detach</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer / Monospace Details Bar -->
+<div class="px-space-lg py-space-sm bg-surface-container-low/60 flex items-center justify-between text-on-surface-variant font-caption-xs text-caption-xs">
+<div class="flex items-center gap-space-md">
+<span>Showing 5 of 5 persistent volumes</span>
+<span>·</span>
+<span class="font-code-sm text-code-sm text-outline">Hot-plug bus: virtio-blk-pci</span>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="text-on-surface-variant">Filesystem Support: ext4, xfs, btrfs</span>
+</div>
+</div>
+</div>
+<!-- Bento Bottom Informational Section: Live Resizing SLA & Visual Architecture -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-lg">
+<!-- Banner: Instant Live Resizing & IOPS SLA -->
+<div class="lg:col-span-2 bg-inverse-surface text-inverse-on-surface p-space-xl rounded-xl shadow-md flex flex-col justify-between relative overflow-hidden">
+<!-- Ambient subtle background glow -->
+<div class="absolute -right-20 -bottom-20 w-80 h-80 bg-primary/20 rounded-full blur-3xl pointer-events-none"></div>
+<div>
+<div class="flex items-center gap-space-sm mb-space-sm">
+<span class="px-2 py-0.5 rounded bg-primary-container text-on-primary-container font-caption-xs text-caption-xs font-semibold uppercase tracking-wider">Zero-Downtime Guarantee</span>
+<span class="font-code-sm text-code-sm text-outline-variant">kernel-online-resize</span>
+</div>
+<h2 class="font-headline-md text-headline-md tracking-tight mb-space-xs text-inverse-on-surface">Instant Volume Resizing &amp; IOPS Performance SLA</h2>
+<p class="font-body-base text-body-base text-surface-variant max-w-xl">
+          Expand filesystem storage on the fly without stopping your MicroVM or severing active database connections. Micro-allocations take effect in less than 850 milliseconds using native block geometry resizing.
+        </p>
+<!-- Dynamic Specs Grid -->
+<div class="grid grid-cols-3 gap-space-md mt-space-lg">
+<div class="p-space-sm rounded-lg bg-surface-container-lowest/5">
+<span class="font-caption-xs text-caption-xs text-outline-variant uppercase">P99 Latency</span>
+<div class="font-headline-sm text-headline-sm text-inverse-on-surface mt-1">&lt; 420 µs</div>
+<span class="font-caption-xs text-caption-xs text-tertiary-fixed">NVMe direct fabric</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-lowest/5">
+<span class="font-caption-xs text-caption-xs text-outline-variant uppercase">Online Expansion</span>
+<div class="font-headline-sm text-headline-sm text-inverse-on-surface mt-1">Live Resizing</div>
+<span class="font-caption-xs text-caption-xs text-tertiary-fixed">0 dropped packets</span>
+</div>
+<div class="p-space-sm rounded-lg bg-surface-container-lowest/5">
+<span class="font-caption-xs text-caption-xs text-outline-variant uppercase">Snapshot SLA</span>
+<div class="font-headline-sm text-headline-sm text-inverse-on-surface mt-1">Copy-On-Write</div>
+<span class="font-caption-xs text-caption-xs text-outline-variant">Zero IO degradation</span>
+</div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-space-lg pt-space-md border-t border-surface-container-highest/20">
+<div class="flex items-center gap-space-sm font-code-sm text-code-sm text-outline-variant">
+<span class="material-symbols-outlined text-[16px] text-tertiary-fixed">verified</span>
+<span>PCIe Gen 4.0 x4 Attached · Ceph 18.2 Reef Cluster</span>
+</div>
+<a class="font-body-sm-medium text-body-sm-medium text-primary-fixed hover:underline flex items-center gap-1" href="#">
+<span>Read Storage Architecture Docs</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+<!-- Right Side: Infrastructure Snapshot Health & Quick Mount Spec -->
+<div class="bg-surface-container-lowest p-space-lg rounded-xl shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-headline-sm text-headline-sm text-on-surface">CLI Quick Mount</span>
+<span class="font-code-sm text-code-sm text-outline">v2.9.0</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">Attach or partition block devices declaratively via the Porter CLI.</p>
+<div class="bg-inverse-surface p-space-md rounded-lg font-code-sm text-code-sm text-inverse-on-surface overflow-x-auto select-all">
+<div class="text-outline-variant"># Attach volume to microVM</div>
+<div class="text-tertiary-fixed">$ porter volume attach \</div>
+<div class="pl-4">--id vol_1092 \</div>
+<div class="pl-4">--app api-production \</div>
+<div class="pl-4">--mount /var/lib/app</div>
+</div>
+<div class="mt-space-md flex flex-col gap-space-xs">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Automated Lifecycle Policies</span>
+<div class="flex items-center justify-between py-1 text-body-sm">
+<span class="text-on-surface">Cross-Region Mirroring</span>
+<span class="font-caption-xs text-caption-xs px-2 py-0.5 rounded bg-surface-container font-medium text-on-surface">Disabled</span>
+</div>
+<div class="flex items-center justify-between py-1 text-body-sm">
+<span class="text-on-surface">Point-In-Time Rollback</span>
+<span class="font-caption-xs text-caption-xs px-2 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-medium">Enabled</span>
+</div>
+<div class="flex items-center justify-between py-1 text-body-sm">
+<span class="text-on-surface">At-Rest AES-256</span>
+<span class="font-caption-xs text-caption-xs px-2 py-0.5 rounded bg-tertiary-fixed text-on-tertiary-fixed font-medium">Hardware-Locked</span>
+</div>
+</div>
+</div>
+<button class="w-full mt-space-md py-2 bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium rounded-lg transition-colors flex items-center justify-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px]">settings_backup_restore</span>
+<span>Manage Storage Encryption Keys</span>
+</button>
+</div>
+</div>
+<!-- Micro Interaction: Live Resize Volume Modal (Hidden by Default) -->
+<div class="fixed inset-0 bg-inverse-surface/40 backdrop-blur-sm z-50 flex items-center justify-center hidden" id="resizeModal">
+<div class="bg-surface-container-lowest rounded-xl shadow-xl w-full max-w-md p-space-xl flex flex-col gap-space-lg border border-outline-variant/30">
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface">Resize Block Volume</span>
+<span class="font-code-sm text-code-sm text-outline mt-0.5" id="modalVolumeSubtext">vol_1092 · api-data</span>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface" onclick="closeResizeModal()" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-space-sm">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">New Capacity (GB)</label>
+<div class="flex items-center gap-space-sm">
+<input class="flex-1 h-10 px-3 bg-surface-container-low text-on-surface font-code-base text-code-base rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container" id="modalResizeInput" max="2000" min="10" type="number"/>
+<span class="font-body-base-medium text-body-base-medium text-on-surface-variant">GB</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-outline">
+          Filesystems can only be expanded, not shrunk. Resizing occurs online with no microVM interruption.
+        </p>
+</div>
+<div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between text-body-sm">
+<span class="text-on-surface-variant">Estimated Monthly Cost:</span>
+<span class="font-body-base-medium text-body-base-medium text-on-surface" id="modalCostEstimate">$2.40 / mo</span>
+</div>
+<div class="flex items-center justify-end gap-space-sm">
+<button class="px-space-md py-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors" onclick="closeResizeModal()" type="button">
+          Cancel
+        </button>
+<button class="px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium hover:opacity-90 transition-opacity" onclick="executeResize()" type="button">
+          Apply Live Resize
+        </button>
+</div>
+</div>
+</div>
+<!-- Micro Interaction: Create Volume Modal (Hidden by Default) -->
+<div class="fixed inset-0 bg-inverse-surface/40 backdrop-blur-sm z-50 flex items-center justify-center hidden" id="createVolumeModal">
+<div class="bg-surface-container-lowest rounded-xl shadow-xl w-full max-w-lg p-space-xl flex flex-col gap-space-lg border border-outline-variant/30">
+<div class="flex items-start justify-between">
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface">Create Dedicated Block Volume</span>
+<span class="font-caption-xs text-caption-xs text-outline mt-0.5">Ceph NVMe cluster · Fast live attachment</span>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface" onclick="document.getElementById('createVolumeModal').classList.add('hidden')" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-space-md">
+<div class="flex flex-col gap-1">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">Volume Identifier</label>
+<input class="h-9 px-3 bg-surface-container-low text-on-surface font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container" placeholder="e.g. analytics-cache-storage" type="text"/>
+</div>
+<div class="grid grid-cols-2 gap-space-md">
+<div class="flex flex-col gap-1">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">Initial Size (GB)</label>
+<input class="h-9 px-3 bg-surface-container-low text-on-surface font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container" type="number" value="50"/>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">Storage Tier</label>
+<select class="h-9 px-3 bg-surface-container-low text-on-surface font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container cursor-pointer">
+<option>NVMe High IOPS ($0.12/GB)</option>
+<option>Standard SSD ($0.08/GB)</option>
+<option>Cold Archive ($0.02/GB)</option>
+</select>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">Attach to Target Workload (Optional)</label>
+<select class="h-9 px-3 bg-surface-container-low text-on-surface font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container cursor-pointer">
+<option>Do not attach immediately (Unattached pool)</option>
+<option>api-production (us-east-prod)</option>
+<option>postgres-primary (us-east-prod)</option>
+<option>web-storefront (us-east-prod)</option>
+<option>staging-api (us-east-prod)</option>
+</select>
+</div>
+<div class="flex flex-col gap-1">
+<label class="font-body-sm-medium text-body-sm-medium text-on-surface">Mount Path</label>
+<input class="h-9 px-3 font-code-sm text-code-sm bg-surface-container-low text-on-surface rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container" placeholder="/mnt/data" type="text"/>
+</div>
+</div>
+<div class="flex items-center justify-end gap-space-sm pt-space-xs">
+<button class="px-space-md py-2 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors" onclick="document.getElementById('createVolumeModal').classList.add('hidden')" type="button">
+          Cancel
+        </button>
+<button class="px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium hover:opacity-90 transition-opacity" onclick="document.getElementById('createVolumeModal').classList.add('hidden')" type="button">
+          Provision &amp; Allocate
+        </button>
+</div>
+</div>
+</div>
+<script>
+    // Tab switching micro-interactions
+    document.querySelectorAll('.tier-tab-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.tier-tab-btn').forEach(b => {
+          b.classList.remove('bg-surface-container-lowest', 'text-on-surface', 'font-body-sm-medium', 'shadow-sm');
+          b.classList.add('text-on-surface-variant');
+        });
+        this.classList.add('bg-surface-container-lowest', 'text-on-surface', 'font-body-sm-medium', 'shadow-sm');
+        this.classList.remove('text-on-surface-variant');
+      });
+    });
+
+    // Volume table live search filtering
+    const searchInput = document.getElementById('volumeSearchInput');
+    if (searchInput) {
+      searchInput.addEventListener('input', function(e) {
+        const query = e.target.value.toLowerCase();
+        const rows = document.querySelectorAll('tbody tr');
+        rows.forEach(row => {
+          const text = row.innerText.toLowerCase();
+          row.style.display = text.includes(query) ? '' : 'none';
+        });
+      });
+    }
+
+    // Modal state controllers
+    function openResizeModal(name, id, currentSize) {
+      document.getElementById('modalVolumeSubtext').innerText = `${id} · ${name}`;
+      const input = document.getElementById('modalResizeInput');
+      input.value = currentSize + 10;
+      updateCostEstimate(input.value);
+      document.getElementById('resizeModal').classList.remove('hidden');
+    }
+
+    function closeResizeModal() {
+      document.getElementById('resizeModal').classList.add('hidden');
+    }
+
+    const resizeInput = document.getElementById('modalResizeInput');
+    if (resizeInput) {
+      resizeInput.addEventListener('input', function() {
+        updateCostEstimate(this.value);
+      });
+    }
+
+    function updateCostEstimate(gb) {
+      const cost = (parseFloat(gb || 0) * 0.12).toFixed(2);
+      document.getElementById('modalCostEstimate').innerText = `$${cost} / mo`;
+    }
+
+    function executeResize() {
+      closeResizeModal();
+    }
+  </script>
+</div></div></main></div></body></html>

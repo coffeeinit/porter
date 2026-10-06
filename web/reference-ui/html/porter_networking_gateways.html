@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Porter Cloud Infrastructure Control Plane</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "outline-variant": "#c2c6d7", "background": "#f9f9ff", "surface-container-lowest": "#ffffff", "inverse-primary": "#b0c6ff", "primary-fixed": "#d9e2ff", "error-container": "#ffdad6", "secondary-fixed-dim": "#c6c6cb", "surface": "#f9f9ff", "secondary": "#5d5e63", "primary": "#0056c8", "on-primary": "#ffffff", "on-surface": "#151c27", "on-primary-fixed-variant": "#00429c", "on-error-container": "#93000a", "inverse-on-surface": "#ebf1ff", "on-secondary-container": "#636469", "on-secondary-fixed": "#1a1c20", "primary-fixed-dim": "#b0c6ff", "surface-container-low": "#eff3ff", "outline": "#727786", "inverse-surface": "#2a313c", "on-secondary-fixed-variant": "#45474b", "surface-variant": "#dce3f2", "tertiary-fixed-dim": "#5fdd9d", "on-background": "#151c27", "tertiary": "#006b43", "secondary-container": "#e2e2e8", "error": "#ba1a1a", "tertiary-container": "#008755", "surface-container-highest": "#dce3f2", "on-primary-fixed": "#001945", "on-tertiary-fixed": "#002111", "on-tertiary": "#ffffff", "surface-bright": "#f9f9ff", "on-tertiary-fixed-variant": "#005232", "on-error": "#ffffff", "secondary-fixed": "#e2e2e8", "surface-container-high": "#e2e8f7", "on-secondary": "#ffffff", "tertiary-fixed": "#7dfab7", "surface-container": "#e7eefd", "on-tertiary-container": "#fefffa", "surface-dim": "#d3dae9", "surface-tint": "#0058cb", "on-primary-container": "#fffdff", "primary-container": "#146ef5", "on-surface-variant": "#424655" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "gutter": "1rem", "space-xl": "1.5rem", "space-xs": "0.25rem", "space-md": "0.75rem", "margin": "1.5rem", "space-sm": "0.5rem" }, "fontFamily": { "code-sm": ["JetBrains Mono"], "body-sm-medium": ["Inter"], "display-xl": ["Inter"], "headline-lg": ["Inter"], "body-base": ["Inter"], "caption-xs": ["Inter"], "code-base": ["JetBrains Mono"], "body-sm": ["Inter"], "headline-sm": ["Inter"], "body-base-medium": ["Inter"], "headline-md": ["Inter"] }, "fontSize": { "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "body-sm-medium": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "500" }], "display-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "body-base": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "caption-xs": ["11px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "code-base": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "400" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "body-base-medium": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }] } } } };</script></head><body class="bg-background font-body-base text-on-surface antialiased"><aside class="fixed left-0 top-0 h-screen w-64 bg-surface-container-lowest border-r border-outline-variant/40 z-50 flex flex-col justify-between overflow-y-auto"><div class="flex flex-col"><div class="h-14 px-space-md border-b border-outline-variant/30 flex items-center justify-between"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 bg-on-surface text-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md text-headline-md">P</div><span class="font-headline-sm text-headline-sm tracking-tight text-on-surface">Porter</span></div><span class="px-space-xs py-0.5 bg-surface-container-high rounded text-on-surface-variant font-caption-xs text-caption-xs uppercase">Admin</span></div><div class="p-space-sm border-b border-outline-variant/30"><div class="flex items-center justify-between px-space-sm py-1.5 bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors cursor-pointer"><div class="flex items-center gap-space-sm min-w-0"><span class="w-2 h-2 rounded-full bg-tertiary ring-2 ring-tertiary-fixed"></span><div class="flex flex-col truncate"><span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">Acme Cloud</span><span class="font-code-sm text-code-sm text-on-surface-variant truncate">us-east-prod</span></div></div><span class="material-symbols-outlined text-on-surface-variant text-[18px]">unfold_more</span></div></div><nav class="flex flex-col px-space-sm py-space-sm gap-space-sm" data-active-classes="bg-primary-container text-on-primary-container font-headline-sm"><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Core Compute</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#"><span class="material-symbols-outlined text-[18px]">apps</span><span>Applications</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#"><span class="material-symbols-outlined text-[18px]">rocket_launch</span><span>Deployments</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Configuration &amp; Ingress</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#"><span class="material-symbols-outlined text-[18px]">language</span><span>Domains &amp; DNS</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#"><span class="material-symbols-outlined text-[18px]">tune</span><span>Environment Variables</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#"><span class="material-symbols-outlined text-[18px]">key</span><span>Secrets</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Runtime &amp; Ops</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#"><span class="material-symbols-outlined text-[18px]">terminal</span><span>Logs Explorer</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#"><span class="material-symbols-outlined text-[18px]">monitoring</span><span>Metrics &amp; Observability</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#"><span class="material-symbols-outlined text-[18px]">hard_drive</span><span>Storage &amp; Volumes</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#"><span class="material-symbols-outlined text-[18px]">hub</span><span>Networking &amp; Gateways</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#"><span class="material-symbols-outlined text-[18px]">schedule</span><span>Cron &amp; Scheduled Jobs</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#"><span class="material-symbols-outlined text-[18px]">history</span><span>Backups &amp; Recovery</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Team &amp; Commercial</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#"><span class="material-symbols-outlined text-[18px]">group</span><span>Team &amp; Access</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#"><span class="material-symbols-outlined text-[18px]">task</span><span>Tasks &amp; Operations</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#"><span class="material-symbols-outlined text-[18px]">credit_card</span><span>Billing &amp; Usage</span></a></div></nav></div><div class="p-space-sm border-t border-outline-variant/30 flex flex-col gap-space-sm"><div class="bg-surface-container-low border border-outline-variant/30 rounded-lg p-space-sm flex flex-col gap-1.5"><div class="flex items-center justify-between"><span class="font-caption-xs text-caption-xs uppercase text-on-surface font-semibold">Pro Plan</span><span class="px-1.5 py-0.2 bg-tertiary/10 text-tertiary border border-tertiary/20 rounded-full font-caption-xs text-caption-xs flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Operational</span></div><div class="flex items-baseline justify-between"><span class="font-body-sm-medium text-body-sm-medium text-on-surface">$284 <span class="text-secondary font-body-sm text-body-sm">/ $500</span></span><span class="font-code-sm text-code-sm text-on-surface-variant">41%</span></div><div class="w-full bg-secondary-container h-1 rounded-full overflow-hidden"><div class="bg-primary h-full w-[41%]"></div></div></div><div class="flex items-center justify-between px-space-xs text-on-surface-variant"><div class="flex items-center gap-space-sm"><a class="font-caption-xs text-caption-xs hover:text-on-surface transition-colors" href="#">Docs</a><span class="text-outline-variant font-caption-xs text-caption-xs">•</span><a class="font-caption-xs text-caption-xs hover:text-on-surface transition-colors" href="#">API</a></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-14 bg-surface-container-lowest border-b border-outline-variant/40 z-40 flex items-center justify-between px-margin"><div class="flex items-center w-full max-w-lg"><div class="relative w-full"><span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span><input class="w-full h-8 pl-8 pr-12 bg-surface-container-low border border-outline-variant/40 rounded text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:border-primary" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center"><kbd class="px-1.5 py-0.5 bg-surface-container-lowest border border-outline-variant/50 rounded font-code-sm text-code-sm text-outline shadow-sm">⌘K</kbd></div></div></div><div class="flex items-center gap-space-md"><button aria-label="Notifications" class="relative p-1.5 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-error ring-2 ring-surface-container-lowest"></span></button><button aria-label="Help Documentation" class="p-1.5 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">help_outline</span></button><div class="h-4 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-sm pl-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-sm"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-14 bg-background px-margin"><div class="flex flex-col w-full">
+<!-- Top Command Ribbon / Breadcrumbs & Hero Title -->
+<div class="flex flex-col gap-space-md pb-space-xl">
+<!-- Breadcrumb Line -->
+<div class="flex items-center gap-space-xs text-secondary font-body-sm text-body-sm">
+<span class="hover:text-on-surface cursor-pointer transition-colors">Home</span>
+<span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+<span class="hover:text-on-surface cursor-pointer transition-colors">Runtime &amp; Ops</span>
+<span class="material-symbols-outlined text-[14px] text-outline">chevron_right</span>
+<span class="text-on-surface font-body-sm-medium text-body-sm-medium">Networking &amp; Gateways</span>
+</div>
+<!-- Title & Action Button Cluster -->
+<div class="flex flex-col xl:flex-row xl:items-center justify-between gap-space-lg">
+<div class="flex flex-col gap-space-xs">
+<div class="flex items-center flex-wrap gap-space-sm">
+<h1 class="font-display-xl text-display-xl text-on-surface tracking-tight">Virtual Networks &amp; Ingress Gateways</h1>
+<span class="px-2 py-0.5 bg-primary-fixed text-on-primary-fixed-variant rounded font-code-sm text-code-sm uppercase tracking-wider font-semibold shadow-sm">VPC v2.4 ENGINE</span>
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant rounded font-code-sm text-code-sm uppercase tracking-wider font-semibold flex items-center gap-1 shadow-sm">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>BGP Anycast Active
+          </span>
+</div>
+<p class="font-body-base text-body-base text-secondary max-w-4xl">
+          Isolated virtual private networks (VPCs), TAP device bindings, internal service discovery, and Layer 7 Edge ingress gateway routes.
+        </p>
+</div>
+<!-- Action Cluster -->
+<div class="flex items-center flex-wrap gap-space-sm">
+<button class="px-space-md h-9 bg-surface-container-lowest text-on-surface font-headline-sm text-headline-sm rounded shadow-sm hover:bg-surface-container-high transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary">shield</span>
+<span>Network Policy Rules</span>
+</button>
+<button class="px-space-md h-9 bg-surface-container-lowest text-on-surface font-headline-sm text-headline-sm rounded shadow-sm hover:bg-surface-container-high transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary">tune</span>
+<span>Configure Gateway</span>
+</button>
+<button class="px-space-md h-9 bg-primary text-on-primary font-headline-sm text-headline-sm rounded shadow-sm hover:bg-on-primary-fixed-variant transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Create Network</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Telemetry Metrics Grid (4 Cards) -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-space-md mb-space-xl">
+<!-- Card 1 -->
+<div class="bg-surface-container-lowest p-space-lg rounded shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between pb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Active Virtual Networks</span>
+<span class="material-symbols-outlined text-[20px] text-primary">lan</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<div class="flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface">4 VPCs</span>
+<span class="font-code-sm text-code-sm text-secondary bg-surface-container-high px-1.5 py-0.5 rounded">10.20.0.0/16</span>
+</div>
+<span class="font-body-sm text-body-sm text-secondary pt-1">Isolated Linux bridge subnets</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-lowest p-space-lg rounded shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between pb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Edge Gateways</span>
+<span class="material-symbols-outlined text-[20px] text-primary">router</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<div class="flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface">2 Active</span>
+<span class="font-caption-xs text-caption-xs text-tertiary bg-tertiary-fixed/30 px-1.5 py-0.5 rounded font-semibold">100% UP</span>
+</div>
+<span class="font-body-sm text-body-sm text-secondary truncate pt-1">gateway-01 (Primary), gateway-private</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-lowest p-space-lg rounded shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between pb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">TAP Interfaces</span>
+<span class="material-symbols-outlined text-[20px] text-tertiary">settings_ethernet</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<div class="flex items-baseline gap-space-sm">
+<span class="font-display-xl text-display-xl text-on-surface">38 Bound</span>
+<span class="font-code-sm text-code-sm text-tertiary flex items-center gap-1 font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>0 dropped
+          </span>
+</div>
+<span class="font-body-sm text-body-sm text-secondary pt-1">virtio-net MicroVM ring buffers</span>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-lowest p-space-lg rounded shadow-sm flex flex-col justify-between">
+<div class="flex items-center justify-between pb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Gateway Bandwidth</span>
+<span class="material-symbols-outlined text-[20px] text-primary">speed</span>
+</div>
+<div class="flex items-end justify-between gap-space-sm">
+<div class="flex flex-col">
+<span class="font-display-xl text-display-xl text-on-surface">1.42 GB/s</span>
+<span class="font-body-sm text-body-sm text-secondary">32.4 TB monthly egress</span>
+</div>
+<!-- Inline Telemetry Sparkline -->
+<div class="w-24 h-9">
+<svg class="w-full h-full text-primary" fill="none" preserveaspectratio="none" viewbox="0 0 96 36">
+<path d="M0 32 L12 28 L24 29 L36 18 L48 22 L60 12 L72 16 L84 4 L96 9" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"></path>
+<path d="M0 32 L12 28 L24 29 L36 18 L48 22 L60 12 L72 16 L84 4 L96 9 L96 36 L0 36 Z" fill="currentColor" fill-opacity="0.12"></path>
+</svg>
+</div>
+</div>
+</div>
+</div>
+<!-- SECTION 1: Edge Ingress Gateways & Public Listeners -->
+<div class="bg-surface-container-lowest rounded shadow-sm p-space-xl mb-space-xl flex flex-col gap-space-lg">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-md text-headline-md text-on-surface">Edge Ingress Gateways &amp; Public Listeners</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface-variant rounded font-code-sm text-code-sm">Envoy Core v1.28</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">
+          Global BGP Anycast ingress termination, automated TLS termination, and path-based upstream routing.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm">
+<button class="px-space-md h-8 bg-surface-container-low text-on-surface font-headline-sm text-headline-sm rounded hover:bg-surface-container transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px]">sync</span>
+<span>Refresh Routes</span>
+</button>
+<button class="px-space-md h-8 bg-primary text-on-primary font-headline-sm text-headline-sm rounded hover:bg-on-primary-fixed-variant transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px]">add</span>
+<span>Add Listener</span>
+</button>
+</div>
+</div>
+<!-- Gateways High-Density Table -->
+<div class="overflow-x-auto rounded bg-surface-container-lowest shadow-sm">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-secondary font-caption-xs text-caption-xs uppercase tracking-wider h-9">
+<th class="px-space-md">Gateway Identifier</th>
+<th class="px-space-md">Ports</th>
+<th class="px-space-md">Protocols / Ciphers</th>
+<th class="px-space-md">Attached Services</th>
+<th class="px-space-md">Throughput</th>
+<th class="px-space-md">Health</th>
+<th class="px-space-md text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-low font-body-sm text-body-sm">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-14">
+<td class="px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded bg-primary-fixed text-on-primary-fixed-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[16px]">public</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">gateway-01</span>
+<span class="font-code-sm text-code-sm text-secondary">anycast.ingress.porter.sh</span>
+</div>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface">80</span>
+<span class="font-code-sm text-code-sm bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface">443</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface">HTTP/2, TLS 1.3</span>
+<span class="font-caption-xs text-caption-xs text-secondary">ALPN [h2, http/1.1]</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="bg-surface-container px-2 py-0.5 rounded font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>api-production
+                </span>
+<span class="bg-surface-container px-2 py-0.5 rounded font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary"></span>web-storefront
+                </span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">840 MB/s</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Peak: 1.1 GB/s</span>
+</div>
+</td>
+<td class="px-space-md">
+<span class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded flex items-center gap-1.5 w-fit">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-pulse"></span>Healthy
+              </span>
+</td>
+<td class="px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 hover:bg-surface-container rounded text-secondary hover:text-on-surface" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-[18px]">alt_route</span>
+</button>
+<button class="p-1 hover:bg-surface-container rounded text-secondary hover:text-on-surface" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-14">
+<td class="px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-7 h-7 rounded bg-surface-container-high text-on-surface-variant flex items-center justify-center">
+<span class="material-symbols-outlined text-[16px]">vpn_lock</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">gateway-private</span>
+<span class="font-code-sm text-code-sm text-secondary">mesh.internal.porter.sh</span>
+</div>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-1.5">
+<span class="font-code-sm text-code-sm bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface">8080</span>
+<span class="font-code-sm text-code-sm bg-surface-container-high px-1.5 py-0.5 rounded text-on-surface">5432</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm text-body-sm text-on-surface">TCP / Internal mTLS</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Mutual TLS SPIFFE</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-1.5 flex-wrap">
+<span class="bg-surface-container px-2 py-0.5 rounded font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>worker-billing
+                </span>
+<span class="bg-surface-container px-2 py-0.5 rounded font-code-sm text-code-sm text-on-surface-variant flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span>postgres-cluster
+                </span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">580 MB/s</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Peak: 720 MB/s</span>
+</div>
+</td>
+<td class="px-space-md">
+<span class="px-2 py-1 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded flex items-center gap-1.5 w-fit">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>Healthy
+              </span>
+</td>
+<td class="px-space-md text-right">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 hover:bg-surface-container rounded text-secondary hover:text-on-surface" title="Inspect Rules" type="button">
+<span class="material-symbols-outlined text-[18px]">alt_route</span>
+</button>
+<button class="p-1 hover:bg-surface-container rounded text-secondary hover:text-on-surface" title="More Options" type="button">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Active Routing Rules Preview Strip -->
+<div class="bg-surface-container-low rounded p-space-md flex flex-col gap-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-primary">alt_route</span> Active Layer 7 Ingress Path Matchers
+        </span>
+<span class="font-code-sm text-code-sm text-secondary">Host: *.acme.cloud</span>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-space-sm">
+<div class="bg-surface-container-lowest p-space-sm rounded flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="px-1.5 py-0.5 bg-surface-container text-on-surface-variant font-code-sm text-code-sm rounded">/api/v1/*</span>
+<span class="material-symbols-outlined text-[16px] text-outline">arrow_forward</span>
+<span class="font-code-sm text-code-sm text-primary font-semibold">api-production:8080</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">Strip Prefix: False</span>
+</div>
+<div class="bg-surface-container-lowest p-space-sm rounded flex items-center justify-between">
+<div class="flex items-center gap-space-sm">
+<span class="px-1.5 py-0.5 bg-surface-container text-on-surface-variant font-code-sm text-code-sm rounded">/*</span>
+<span class="material-symbols-outlined text-[16px] text-outline">arrow_forward</span>
+<span class="font-code-sm text-code-sm text-primary font-semibold">web-storefront:3000</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">Strip Prefix: False</span>
+</div>
+</div>
+</div>
+</div>
+<!-- SECTION 2: Virtual Private Networks (VPCs) & Subnets -->
+<div class="bg-surface-container-lowest rounded shadow-sm p-space-xl mb-space-xl flex flex-col gap-space-lg">
+<!-- Header with Segmented Filter Pills -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-space-sm">
+<span class="font-headline-md text-headline-md text-on-surface">Virtual Private Networks (VPCs) &amp; Subnets</span>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface-variant rounded font-code-sm text-code-sm">eBPF Micro-Segmentation</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">
+          Decoupled L2 broadcast domains mapped directly to Firecracker microVM TAP interfaces with kernel IPAM.
+        </p>
+</div>
+<!-- Filter Controls -->
+<div class="flex items-center gap-1 bg-surface-container-low p-1 rounded">
+<button class="px-3 py-1 rounded bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm" type="button">All VPCs (3)</button>
+<button class="px-3 py-1 rounded text-secondary hover:text-on-surface font-body-sm text-body-sm transition-colors" type="button">Production</button>
+<button class="px-3 py-1 rounded text-secondary hover:text-on-surface font-body-sm text-body-sm transition-colors" type="button">Staging</button>
+<button class="px-3 py-1 rounded text-secondary hover:text-on-surface font-body-sm text-body-sm transition-colors" type="button">Internal</button>
+</div>
+</div>
+<!-- VPC Data Grid -->
+<div class="overflow-x-auto rounded bg-surface-container-lowest shadow-sm">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-secondary font-caption-xs text-caption-xs uppercase tracking-wider h-9">
+<th class="px-space-md">VPC Name</th>
+<th class="px-space-md">CIDR Block</th>
+<th class="px-space-md">Subnet Allocations</th>
+<th class="px-space-md">Attached MicroVMs</th>
+<th class="px-space-md">Internal DNS</th>
+<th class="px-space-md">State</th>
+<th class="px-space-md text-right">IPAM &amp; Management</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-low font-body-sm text-body-sm">
+<!-- VPC Row 1 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-14">
+<td class="px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-2.5 h-2.5 rounded-full bg-tertiary"></div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface font-semibold">prod-main</span>
+<span class="font-caption-xs text-caption-xs text-secondary">us-east-1a • Primary Transit</span>
+</div>
+</div>
+</td>
+<td class="px-space-md">
+<span class="font-code-sm text-code-sm bg-surface-container-high px-2 py-0.5 rounded text-on-surface font-medium">10.20.0.0/16</span>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-code-sm text-code-sm text-on-surface">10.20.1.0/24 <span class="text-secondary">(app-tier)</span></span>
+<span class="font-code-sm text-code-sm text-on-surface">10.20.2.0/24 <span class="text-secondary">(db-tier)</span></span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">26 instances</span>
+<span class="font-caption-xs text-caption-xs text-secondary bg-surface-container px-1 rounded">tap0-25</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-primary font-medium">10.20.0.2</span>
+<span class="font-caption-xs text-caption-xs text-secondary">internal.porter.local</span>
+</div>
+</td>
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded">Healthy</span>
+</td>
+<td class="px-space-md text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">IPAM</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Policy</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Routes</button>
+</div>
+</td>
+</tr>
+<!-- VPC Row 2 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-14">
+<td class="px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-2.5 h-2.5 rounded-full bg-tertiary"></div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface font-semibold">private-data</span>
+<span class="font-caption-xs text-caption-xs text-secondary">us-east-1b • Isolated Enclave</span>
+</div>
+</div>
+</td>
+<td class="px-space-md">
+<span class="font-code-sm text-code-sm bg-surface-container-high px-2 py-0.5 rounded text-on-surface font-medium">10.30.0.0/16</span>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-code-sm text-code-sm text-on-surface">10.30.1.0/24 <span class="text-secondary">(storage-pool)</span></span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">8 instances</span>
+<span class="font-caption-xs text-caption-xs text-secondary bg-surface-container px-1 rounded">tap26-33</span>
+</div>
+</td>
+<td class="px-space-md">
+<span class="font-caption-xs text-caption-xs bg-surface-container px-2 py-0.5 rounded text-secondary font-medium uppercase tracking-wider">Isolated</span>
+</td>
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded">Healthy</span>
+</td>
+<td class="px-space-md text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">IPAM</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Policy</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Routes</button>
+</div>
+</td>
+</tr>
+<!-- VPC Row 3 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-14">
+<td class="px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-2.5 h-2.5 rounded-full bg-tertiary"></div>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface font-semibold">staging-vpc</span>
+<span class="font-caption-xs text-caption-xs text-secondary">us-east-1a • Ephemeral Test</span>
+</div>
+</div>
+</td>
+<td class="px-space-md">
+<span class="font-code-sm text-code-sm bg-surface-container-high px-2 py-0.5 rounded text-on-surface font-medium">10.40.0.0/16</span>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col gap-0.5">
+<span class="font-code-sm text-code-sm text-on-surface">10.40.1.0/24 <span class="text-secondary">(preview-apps)</span></span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex items-center gap-space-xs">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">4 instances</span>
+<span class="font-caption-xs text-caption-xs text-secondary bg-surface-container px-1 rounded">tap34-37</span>
+</div>
+</td>
+<td class="px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-secondary font-medium">10.40.0.2</span>
+<span class="font-caption-xs text-caption-xs text-secondary">staging.porter.local</span>
+</div>
+</td>
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded">Healthy</span>
+</td>
+<td class="px-space-md text-right">
+<div class="flex items-center justify-end gap-space-xs">
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">IPAM</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Policy</button>
+<button class="px-2.5 py-1 bg-surface-container-low text-on-surface hover:bg-surface-container text-caption-xs font-caption-xs rounded transition-colors" type="button">Routes</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+<!-- SECTION 3: Bottom Split Architecture & Security Policy -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-space-xl mb-space-xl">
+<!-- Left Column (5 Cols): Architecture Technical Card -->
+<div class="xl:col-span-5 bg-surface-container-lowest rounded shadow-sm p-space-xl flex flex-col justify-between">
+<div class="flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface">Kernel Network Stack</span>
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">TAP Device &amp; Zero-Copy Fabric</span>
+</div>
+<span class="px-2 py-0.5 bg-primary-fixed text-on-primary-fixed-variant rounded font-code-sm text-code-sm font-semibold">AF_PACKET</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">
+          Kernel-bypass bridge routing mapping host Ethernet interfaces directly to guest Firecracker MicroVMs using Linux TAP devices with ring-buffer acceleration.
+        </p>
+<!-- Visual Architecture Flow Diagram -->
+<div class="bg-surface-container-low rounded p-space-md flex flex-col gap-space-sm">
+<!-- Step 1: Host Bridge -->
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">router</span>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">br-porter-main</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Linux L2 Bridge • MTU 1500</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-secondary bg-surface-container px-1.5 py-0.5 rounded">10.20.0.1</span>
+</div>
+<div class="flex justify-center -my-1">
+<span class="material-symbols-outlined text-[18px] text-outline">south</span>
+</div>
+<!-- Step 2: TAP Multiplex -->
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-tertiary">settings_ethernet</span>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">Host TAP Interfaces (tap0..tap37)</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Zero-copy Ring Buffer • IFF_NO_PI</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">38 Bound</span>
+</div>
+<div class="flex justify-center -my-1">
+<span class="material-symbols-outlined text-[18px] text-outline">south</span>
+</div>
+<!-- Step 3: Firecracker MicroVM -->
+<div class="flex items-center justify-between bg-surface-container-lowest p-space-sm rounded">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[18px] text-primary">memory</span>
+<div class="flex flex-col">
+<span class="font-body-base-medium text-body-base-medium text-on-surface">Guest MicroVM: eth0</span>
+<span class="font-caption-xs text-caption-xs text-secondary">virtio-net driver • Sub-millisecond latency</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-primary font-semibold">10.20.1.42</span>
+</div>
+</div>
+</div>
+<!-- Footer Micro-Metrics -->
+<div class="flex items-center justify-between pt-space-md border-t border-surface-container-high/40 mt-space-md">
+<span class="font-code-sm text-code-sm text-secondary">Jitter: &lt; 0.04ms</span>
+<span class="font-code-sm text-code-sm text-secondary">TX Ring: 1024</span>
+<span class="font-code-sm text-code-sm text-secondary">RX Ring: 1024</span>
+</div>
+</div>
+<!-- Right Column (7 Cols): Network Security Groups & Firewall Rules -->
+<div class="xl:col-span-7 bg-surface-container-lowest rounded shadow-sm p-space-xl flex flex-col gap-space-md">
+<div class="flex items-center justify-between">
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md text-on-surface">Network Security Groups &amp; Firewall Rules</span>
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">eBPF Packet Filter &amp; iptables Core</span>
+</div>
+<button class="px-space-md h-8 bg-surface-container-low text-on-surface font-headline-sm text-headline-sm rounded hover:bg-surface-container transition-colors flex items-center gap-space-xs" type="button">
+<span class="material-symbols-outlined text-[16px]">add</span>
+<span>Add Rule</span>
+</button>
+</div>
+<!-- Security Table -->
+<div class="overflow-x-auto rounded bg-surface-container-lowest shadow-sm">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low text-secondary font-caption-xs text-caption-xs uppercase tracking-wider h-9">
+<th class="px-space-md">Action</th>
+<th class="px-space-md">Direction</th>
+<th class="px-space-md">Port / Protocol</th>
+<th class="px-space-md">Source / Destination</th>
+<th class="px-space-md">Description</th>
+<th class="px-space-md text-right">Hit Count</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container-low font-body-sm text-body-sm">
+<!-- Rule 1 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-12">
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded font-semibold">ALLOW</span>
+</td>
+<td class="px-space-md font-body-sm text-body-sm text-secondary">Ingress</td>
+<td class="px-space-md font-code-sm text-code-sm text-on-surface">443 / TCP</td>
+<td class="px-space-md font-code-sm text-code-sm text-secondary">0.0.0.0/0</td>
+<td class="px-space-md text-on-surface">Public HTTPS Ingress Traffic</td>
+<td class="px-space-md text-right font-code-sm text-code-sm text-secondary">1.84M pkts</td>
+</tr>
+<!-- Rule 2 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-12">
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded font-semibold">ALLOW</span>
+</td>
+<td class="px-space-md font-body-sm text-body-sm text-secondary">Ingress</td>
+<td class="px-space-md font-code-sm text-code-sm text-on-surface">80 / TCP</td>
+<td class="px-space-md font-code-sm text-code-sm text-secondary">0.0.0.0/0</td>
+<td class="px-space-md text-on-surface">HTTP to HTTPS Redirect Handler</td>
+<td class="px-space-md text-right font-code-sm text-code-sm text-secondary">420K pkts</td>
+</tr>
+<!-- Rule 3 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-12">
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-error-container text-on-error-container font-code-sm text-code-sm rounded font-semibold">DENY</span>
+</td>
+<td class="px-space-md font-body-sm text-body-sm text-secondary">Ingress</td>
+<td class="px-space-md font-code-sm text-code-sm text-on-surface">5432 / TCP</td>
+<td class="px-space-md font-code-sm text-code-sm text-secondary">!10.20.0.0/16</td>
+<td class="px-space-md text-on-surface">Deny External Postgres Access</td>
+<td class="px-space-md text-right font-code-sm text-code-sm text-secondary">12.4K pkts</td>
+</tr>
+<!-- Rule 4 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors h-12">
+<td class="px-space-md">
+<span class="px-2 py-0.5 bg-tertiary-fixed text-on-tertiary-fixed-variant font-code-sm text-code-sm rounded font-semibold">ALLOW</span>
+</td>
+<td class="px-space-md font-body-sm text-body-sm text-secondary">Egress</td>
+<td class="px-space-md font-code-sm text-code-sm text-on-surface">ANY / ALL</td>
+<td class="px-space-md font-code-sm text-code-sm text-secondary">0.0.0.0/0</td>
+<td class="px-space-md text-on-surface">Default Egress Gateway Routing</td>
+<td class="px-space-md text-right font-code-sm text-code-sm text-secondary">9.42M pkts</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Quick Rule Diagnostics Status -->
+<div class="flex items-center justify-between bg-surface-container-low p-space-sm rounded">
+<div class="flex items-center gap-space-xs text-secondary font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+<span>eBPF bytecode JIT compiled to x86_64 successfully (0 dropped packet interrupts)</span>
+</div>
+<button class="text-primary font-caption-xs text-caption-xs hover:underline flex items-center gap-0.5" type="button">
+<span>Audit Logs</span>
+<span class="material-symbols-outlined text-[14px]">arrow_outward</span>
+</button>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

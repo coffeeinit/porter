@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width,initial-scale=1" name="viewport"/>
+<title>Porter — Workspace Overview</title>
+<style>
+:root{
+  --ink:#1D1D1F;--ink2:#6E6E73;--ink3:#8E8E93;
+  --hair:rgba(0,0,0,.08);--soft:rgba(0,0,0,.045);
+  --surface:rgba(255,255,255,.78);--solid:#F7F7F9;
+  --blue:#0071E3;--blue2:#0077ED;--green:#30D158;
+  --orange:#FF9F0A;--purple:#BF5AF2;--red:#FF453A;
+  --r:14px;--r2:10px;--header:58px;--sidebar-w:256px;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-font-smoothing:antialiased}
+html,body{min-height:100%;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display",Inter,Arial,sans-serif;color:var(--ink);background:var(--solid);letter-spacing:-.01em}
+body{font-size:13px}button,input,select,textarea{font:inherit;color:inherit}button{border:0;background:none;cursor:pointer}a{color:inherit;text-decoration:none}
+svg.icon{width:18px;height:18px;display:inline-block;vertical-align:middle;flex:none;stroke-width:1.7}.icon.sm{width:15px;height:15px}.icon.lg{width:22px;height:22px}
+.app{min-height:100vh;display:flex;flex-direction:column}
+.topbar{height:var(--header);position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;padding:0 24px;background:rgba(247,247,249,.92);backdrop-filter:blur(24px) saturate(180%);border-bottom:.5px solid var(--hair);flex:none}
+.brand{display:flex;align-items:center;gap:9px;font-weight:650;font-size:15px;min-width:110px;cursor:pointer}
+.mark{width:25px;height:25px;border-radius:8px;background:linear-gradient(160deg,#303033,#000);display:grid;place-items:center}
+.mark svg{width:15px;height:15px}
+.search{height:34px;width:min(430px,40vw);display:flex;align-items:center;gap:7px;background:rgba(0,0,0,.045);border-radius:9px;padding:0 10px;color:var(--ink2)}
+.search input{border:0;outline:0;background:transparent;width:100%;font-size:12px}
+.search kbd{font-size:9px;border:1px solid var(--hair);border-radius:5px;padding:2px 5px;color:var(--ink3);white-space:nowrap}
+.top-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.top-btn{height:32px;padding:0 9px;border-radius:8px;color:var(--ink2);display:flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid transparent;transition:all .15s}
+.top-btn:hover{background:rgba(0,0,0,.05)}
+.badge{background:var(--blue);color:#fff;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:600}
+.avatar{width:25px;height:25px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(160deg,#777,#333);color:#fff;font-size:10px;font-weight:650}
+.mode{display:flex;padding:2px;background:rgba(0,0,0,.045);border-radius:8px}
+.mode button{font-size:10.5px;padding:6px 11px;border-radius:6px;color:var(--ink2);font-weight:500;transition:all .15s}
+.mode button.active{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08);font-weight:600}
+
+/* App Body with 2-Column Structure */
+.app-body{display:flex;flex:1;min-height:calc(100vh - var(--header));position:relative}
+
+/* Sidebar Styling */
+.sidebar{
+  width:var(--sidebar-w);
+  flex:0 0 var(--sidebar-w);
+  height:calc(100vh - var(--header));
+  position:sticky;
+  top:var(--header);
+  background:rgba(255,255,255,.78);
+  backdrop-filter:blur(20px) saturate(180%);
+  border-right:.5px solid var(--hair);
+  display:flex;
+  flex-direction:column;
+  padding:14px 12px;
+  overflow-y:auto;
+  z-index:30;
+}
+.sidebar::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(0,0,0,.1);border-radius:4px}
+
+.sidebar-top{margin-bottom:8px}
+.sidebar-ws-btn{
+  width:100%;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:8px 10px;
+  border-radius:9px;
+  background:rgba(0,0,0,.035);
+  border:1px solid var(--hair);
+  font-size:12.5px;
+  font-weight:600;
+  color:var(--ink);
+  transition:background .15s, border-color .15s;
+}
+.sidebar-ws-btn:hover{background:rgba(0,0,0,.06)}
+.sidebar-ws-info{display:flex;align-items:center;gap:8px}
+.ws-dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 2px rgba(48,209,88,.2)}
+
+.sidebar-nav{display:flex;flex-direction:column;gap:16px;flex:1}
+.sidebar-section-title{
+  font-size:10px;
+  font-weight:650;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--ink3);
+  padding:4px 8px;
+}
+.sidebar-items{display:flex;flex-direction:column;gap:1.5px}
+.sidebar-link{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:7px 10px;
+  border-radius:8px;
+  font-size:12px;
+  font-weight:500;
+  color:var(--ink2);
+  transition:all .14s;
+  text-decoration:none;
+}
+.sidebar-link:hover{
+  background:rgba(0,0,0,.045);
+  color:var(--ink);
+}
+.sidebar-link.active{
+  background:rgba(0,113,227,.09);
+  color:var(--blue);
+  font-weight:600;
+}
+.sidebar-link-content{display:flex;align-items:center;gap:9px}
+.sidebar-link-content svg{color:inherit;opacity:.85}
+.sidebar-link.active .sidebar-link-content svg{opacity:1;color:var(--blue)}
+.badge-count{
+  background:rgba(0,0,0,.045);
+  padding:2px 6px;
+  border-radius:6px;
+  font-size:10.5px;
+  font-weight:550;
+  color:var(--ink2);
+  margin-left:auto;
+}
+
+.sidebar-footer{margin-top:auto;padding-top:16px;display:flex;flex-direction:column;gap:12px;border-top:.5px solid var(--hair)}
+.plan-card{
+  background:rgba(0,0,0,.03);
+  border:1px solid var(--hair);
+  border-radius:9px;
+  padding:10px 12px;
+}
+.plan-row{display:flex;justify-content:space-between;align-items:center;font-size:11.5px;font-weight:600}
+.plan-bar{width:100%;height:5px;background:rgba(0,0,0,.08);border-radius:3px;margin:8px 0 6px;overflow:hidden}
+.plan-fill{width:56%;height:100%;background:var(--blue);border-radius:3px}
+.plan-sub{display:flex;justify-content:space-between;font-size:10px;color:var(--ink3)}
+.sidebar-bottom-links{display:flex;align-items:center;justify-content:center;gap:6px;font-size:10px;color:var(--ink3)}
+.sidebar-bottom-links a:hover{color:var(--ink);text-decoration:underline}
+
+/* Main Content Area */
+.main-wrap{flex:1;min-width:0;overflow-y:auto}
+.main{max-width:1440px;margin:0 auto;padding:24px 32px 70px;width:100%}
+.card{background:var(--surface);backdrop-filter:blur(22px) saturate(160%);border:.5px solid var(--hair);border-radius:var(--r);box-shadow:0 1px 2px rgba(0,0,0,.025);overflow:hidden}
+
+.home-intro{padding:22px 26px;margin-bottom:18px;display:flex;justify-content:space-between;align-items:center;gap:20px}
+.home-intro h2{font-size:20px;font-weight:650;letter-spacing:-.02em}
+.home-intro p{font-size:12.5px;color:var(--ink2);margin-top:4px}
+.context{display:flex;align-items:center;gap:8px;padding:8px 13px;border:1px solid var(--hair);border-radius:9px;background:rgba(255,255,255,.8);font-size:11.5px;cursor:pointer;transition:background .15s}
+.context:hover{background:#fff}
+.context strong{font-size:12px;color:var(--ink)}
+
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px}
+.stat{padding:16px 18px}
+.stat .label{font-size:11px;color:var(--ink2);font-weight:550}
+.stat .value{font-size:24px;font-weight:650;margin-top:4px;letter-spacing:-.02em}
+.stat .meta{font-size:10.5px;color:var(--ink2);margin-top:5px}
+.good{color:var(--green)!important}
+.warn{color:var(--orange)!important}
+.bad{color:var(--red)!important}
+
+.home-section{margin-top:22px}
+.section-title{display:flex;align-items:center;justify-content:space-between;margin:0 3px 10px}
+.section-title h3{font-size:13.5px;font-weight:650;letter-spacing:-.01em}
+.section-title span{font-size:11px;color:var(--ink2)}
+
+.card-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.nav-card{padding:18px;min-height:128px;cursor:pointer;transition:transform .14s,box-shadow .14s,border-color .14s;position:relative}
+.nav-card:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.06);border-color:rgba(0,113,227,.28)}
+.nav-icon{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:rgba(0,113,227,.08);color:var(--blue);margin-bottom:12px}
+.nav-card h4{font-size:13px;font-weight:600}
+.nav-card p{font-size:11px;line-height:1.45;color:var(--ink2);margin-top:4px}
+.nav-card .count{position:absolute;top:18px;right:18px;color:var(--ink2);font-size:11px;font-weight:550;background:rgba(0,0,0,.04);padding:2px 7px;border-radius:6px}
+
+.footer-note{margin-top:35px;color:var(--ink3);font-size:10px;text-align:center}
+
+@media(max-width:1280px){
+  .card-grid{grid-template-columns:repeat(3,1fr)}
+  .stats{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:1024px){
+  .sidebar{display:none}
+  .card-grid{grid-template-columns:repeat(2,1fr)}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .main{padding:18px 20px 50px}
+}
+@media(max-width:640px){
+  .card-grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr}
+  .home-intro{flex-direction:column;align-items:flex-start}
+}
+</style>
+</head>
+<body>
+<svg height="0" style="position:absolute" width="0">
+<symbol id="mark" viewbox="0 0 24 24"><path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z" fill="none" stroke="#fff" stroke-width="1.6"></path><path d="M8 11l4-2 4 2v3l-4 2-4-2v-3Z" fill="#fff"></path></symbol>
+<symbol id="search" viewbox="0 0 24 24"><circle cx="10.5" cy="10.5" fill="none" r="6.5" stroke="currentColor"></circle><path d="m16 16 5 5" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="chevron" viewbox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="bell" viewbox="0 0 24 24"><path d="M6 17h12l-1.5-2V10a4.5 4.5 0 0 0-9 0v5L6 17Z" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="grid" viewbox="0 0 24 24"><rect fill="none" height="7" rx="1.5" stroke="currentColor" width="7" x="3" y="3"></rect><rect fill="none" height="7" rx="1.5" stroke="currentColor" width="7" x="14" y="3"></rect><rect fill="none" height="7" rx="1.5" stroke="currentColor" width="7" x="3" y="14"></rect><rect fill="none" height="7" rx="1.5" stroke="currentColor" width="7" x="14" y="14"></rect></symbol>
+<symbol id="folder" viewbox="0 0 24 24"><path d="M3 7h7l2 2h9v10H3V7Z" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="rocket" viewbox="0 0 24 24"><path d="M12 2c3 4 4 8 4 12H8c0-4 1-8 4-12Z" fill="none" stroke="currentColor"></path><circle cx="12" cy="9" fill="none" r="2" stroke="currentColor"></circle><path d="M8 14c-3 1-5 4-5 6 2 0 5-2 6-4M16 14c3 1 5 4 5 6-2 0-5-2-6-4" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="layers" viewbox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5ZM3 12l9 5 9-5M3 16l9 5 9-5" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="globe" viewbox="0 0 24 24"><circle cx="12" cy="12" fill="none" r="9" stroke="currentColor"></circle><path d="M3 12h18M12 3c2.5 2.5 3.5 5.5 3.5 9S14.5 18.5 12 21c-2.5-2.5-3.5-6-3.5-9S9.5 5.5 12 3Z" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="settings" viewbox="0 0 24 24"><circle cx="12" cy="12" fill="none" r="3" stroke="currentColor"></circle><path d="M19 15l2 1M5 8 3 7M12 3v2M12 19v2M19 9l2-1M5 16l-2 1" stroke="currentColor"></path></symbol>
+<symbol id="shield" viewbox="0 0 24 24"><path d="M12 3 20 6v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z" fill="none" stroke="currentColor"></path><path d="m9 12 2 2 4-5" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="harddrive" viewbox="0 0 24 24"><rect fill="none" height="14" rx="2" stroke="currentColor" width="18" x="3" y="5"></rect><path d="M6 15h12M7 9h.01M10 9h.01" stroke="currentColor" stroke-width="2"></path></symbol>
+<symbol id="terminal" viewbox="0 0 24 24"><rect fill="none" height="16" rx="2" stroke="currentColor" width="18" x="3" y="4"></rect><path d="m7 9 3 3-3 3m5 0h4" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="chart" viewbox="0 0 24 24"><path d="M4 20V4M4 20h16M7 15l3-4 3 2 5-7" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="network" viewbox="0 0 24 24"><circle cx="12" cy="5" fill="none" r="2" stroke="currentColor"></circle><circle cx="5" cy="19" fill="none" r="2" stroke="currentColor"></circle><circle cx="19" cy="19" fill="none" r="2" stroke="currentColor"></circle><path d="M12 7v3M12 10 5 17M12 10l7 7" stroke="currentColor"></path></symbol>
+<symbol id="refresh" viewbox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.8-4M4 5v5h5M4 13a8 8 0 0 0 14.8 4M20 19v-5h-5" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="users" viewbox="0 0 24 24"><circle cx="9" cy="8" fill="none" r="3" stroke="currentColor"></circle><path d="M3 20c.7-4 2.6-6 6-6s5.3 2 6 6M16 5.5a3 3 0 0 1 0 5.5M17 14c2.2.4 3.5 2.2 4 5" fill="none" stroke="currentColor"></path></symbol>
+<symbol id="credit" viewbox="0 0 24 24"><rect fill="none" height="14" rx="2" stroke="currentColor" width="18" x="3" y="5"></rect><path d="M3 10h18M7 15h4" stroke="currentColor"></path></symbol>
+</svg>
+<div class="app">
+<header class="topbar">
+<div class="brand">
+<span class="mark"><svg><use href="#mark"></use></svg></span>
+      Porter
+    </div>
+<div class="mode">
+<button class="active">Customer</button>
+<button>Admin</button>
+</div>
+<div class="search">
+<svg class="icon sm"><use href="#search"></use></svg>
+<input placeholder="Search Porter resources, services, logs..."/>
+<kbd>⌘K</kbd>
+</div>
+<div class="top-actions">
+<button class="top-btn">
+<svg class="icon"><use href="#bell"></use></svg>
+<span>Notifications</span>
+<span class="badge">7</span>
+</button>
+<button class="top-btn">
+<span>Acme Systems</span>
+<svg class="icon sm"><use href="#chevron"></use></svg>
+</button>
+<button class="top-btn">
+<svg class="icon"><use href="#grid"></use></svg>
+<span>Menu</span>
+</button>
+<button class="top-btn" style="padding:0">
+<span class="avatar">A</span>
+</button>
+</div>
+</header>
+<div class="app-body">
+<aside class="sidebar">
+<div class="sidebar-top">
+<button class="sidebar-ws-btn">
+<div class="sidebar-ws-info">
+<span class="ws-dot"></span>
+<span>Acme Systems</span>
+</div>
+<svg class="icon sm"><use href="#chevron"></use></svg>
+</button>
+</div>
+<nav class="sidebar-nav">
+<div>
+<div class="sidebar-section-title">Main</div>
+<div class="sidebar-items">
+<a class="sidebar-link active" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#grid"></use></svg>
+<span>Overview</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#rocket"></use></svg>
+<span>Applications</span>
+</div>
+<span class="badge-count">12</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#rocket"></use></svg>
+<span>Deployments</span>
+</div>
+<span class="badge-count">38</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#folder"></use></svg>
+<span>Projects</span>
+</div>
+<span class="badge-count">6</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#layers"></use></svg>
+<span>Environments</span>
+</div>
+<span class="badge-count">9</span>
+</a>
+</div>
+</div>
+<div>
+<div class="sidebar-section-title">Configuration</div>
+<div class="sidebar-items">
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#globe"></use></svg>
+<span>Domains</span>
+</div>
+<span class="badge-count">8</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#settings"></use></svg>
+<span>Variables</span>
+</div>
+<span class="badge-count">54</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#shield"></use></svg>
+<span>Secrets</span>
+</div>
+<span class="badge-count">23</span>
+</a>
+</div>
+</div>
+<div>
+<div class="sidebar-section-title">Runtime &amp; Ops</div>
+<div class="sidebar-items">
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#terminal"></use></svg>
+<span>Logs</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#chart"></use></svg>
+<span>Metrics</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#harddrive"></use></svg>
+<span>Storage</span>
+</div>
+<span class="badge-count">410GB</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#network"></use></svg>
+<span>Networking</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#refresh"></use></svg>
+<span>Cron &amp; jobs</span>
+</div>
+<span class="badge-count">4</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#harddrive"></use></svg>
+<span>Backups</span>
+</div>
+<span class="badge-count">18</span>
+</a>
+</div>
+</div>
+<div>
+<div class="sidebar-section-title">Team &amp; Settings</div>
+<div class="sidebar-items">
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#users"></use></svg>
+<span>Team</span>
+</div>
+<span class="badge-count">8</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#chart"></use></svg>
+<span>Usage</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#credit"></use></svg>
+<span>Billing</span>
+</div>
+<span class="badge-count">$284</span>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#settings"></use></svg>
+<span>Settings</span>
+</div>
+</a>
+<a class="sidebar-link" href="#">
+<div class="sidebar-link-content">
+<svg class="icon sm"><use href="#bell"></use></svg>
+<span>Support</span>
+</div>
+<span class="badge-count">2</span>
+</a>
+</div>
+</div>
+</nav>
+<div class="sidebar-footer">
+<div class="plan-card">
+<div class="plan-row">
+<span>Pro Plan</span>
+<span class="good">Healthy</span>
+</div>
+<div class="plan-bar"><div class="plan-fill"></div></div>
+<div class="plan-sub">
+<span>$284 used</span>
+<span>$500 limit</span>
+</div>
+</div>
+<div class="sidebar-bottom-links">
+<a href="#">Docs &amp; Guides</a>
+<span style="color:var(--hair)">·</span>
+<a href="#">API Keys</a>
+<span style="color:var(--hair)">·</span>
+<a href="#">v2.8.4</a>
+</div>
+</div>
+</aside>
+<div class="main-wrap"><main class="main">
+<!-- Intro Banner -->
+<div class="home-intro card">
+<div>
+<h2>Workspace overview</h2>
+<p>Everything you need to build, deploy and operate your applications.</p>
+</div>
+<button class="context">
+<span>Workspace</span>
+<strong>Acme Systems</strong>
+<svg class="icon sm"><use href="#chevron"></use></svg>
+</button>
+</div>
+<!-- Live Stat KPIs -->
+<div class="stats">
+<div class="card stat">
+<div class="label">Applications</div>
+<div class="value">12</div>
+<div class="meta good">11 healthy · 1 degraded</div>
+</div>
+<div class="card stat">
+<div class="label">Deployments</div>
+<div class="value">38</div>
+<div class="meta">3 this week</div>
+</div>
+<div class="card stat">
+<div class="label">CPU Allocation</div>
+<div class="value">22%</div>
+<div class="meta good">2 vCPU allocated</div>
+</div>
+<div class="card stat">
+<div class="label">Memory Usage</div>
+<div class="value">41%</div>
+<div class="meta">5.2 GB allocated</div>
+</div>
+<div class="card stat">
+<div class="label">Current usage</div>
+<div class="value">$284</div>
+<div class="meta">of $500 plan limit</div>
+</div>
+</div>
+<!-- Category 1: Build & Deploy -->
+<section class="home-section">
+<div class="section-title">
+<h3>Build &amp; deploy</h3>
+<span>4 areas</span>
+</div>
+<div class="card-grid">
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#folder"></use></svg></span>
+<span class="count">6</span>
+<h4>Projects</h4>
+<p>Organize applications by product or team</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#rocket"></use></svg></span>
+<span class="count">12</span>
+<h4>Applications</h4>
+<p>Deploy and operate your services</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#rocket"></use></svg></span>
+<span class="count">38</span>
+<h4>Deployments</h4>
+<p>Releases, rollbacks and build history</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#layers"></use></svg></span>
+<span class="count">9</span>
+<h4>Environments</h4>
+<p>Production, staging and development</p>
+</div>
+</div>
+</section>
+<!-- Category 2: Configuration -->
+<section class="home-section">
+<div class="section-title">
+<h3>Configuration</h3>
+<span>3 areas</span>
+</div>
+<div class="card-grid">
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#globe"></use></svg></span>
+<span class="count">8</span>
+<h4>Domains</h4>
+<p>Custom domains and TLS</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#settings"></use></svg></span>
+<span class="count">54</span>
+<h4>Variables</h4>
+<p>Environment configuration</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#shield"></use></svg></span>
+<span class="count">23</span>
+<h4>Secrets</h4>
+<p>Encrypted application secrets</p>
+</div>
+</div>
+</section>
+<!-- Category 3: Runtime -->
+<section class="home-section">
+<div class="section-title">
+<h3>Runtime</h3>
+<span>6 areas</span>
+</div>
+<div class="card-grid">
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#harddrive"></use></svg></span>
+<span class="count">410 GB</span>
+<h4>Storage</h4>
+<p>Volumes, snapshots and backups</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#terminal"></use></svg></span>
+<h4>Logs</h4>
+<p>Application and system logs</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#chart"></use></svg></span>
+<h4>Metrics</h4>
+<p>CPU, memory, traffic and latency</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#network"></use></svg></span>
+<h4>Networking</h4>
+<p>Ports, routes and private networks</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#refresh"></use></svg></span>
+<span class="count">4</span>
+<h4>Cron &amp; jobs</h4>
+<p>Scheduled and one-shot workloads</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#harddrive"></use></svg></span>
+<span class="count">18</span>
+<h4>Backups</h4>
+<p>Recovery points and restore</p>
+</div>
+</div>
+</section>
+<!-- Category 4: Team & Account -->
+<section class="home-section">
+<div class="section-title">
+<h3>Team &amp; account</h3>
+<span>5 areas</span>
+</div>
+<div class="card-grid">
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#users"></use></svg></span>
+<span class="count">8</span>
+<h4>Team</h4>
+<p>Members, roles and access</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#chart"></use></svg></span>
+<h4>Usage</h4>
+<p>Resource consumption and meters</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#credit"></use></svg></span>
+<span class="count">$284</span>
+<h4>Billing</h4>
+<p>Plan, invoices and payment</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#settings"></use></svg></span>
+<h4>Settings</h4>
+<p>Workspace and account settings</p>
+</div>
+<div class="card nav-card">
+<span class="nav-icon"><svg class="icon"><use href="#bell"></use></svg></span>
+<span class="count">2</span>
+<h4>Support</h4>
+<p>Tickets and support access</p>
+</div>
+</div>
+</section>
+<div class="footer-note">Porter UI / UX Master Reference · single-surface high-fidelity design</div>
+</main>
+</div></div>
+</div>
+</body></html>

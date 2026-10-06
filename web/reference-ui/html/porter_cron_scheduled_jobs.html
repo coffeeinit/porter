@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Porter Cloud Infrastructure Control Plane</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "outline-variant": "#c2c6d7", "background": "#f9f9ff", "surface-container-lowest": "#ffffff", "inverse-primary": "#b0c6ff", "primary-fixed": "#d9e2ff", "error-container": "#ffdad6", "secondary-fixed-dim": "#c6c6cb", "surface": "#f9f9ff", "secondary": "#5d5e63", "primary": "#0056c8", "on-primary": "#ffffff", "on-surface": "#151c27", "on-primary-fixed-variant": "#00429c", "on-error-container": "#93000a", "inverse-on-surface": "#ebf1ff", "on-secondary-container": "#636469", "on-secondary-fixed": "#1a1c20", "primary-fixed-dim": "#b0c6ff", "surface-container-low": "#eff3ff", "outline": "#727786", "inverse-surface": "#2a313c", "on-secondary-fixed-variant": "#45474b", "surface-variant": "#dce3f2", "tertiary-fixed-dim": "#5fdd9d", "on-background": "#151c27", "tertiary": "#006b43", "secondary-container": "#e2e2e8", "error": "#ba1a1a", "tertiary-container": "#008755", "surface-container-highest": "#dce3f2", "on-primary-fixed": "#001945", "on-tertiary-fixed": "#002111", "on-tertiary": "#ffffff", "surface-bright": "#f9f9ff", "on-tertiary-fixed-variant": "#005232", "on-error": "#ffffff", "secondary-fixed": "#e2e2e8", "surface-container-high": "#e2e8f7", "on-secondary": "#ffffff", "tertiary-fixed": "#7dfab7", "surface-container": "#e7eefd", "on-tertiary-container": "#fefffa", "surface-dim": "#d3dae9", "surface-tint": "#0058cb", "on-primary-container": "#fffdff", "primary-container": "#146ef5", "on-surface-variant": "#424655" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-lg": "1rem", "gutter": "1rem", "space-xl": "1.5rem", "space-xs": "0.25rem", "space-md": "0.75rem", "margin": "1.5rem", "space-sm": "0.5rem" }, "fontFamily": { "code-sm": ["JetBrains Mono"], "body-sm-medium": ["Inter"], "display-xl": ["Inter"], "headline-lg": ["Inter"], "body-base": ["Inter"], "caption-xs": ["Inter"], "code-base": ["JetBrains Mono"], "body-sm": ["Inter"], "headline-sm": ["Inter"], "body-base-medium": ["Inter"], "headline-md": ["Inter"] }, "fontSize": { "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "body-sm-medium": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "500" }], "display-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "body-base": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "caption-xs": ["11px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "code-base": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "400" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "headline-sm": ["15px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }], "body-base-medium": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }] } } } };</script></head><body class="bg-background font-body-base text-on-surface antialiased"><aside class="fixed left-0 top-0 h-screen w-64 bg-surface-container-lowest border-r border-outline-variant/40 z-50 flex flex-col justify-between overflow-y-auto"><div class="flex flex-col"><div class="h-14 px-space-md border-b border-outline-variant/30 flex items-center justify-between"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 bg-on-surface text-surface-container-lowest rounded-lg flex items-center justify-center font-headline-md text-headline-md">P</div><span class="font-headline-sm text-headline-sm tracking-tight text-on-surface">Porter</span></div><span class="px-space-xs py-0.5 bg-surface-container-high rounded text-on-surface-variant font-caption-xs text-caption-xs uppercase">Admin</span></div><div class="p-space-sm border-b border-outline-variant/30"><div class="flex items-center justify-between px-space-sm py-1.5 bg-surface-container-low rounded-lg hover:bg-surface-container transition-colors cursor-pointer"><div class="flex items-center gap-space-sm min-w-0"><span class="w-2 h-2 rounded-full bg-tertiary ring-2 ring-tertiary-fixed"></span><div class="flex flex-col truncate"><span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">Acme Cloud</span><span class="font-code-sm text-code-sm text-on-surface-variant truncate">us-east-prod</span></div></div><span class="material-symbols-outlined text-on-surface-variant text-[18px]">unfold_more</span></div></div><nav class="flex flex-col px-space-sm py-space-sm gap-space-sm" data-active-classes="bg-primary-container text-on-primary-container font-headline-sm"><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Core Compute</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#"><span class="material-symbols-outlined text-[18px]">apps</span><span>Applications</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#"><span class="material-symbols-outlined text-[18px]">rocket_launch</span><span>Deployments</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Configuration &amp; Ingress</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#"><span class="material-symbols-outlined text-[18px]">language</span><span>Domains &amp; DNS</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#"><span class="material-symbols-outlined text-[18px]">tune</span><span>Environment Variables</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#"><span class="material-symbols-outlined text-[18px]">key</span><span>Secrets</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Runtime &amp; Ops</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#"><span class="material-symbols-outlined text-[18px]">terminal</span><span>Logs Explorer</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#"><span class="material-symbols-outlined text-[18px]">monitoring</span><span>Metrics &amp; Observability</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#"><span class="material-symbols-outlined text-[18px]">hard_drive</span><span>Storage &amp; Volumes</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#"><span class="material-symbols-outlined text-[18px]">hub</span><span>Networking &amp; Gateways</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#"><span class="material-symbols-outlined text-[18px]">schedule</span><span>Cron &amp; Scheduled Jobs</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#"><span class="material-symbols-outlined text-[18px]">history</span><span>Backups &amp; Recovery</span></a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary">Team &amp; Commercial</span></div><div class="flex flex-col gap-0.5"><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#"><span class="material-symbols-outlined text-[18px]">group</span><span>Team &amp; Access</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#"><span class="material-symbols-outlined text-[18px]">task</span><span>Tasks &amp; Operations</span></a><a class="flex items-center gap-space-sm px-space-sm py-1.5 rounded text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#"><span class="material-symbols-outlined text-[18px]">credit_card</span><span>Billing &amp; Usage</span></a></div></nav></div><div class="p-space-sm border-t border-outline-variant/30 flex flex-col gap-space-sm"><div class="bg-surface-container-low border border-outline-variant/30 rounded-lg p-space-sm flex flex-col gap-1.5"><div class="flex items-center justify-between"><span class="font-caption-xs text-caption-xs uppercase text-on-surface font-semibold">Pro Plan</span><span class="px-1.5 py-0.2 bg-tertiary/10 text-tertiary border border-tertiary/20 rounded-full font-caption-xs text-caption-xs flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>Operational</span></div><div class="flex items-baseline justify-between"><span class="font-body-sm-medium text-body-sm-medium text-on-surface">$284 <span class="text-secondary font-body-sm text-body-sm">/ $500</span></span><span class="font-code-sm text-code-sm text-on-surface-variant">41%</span></div><div class="w-full bg-secondary-container h-1 rounded-full overflow-hidden"><div class="bg-primary h-full w-[41%]"></div></div></div><div class="flex items-center justify-between px-space-xs text-on-surface-variant"><div class="flex items-center gap-space-sm"><a class="font-caption-xs text-caption-xs hover:text-on-surface transition-colors" href="#">Docs</a><span class="text-outline-variant font-caption-xs text-caption-xs">•</span><a class="font-caption-xs text-caption-xs hover:text-on-surface transition-colors" href="#">API</a></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-14 bg-surface-container-lowest border-b border-outline-variant/40 z-40 flex items-center justify-between px-margin"><div class="flex items-center w-full max-w-lg"><div class="relative w-full"><span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-outline text-[18px]">search</span><input class="w-full h-8 pl-8 pr-12 bg-surface-container-low border border-outline-variant/40 rounded text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:border-primary" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center"><kbd class="px-1.5 py-0.5 bg-surface-container-lowest border border-outline-variant/50 rounded font-code-sm text-code-sm text-outline shadow-sm">⌘K</kbd></div></div></div><div class="flex items-center gap-space-md"><button aria-label="Notifications" class="relative p-1.5 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-error ring-2 ring-surface-container-lowest"></span></button><button aria-label="Help Documentation" class="p-1.5 text-on-surface-variant hover:text-on-surface rounded hover:bg-surface-container-low transition-colors" type="button"><span class="material-symbols-outlined text-[20px]">help_outline</span></button><div class="h-4 w-px bg-outline-variant/40"></div><div class="flex items-center gap-space-sm pl-space-xs"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-sm"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><main class="w-full pt-14 bg-background px-margin"><div class="flex flex-col w-full pb-16">
+<!-- Top Region / Breadcrumbs & Action Bar -->
+<div class="flex flex-col gap-space-sm pt-space-lg mb-space-lg">
+<div class="flex items-center gap-2 text-on-surface-variant font-caption-xs text-caption-xs uppercase tracking-wider">
+<span class="hover:text-on-surface cursor-pointer transition-colors">Home</span>
+<span class="text-outline-variant font-caption-xs text-caption-xs">/</span>
+<span class="hover:text-on-surface cursor-pointer transition-colors">Runtime &amp; Ops</span>
+<span class="text-outline-variant font-caption-xs text-caption-xs">/</span>
+<span class="text-primary font-headline-sm text-caption-xs">Cron &amp; Scheduled Jobs</span>
+</div>
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
+<div class="flex flex-col gap-1 max-w-3xl">
+<div class="flex items-center gap-space-sm flex-wrap">
+<h1 class="font-display-xl text-display-xl tracking-tight text-on-surface font-semibold">Scheduled Jobs &amp; One-Shot Workloads</h1>
+<div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary">
+<span class="relative flex h-2 w-2">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-tertiary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-2 w-2 bg-tertiary"></span>
+</span>
+<span class="font-caption-xs text-caption-xs font-semibold uppercase tracking-wide">Scheduler v3.2 Active</span>
+</div>
+</div>
+<p class="font-body-base text-body-base text-on-surface-variant">
+          Cron schedules, distributed batch execution, one-shot maintenance jobs, and automated retry policies in isolated MicroVM sandboxes.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm self-start lg:self-center flex-wrap">
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface hover:bg-surface-container-low shadow-sm transition-all font-body-sm-medium text-body-sm-medium" type="button">
+<span class="material-symbols-outlined text-[17px] text-on-surface-variant">history</span>
+<span>History &amp; Logs</span>
+</button>
+<button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container transition-all font-body-sm-medium text-body-sm-medium" type="button">
+<span class="material-symbols-outlined text-[17px] text-primary">bolt</span>
+<span>Trigger One-Shot</span>
+</button>
+<button class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-primary-container text-on-primary shadow-sm hover:opacity-95 transition-all font-body-sm-medium text-body-sm-medium" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Create Scheduled Job</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Top Metrics Row (4 Bento Metrics Cards) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-space-md mb-space-xl">
+<!-- Card 1 -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider font-semibold">Total Scheduled Jobs</span>
+<span class="material-symbols-outlined text-[18px] text-primary">schedule</span>
+</div>
+<div class="my-space-sm flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">6</span>
+<span class="font-body-sm-medium text-body-sm-medium text-tertiary">Active</span>
+<span class="text-outline-variant font-caption-xs text-caption-xs">•</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant bg-surface-container-high px-1.5 py-0.5 rounded">1 paused</span>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs">Distributed across node pools</span>
+<span class="font-code-sm text-code-sm text-tertiary">3 pools</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider font-semibold">24h Execution Rate</span>
+<span class="material-symbols-outlined text-[18px] text-tertiary">task_alt</span>
+</div>
+<div class="my-space-sm flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">148</span>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface-variant">Runs</span>
+<span class="font-caption-xs text-caption-xs text-tertiary font-semibold ml-auto">98.6% ok</span>
+</div>
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-tertiary">146 Succeeded</span>
+<span class="text-outline-variant font-caption-xs text-caption-xs">•</span>
+<span class="font-caption-xs text-caption-xs text-error font-medium">2 Failed</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider font-semibold">Avg Execution Duration</span>
+<span class="material-symbols-outlined text-[18px] text-primary">timer</span>
+</div>
+<div class="my-space-sm flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">42s</span>
+<span class="font-caption-xs text-caption-xs text-tertiary font-semibold bg-tertiary-fixed/30 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[14px]">arrow_downward</span>
+<span>-6s</span>
+</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">vs last wk</span>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs">Sub-second cold VM boot</span>
+<span class="font-code-sm text-code-sm text-primary font-medium">12ms μVM</span>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container-lowest p-space-md rounded-xl shadow-sm flex flex-col justify-between hover:shadow-md transition-shadow">
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider font-semibold">Next Scheduled Run</span>
+<span class="material-symbols-outlined text-[18px] text-primary-container">alarm_on</span>
+</div>
+<div class="my-space-sm flex flex-col">
+<div class="flex items-baseline gap-2">
+<span class="font-headline-lg text-headline-lg font-bold text-primary tracking-tight">in 4m 12s</span>
+</div>
+<span class="font-code-sm text-code-sm text-on-surface font-medium truncate mt-0.5">etl-daily-sync</span>
+</div>
+<div class="flex items-center justify-between text-on-surface-variant">
+<span class="font-caption-xs text-caption-xs">Node pool: <span class="font-code-sm text-code-sm text-on-surface">us-east-prod</span></span>
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+</div>
+</div>
+</div>
+<!-- Main Section: Scheduled Jobs Directory Table -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm mb-space-xl overflow-hidden">
+<!-- Header & Interactive Filter Bar -->
+<div class="p-space-md flex flex-col md:flex-row md:items-center justify-between gap-space-md bg-surface-container-lowest">
+<div class="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
+<button class="px-3 py-1 rounded-lg bg-surface-container-high text-on-surface font-body-sm-medium text-body-sm-medium flex items-center gap-1.5" type="button">
+<span>All</span>
+<span class="bg-surface-container-lowest text-on-surface font-caption-xs text-caption-xs px-1.5 py-0.2 rounded-full">6</span>
+</button>
+<button class="px-3 py-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-body-sm-medium text-body-sm-medium flex items-center gap-1.5 transition-colors" type="button">
+<span>Running</span>
+<span class="bg-primary-fixed text-primary font-caption-xs text-caption-xs px-1.5 py-0.2 rounded-full">1</span>
+</button>
+<button class="px-3 py-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-body-sm-medium text-body-sm-medium flex items-center gap-1.5 transition-colors" type="button">
+<span>Scheduled</span>
+<span class="bg-surface-container-high text-on-surface-variant font-caption-xs text-caption-xs px-1.5 py-0.2 rounded-full">4</span>
+</button>
+<button class="px-3 py-1 rounded-lg text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface font-body-sm-medium text-body-sm-medium flex items-center gap-1.5 transition-colors" type="button">
+<span>Paused</span>
+<span class="bg-surface-container-high text-on-surface-variant font-caption-xs text-caption-xs px-1.5 py-0.2 rounded-full">1</span>
+</button>
+</div>
+<div class="flex items-center gap-space-sm">
+<div class="relative w-full md:w-72">
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-outline text-[17px]">filter_list</span>
+<input class="w-full h-8 pl-8 pr-3 bg-surface-container-low rounded-lg text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:bg-surface-container-lowest shadow-sm" placeholder="Search by job name, tag, or cron..." type="text"/>
+</div>
+<button class="p-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container-high text-on-surface-variant transition-colors" title="Reload schedules" type="button">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+</button>
+</div>
+</div>
+<!-- High Density Directory Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-caption-xs text-caption-xs uppercase tracking-wider">
+<th class="py-2.5 px-space-md w-8">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</th>
+<th class="py-2.5 px-space-sm font-semibold">Job Identifier &amp; Workload</th>
+<th class="py-2.5 px-space-sm font-semibold">Schedule (Cron)</th>
+<th class="py-2.5 px-space-sm font-semibold">Sandbox Resources</th>
+<th class="py-2.5 px-space-sm font-semibold">Last Run</th>
+<th class="py-2.5 px-space-sm font-semibold">Next Scheduled</th>
+<th class="py-2.5 px-space-sm font-semibold">Health / Status</th>
+<th class="py-2.5 px-space-md text-right font-semibold">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y-0 text-on-surface font-body-sm text-body-sm">
+<!-- Row 1: etl-daily-sync -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group">
+<td class="py-3 px-space-md">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</td>
+<td class="py-3 px-space-sm">
+<div class="flex items-center gap-space-sm min-w-[200px]">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed/40 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[18px]">sync_alt</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight truncate hover:text-primary cursor-pointer">etl-daily-sync</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[13px]">dataset</span>
+<span class="truncate">etl-pipeline-sync</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface bg-surface-container px-2 py-0.5 rounded w-max">0 2 * * *</span>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">Every day at 02:00 UTC</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant">
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">4 vCPU</span>
+<span>•</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">8 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span class="font-body-sm-medium text-body-sm-medium">22h ago</span>
+</div>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs">Success in 3m 14s</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="font-body-sm-medium text-body-sm-medium text-primary">in 2h 00m</span>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                Scheduled
+              </span>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors" title="Run Now" type="button">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Edit" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Pause" type="button">
+<span class="material-symbols-outlined text-[18px]">pause</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: stripe-reconciliation (RUNNING) -->
+<tr class="bg-surface-container-low/40 hover:bg-surface-container-low transition-colors group">
+<td class="py-3 px-space-md">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</td>
+<td class="py-3 px-space-sm">
+<div class="flex items-center gap-space-sm min-w-[200px]">
+<div class="w-8 h-8 rounded-lg bg-primary-fixed text-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px] animate-spin">sync</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-primary font-semibold tracking-tight truncate hover:underline cursor-pointer">stripe-reconciliation</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[13px]">payments</span>
+<span class="truncate">worker-billing</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface bg-surface-container px-2 py-0.5 rounded w-max">*/15 * * * *</span>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">Every 15 mins</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant">
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">1 vCPU</span>
+<span>•</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">2 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span class="font-body-sm-medium text-body-sm-medium text-primary">1m ago (Running)</span>
+</div>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs">45s elapsed • VM-092</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">in 14m</span>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary-fixed/40 text-primary font-caption-xs text-caption-xs font-semibold">
+<span class="relative flex h-1.5 w-1.5">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
+</span>
+                Active Running
+              </span>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-primary hover:bg-primary hover:text-on-primary transition-colors text-caption-xs font-body-sm-medium flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+<span>Logs</span>
+</button>
+<button class="p-1 rounded hover:bg-error-container text-error transition-colors" title="Terminate microVM" type="button">
+<span class="material-symbols-outlined text-[18px]">stop_circle</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3: cache-warmup-hourly -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group">
+<td class="py-3 px-space-md">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</td>
+<td class="py-3 px-space-sm">
+<div class="flex items-center gap-space-sm min-w-[200px]">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight truncate hover:text-primary cursor-pointer">cache-warmup-hourly</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[13px]">cached</span>
+<span class="truncate">worker-billing</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface bg-surface-container px-2 py-0.5 rounded w-max">0 * * * *</span>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">Every hour at :00</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant">
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">1 vCPU</span>
+<span>•</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">2 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span class="font-body-sm-medium text-body-sm-medium">48m ago</span>
+</div>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs">Success in 18s</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="font-body-sm-medium text-body-sm-medium text-primary">in 12m</span>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                Scheduled
+              </span>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors" title="Run Now" type="button">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Edit" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Pause" type="button">
+<span class="material-symbols-outlined text-[18px]">pause</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4: s3-log-archival (FAILED / NEEDS ATTENTION) -->
+<tr class="hover:bg-error-container/20 transition-colors group">
+<td class="py-3 px-space-md">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</td>
+<td class="py-3 px-space-sm">
+<div class="flex items-center gap-space-sm min-w-[200px]">
+<div class="w-8 h-8 rounded-lg bg-error-container text-error flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">warning</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-error font-semibold tracking-tight truncate hover:underline cursor-pointer">s3-log-archival</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[13px]">folder_zip</span>
+<span class="truncate">log-archiver</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface bg-surface-container px-2 py-0.5 rounded w-max">0 0 * * *</span>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">Midnight UTC</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant">
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">2 vCPU</span>
+<span>•</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">4 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+<span class="font-body-sm-medium text-body-sm-medium text-error font-medium">14h ago (Failed)</span>
+</div>
+<span class="text-error font-caption-xs text-caption-xs font-code-sm">Exit code 1 • Timeout</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">in 10h 00m</span>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-error-container text-error font-caption-xs text-caption-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span>
+                Needs Attention
+              </span>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1">
+<button class="px-2 py-1 rounded bg-error/10 text-error hover:bg-error hover:text-on-error transition-colors text-caption-xs font-body-sm-medium flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[14px]">replay</span>
+<span>Retry</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="View Logs" type="button">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5: db-vacuum-analyze -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group">
+<td class="py-3 px-space-md">
+<input class="rounded text-primary focus:ring-0" type="checkbox"/>
+</td>
+<td class="py-3 px-space-sm">
+<div class="flex items-center gap-space-sm min-w-[200px]">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[18px]">database</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-headline-sm text-headline-sm text-on-surface font-semibold tracking-tight truncate hover:text-primary cursor-pointer">db-vacuum-analyze</span>
+<div class="flex items-center gap-1.5 text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="material-symbols-outlined text-[13px]">tune</span>
+<span class="truncate">postgres-maintenance</span>
+</div>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface bg-surface-container px-2 py-0.5 rounded w-max">30 3 * * 0</span>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">Sundays 03:30 UTC</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex items-center gap-1.5 font-code-sm text-code-sm text-on-surface-variant">
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">2 vCPU</span>
+<span>•</span>
+<span class="px-1.5 py-0.5 bg-surface-container-high rounded text-on-surface">4 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<div class="flex flex-col">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span class="font-body-sm-medium text-body-sm-medium">4d ago</span>
+</div>
+<span class="text-on-surface-variant font-caption-xs text-caption-xs">Success in 8m 42s</span>
+</div>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">in 3d 11h</span>
+</td>
+<td class="py-3 px-space-sm whitespace-nowrap">
+<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+                Scheduled
+              </span>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1">
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-primary transition-colors" title="Run Now" type="button">
+<span class="material-symbols-outlined text-[18px]">play_arrow</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Edit" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface transition-colors" title="Pause" type="button">
+<span class="material-symbols-outlined text-[18px]">pause</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Table Footer / Batch actions -->
+<div class="p-space-sm bg-surface-container-low/70 flex flex-col sm:flex-row items-center justify-between gap-space-sm text-on-surface-variant font-caption-xs text-caption-xs">
+<div class="flex items-center gap-space-md">
+<span>Showing 5 of 5 configured workloads</span>
+<span class="text-outline-variant">•</span>
+<div class="flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+<span>Cron trigger daemon: syncd</span>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50" disabled="" type="button">Previous</button>
+<span class="px-2 font-code-sm text-code-sm text-on-surface font-semibold">1 / 1</span>
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-on-surface hover:bg-surface-container transition-colors disabled:opacity-50" disabled="" type="button">Next</button>
+</div>
+</div>
+</div>
+<!-- Recent Execution History & Run Stream Card -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm mb-space-xl p-space-md">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm mb-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="p-1.5 rounded-lg bg-primary-fixed/40 text-primary">
+<span class="material-symbols-outlined text-[20px]">stream</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface font-semibold tracking-tight">Recent Execution History &amp; Run Stream</h2>
+<p class="font-caption-xs text-caption-xs text-on-surface-variant">Live telemetry stream from microVM ephemeral batch execution runners</p>
+</div>
+</div>
+<div class="flex items-center gap-space-sm">
+<div class="flex items-center gap-1 bg-surface-container-low px-2 py-1 rounded-lg">
+<span class="w-2 h-2 rounded-full bg-tertiary animate-ping"></span>
+<span class="font-caption-xs text-caption-xs text-on-surface font-medium uppercase tracking-wider">Live stream</span>
+</div>
+<select class="h-8 px-2.5 bg-surface-container-low text-on-surface rounded-lg font-caption-xs text-caption-xs focus:outline-none cursor-pointer">
+<option>Past 24 Hours</option>
+<option>Past 7 Days</option>
+<option>Past 30 Days</option>
+</select>
+</div>
+</div>
+<!-- Execution Run Stream List -->
+<div class="space-y-2.5">
+<!-- Item 1: Running -->
+<div class="p-space-sm bg-surface-container-low/50 rounded-lg hover:bg-surface-container-low transition-colors flex flex-col md:flex-row md:items-center justify-between gap-space-sm">
+<div class="flex items-center gap-space-md min-w-0">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse"></span>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">stripe-reconciliation</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">#1049</span>
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed/40 text-primary font-caption-xs text-caption-xs font-semibold">Running</span>
+</div>
+<div class="flex items-center gap-space-sm text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">
+<span>Started: 14:45 UTC</span>
+<span>•</span>
+<span>Target: <span class="font-code-sm text-code-sm text-on-surface">node-04</span></span>
+<span>•</span>
+<span class="text-primary font-body-sm-medium">Firecracker PID: 40921</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-md w-full md:w-64">
+<div class="w-full flex flex-col gap-1">
+<div class="flex justify-between font-caption-xs text-caption-xs text-on-surface-variant">
+<span>65% progress</span>
+<span>45s</span>
+</div>
+<div class="w-full bg-surface-container-highest h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-full w-[65%] animate-pulse"></div>
+</div>
+</div>
+<button class="p-1.5 rounded-lg bg-surface-container-lowest text-primary hover:bg-primary hover:text-on-primary shadow-sm transition-colors" title="Live Logs" type="button">
+<span class="material-symbols-outlined text-[16px]">terminal</span>
+</button>
+</div>
+</div>
+<!-- Item 2: Succeeded -->
+<div class="p-space-sm bg-surface-container-lowest rounded-lg hover:bg-surface-container-low transition-colors flex flex-col md:flex-row md:items-center justify-between gap-space-sm shadow-sm">
+<div class="flex items-center gap-space-md min-w-0">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">stripe-reconciliation</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">#1048</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-semibold">Succeeded</span>
+</div>
+<div class="flex items-center gap-space-sm text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">
+<span>Started: 14:30 UTC</span>
+<span>•</span>
+<span>Duration: 1m 12s</span>
+<span>•</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container-low px-1 rounded">Exit 0</span>
+<span>•</span>
+<span class="italic text-on-surface truncate">"Reconciled 318 charges in ledger"</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-sm self-end md:self-center">
+<span class="font-code-sm text-code-sm text-on-surface-variant">us-east-prod-1</span>
+<button class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">description</span>
+</button>
+</div>
+</div>
+<!-- Item 3: Succeeded -->
+<div class="p-space-sm bg-surface-container-lowest rounded-lg hover:bg-surface-container-low transition-colors flex flex-col md:flex-row md:items-center justify-between gap-space-sm shadow-sm">
+<div class="flex items-center gap-space-md min-w-0">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">cache-warmup-hourly</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">#824</span>
+<span class="px-2 py-0.5 rounded-full bg-tertiary-fixed/30 text-tertiary font-caption-xs text-caption-xs font-semibold">Succeeded</span>
+</div>
+<div class="flex items-center gap-space-sm text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">
+<span>Started: 14:00 UTC</span>
+<span>•</span>
+<span>Duration: 18s</span>
+<span>•</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant bg-surface-container-low px-1 rounded">Exit 0</span>
+<span>•</span>
+<span class="text-on-surface truncate">Hydrated 1,420 key namespaces</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-sm self-end md:self-center">
+<span class="font-code-sm text-code-sm text-on-surface-variant">us-east-prod-2</span>
+<button class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">description</span>
+</button>
+</div>
+</div>
+<!-- Item 4: Failed -->
+<div class="p-space-sm bg-surface-container-lowest rounded-lg hover:bg-error-container/20 transition-colors flex flex-col md:flex-row md:items-center justify-between gap-space-sm shadow-sm">
+<div class="flex items-center gap-space-md min-w-0">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-error">s3-log-archival</span>
+<span class="font-code-sm text-code-sm text-on-surface-variant">#412</span>
+<span class="px-2 py-0.5 rounded-full bg-error-container text-error font-caption-xs text-caption-xs font-semibold">Failed</span>
+</div>
+<div class="flex items-center gap-space-sm text-on-surface-variant font-caption-xs text-caption-xs mt-0.5">
+<span>Started: 00:00 UTC</span>
+<span>•</span>
+<span>Duration: 4m 02s</span>
+<span>•</span>
+<span class="font-code-sm text-code-sm text-error bg-error-container/30 px-1 rounded">Exit 124</span>
+<span>•</span>
+<span class="text-error font-code-sm font-medium truncate">Timeout on S3 connection: socket handshake stalled after 240s</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-space-sm self-end md:self-center">
+<button class="px-2 py-1 rounded bg-error-container text-error hover:bg-error hover:text-on-error transition-colors font-caption-xs text-caption-xs font-semibold flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[14px]">replay</span>
+<span>Rerun Job</span>
+</button>
+<button class="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">description</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Split Grid: Isolation Guarantee & Dead Man Switch Configuration -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-space-lg">
+<!-- Left Column (7 cols): MicroVM Isolation Guarantee -->
+<div class="lg:col-span-7 bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center gap-space-sm mb-space-sm">
+<div class="p-1.5 rounded-lg bg-surface-container-high text-primary">
+<span class="material-symbols-outlined text-[20px]">security</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface font-semibold tracking-tight">MicroVM Isolation Guarantee for Batch</h3>
+<p class="font-caption-xs text-caption-xs text-on-surface-variant">Ephemeral Firecracker isolation per job execution</p>
+</div>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">
+          Every cron tick spawns a virgin Linux kernel instance with dedicated cgroups, TAP interfaces, and write-through volumes. Once execution terminates with any exit code, memory is zeroed out and reclaimed in under 4ms.
+        </p>
+<!-- Graphic Stepper Lifecycle -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-space-sm mb-space-sm">
+<div class="p-space-sm bg-surface-container-low rounded-lg flex flex-col">
+<div class="flex items-center justify-between text-primary font-caption-xs text-caption-xs font-bold uppercase mb-1">
+<span>01. Boot</span>
+<span class="font-code-sm text-code-sm text-tertiary">~15ms</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">JIT Sandbox Provision</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant mt-1">Direct kernel load without host namespace sharing.</span>
+</div>
+<div class="p-space-sm bg-surface-container-low rounded-lg flex flex-col">
+<div class="flex items-center justify-between text-primary font-caption-xs text-caption-xs font-bold uppercase mb-1">
+<span>02. Run</span>
+<span class="font-code-sm text-code-sm text-primary">Caged</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Hard Resource Cap</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant mt-1">Strict OOM-killer bound to microVM scope only.</span>
+</div>
+<div class="p-space-sm bg-surface-container-low rounded-lg flex flex-col">
+<div class="flex items-center justify-between text-primary font-caption-xs text-caption-xs font-bold uppercase mb-1">
+<span>03. Destroy</span>
+<span class="font-code-sm text-code-sm text-tertiary">0-leak</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Atomic Zero-Wipe</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant mt-1">Transient disk &amp; ephemeral RAM fully shredded.</span>
+</div>
+</div>
+</div>
+<div class="pt-space-sm flex items-center justify-between text-on-surface-variant font-caption-xs text-caption-xs">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px] text-tertiary">verified_user</span>
+<span>Hypervisor: Firecracker v1.4.1 (seccomp enabled)</span>
+</div>
+<a class="text-primary hover:underline font-body-sm-medium" href="#">Read Whitepaper</a>
+</div>
+</div>
+<!-- Right Column (5 cols): Dead Man Switch & Failure Alerts -->
+<div class="lg:col-span-5 bg-surface-container-lowest rounded-xl p-space-md shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-space-sm">
+<div class="flex items-center gap-space-sm">
+<div class="p-1.5 rounded-lg bg-surface-container-high text-on-surface">
+<span class="material-symbols-outlined text-[20px]">notifications_active</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface font-semibold tracking-tight">Dead Man Switch &amp; Alerts</h3>
+<p class="font-caption-xs text-caption-xs text-on-surface-variant">Automated paging policies on silent failure</p>
+</div>
+</div>
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary"></span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-md">
+          Trigger pager alerts if a scheduled recurring job does not emit a heartbeat within its expected time envelope.
+        </p>
+<!-- Compact Alert Config toggles -->
+<div class="space-y-space-sm">
+<div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-[18px] text-primary">chat</span>
+<div class="flex flex-col min-w-0">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">#ops-critical (Slack)</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Notify on 1st failure or timeout</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">Active</span>
+</div>
+<div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-[18px] text-error">emergency</span>
+<div class="flex flex-col min-w-0">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">PagerDuty Primary Escalation</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Trigger if missing &gt; 2 runs</span>
+</div>
+</div>
+<span class="font-code-sm text-code-sm text-tertiary font-semibold">Armed</span>
+</div>
+</div>
+</div>
+<div class="pt-space-md flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Retry policy: <strong class="text-on-surface font-medium">Exponential backoff (3x)</strong></span>
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-high text-on-surface hover:bg-surface-container font-body-sm-medium text-body-sm-medium transition-colors" type="button">
+          Configure Alert Routing
+        </button>
+</div>
+</div>
+</div>
+</div></main></div></body></html>

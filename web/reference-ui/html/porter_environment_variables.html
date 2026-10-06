@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "primary-fixed": "#d9e2ff",
+          "tertiary": "#006b43",
+          "on-surface": "#151c27",
+          "tertiary-fixed": "#7dfab7",
+          "secondary-container": "#e2e2e8",
+          "outline": "#727786",
+          "tertiary-container": "#008755",
+          "primary-container": "#146ef5",
+          "background": "#f9f9ff",
+          "surface-container-lowest": "#ffffff",
+          "outline-variant": "#c2c6d7",
+          "inverse-on-surface": "#ebf1ff",
+          "secondary-fixed": "#e2e2e8",
+          "inverse-surface": "#2a313c",
+          "primary": "#0056c8",
+          "on-error": "#ffffff",
+          "on-primary-container": "#fffdff",
+          "on-primary-fixed": "#001945",
+          "primary-fixed-dim": "#b0c6ff",
+          "on-surface-variant": "#424655",
+          "surface-dim": "#d3dae9",
+          "surface-container": "#e7eefd",
+          "error-container": "#ffdad6",
+          "secondary-fixed-dim": "#c6c6cb",
+          "on-tertiary-container": "#fefffa",
+          "on-secondary-fixed-variant": "#45474b",
+          "surface-variant": "#dce3f2",
+          "on-primary-fixed-variant": "#00429c",
+          "on-secondary-container": "#636469",
+          "surface-tint": "#0058cb",
+          "surface": "#f9f9ff",
+          "inverse-primary": "#b0c6ff",
+          "on-tertiary-fixed": "#002111",
+          "on-secondary": "#ffffff",
+          "surface-container-highest": "#dce3f2",
+          "tertiary-fixed-dim": "#5fdd9d",
+          "on-tertiary-fixed-variant": "#005232",
+          "surface-bright": "#f9f9ff",
+          "on-tertiary": "#ffffff",
+          "surface-container-high": "#e2e8f7",
+          "secondary": "#5d5e63",
+          "on-error-container": "#93000a",
+          "error": "#ba1a1a",
+          "surface-container-low": "#eff3ff",
+          "on-background": "#151c27",
+          "on-secondary-fixed": "#1a1c20",
+          "on-primary": "#ffffff"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.125rem",
+          "lg": "0.25rem",
+          "xl": "0.5rem",
+          "full": "0.75rem"
+        },
+        "spacing": {
+          "space-xl": "1.5rem",
+          "space-md": "0.75rem",
+          "space-xs": "0.25rem",
+          "gutter": "1rem",
+          "margin": "1.5rem",
+          "space-sm": "0.5rem",
+          "space-lg": "1rem"
+        },
+        "fontFamily": {
+          "headline-md": [
+            "Inter"
+          ],
+          "caption-xs": [
+            "Inter"
+          ],
+          "body-base": [
+            "Inter"
+          ],
+          "headline-sm": [
+            "Inter"
+          ],
+          "code-base": [
+            "JetBrains Mono"
+          ],
+          "code-sm": [
+            "JetBrains Mono"
+          ],
+          "body-base-medium": [
+            "Inter"
+          ],
+          "body-sm-medium": [
+            "Inter"
+          ],
+          "display-xl": [
+            "Inter"
+          ],
+          "headline-lg": [
+            "Inter"
+          ],
+          "body-sm": [
+            "Inter"
+          ]
+        },
+        "fontSize": {
+          "headline-md": [
+            "18px",
+            {
+              "lineHeight": "24px",
+              "letterSpacing": "-0.015em",
+              "fontWeight": "600"
+            }
+          ],
+          "caption-xs": [
+            "11px",
+            {
+              "lineHeight": "16px",
+              "letterSpacing": "0.02em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "400"
+            }
+          ],
+          "headline-sm": [
+            "15px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "600"
+            }
+          ],
+          "code-base": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "-0.01em",
+              "fontWeight": "400"
+            }
+          ],
+          "code-sm": [
+            "11px",
+            {
+              "lineHeight": "14px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-base-medium": [
+            "14px",
+            {
+              "lineHeight": "20px",
+              "letterSpacing": "-0.005em",
+              "fontWeight": "500"
+            }
+          ],
+          "body-sm-medium": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "500"
+            }
+          ],
+          "display-xl": [
+            "32px",
+            {
+              "lineHeight": "40px",
+              "letterSpacing": "-0.025em",
+              "fontWeight": "600"
+            }
+          ],
+          "headline-lg": [
+            "24px",
+            {
+              "lineHeight": "32px",
+              "letterSpacing": "-0.02em",
+              "fontWeight": "600"
+            }
+          ],
+          "body-sm": [
+            "13px",
+            {
+              "lineHeight": "18px",
+              "letterSpacing": "0em",
+              "fontWeight": "400"
+            }
+          ]
+        }
+      }
+    }
+  }</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-14 z-50 bg-surface-container-lowest/90 backdrop-blur-md shadow-[0_1px_8px_rgba(0,0,0,0.04)] flex items-center justify-between px-space-lg"><div class="flex items-center gap-space-lg"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center"><span class="font-headline-sm text-headline-sm text-surface-container-lowest">P</span></div><span class="font-headline-sm text-headline-sm text-on-surface tracking-tight">Porter</span></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center bg-surface-container p-0.5 rounded-lg"><button class="px-space-sm py-0.5 rounded-lg bg-surface-container-lowest font-body-sm-medium text-body-sm-medium text-on-surface shadow-[0_1px_2px_rgba(0,0,0,0.04)]" type="button">Customer</button><button class="px-space-sm py-0.5 rounded-lg font-body-sm text-body-sm text-on-surface-variant hover:text-on-surface transition-colors" type="button">Admin</button></div></div><div class="flex-1 max-w-xl mx-space-xl"><div class="relative flex items-center"><span class="material-symbols-outlined absolute left-space-sm text-[18px] text-on-surface-variant pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container transition-all" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-2 flex items-center"><kbd class="px-1.5 py-0.5 font-code-sm text-code-sm text-on-surface-variant bg-surface-container rounded-DEFAULT border border-outline-variant/50">⌘K</kbd></div></div></div><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><button class="relative p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1 right-1 w-4 h-4 rounded-full bg-primary-container text-on-primary-container font-caption-xs text-caption-xs flex items-center justify-center">3</span></button><button class="p-1.5 rounded-lg hover:bg-surface-container transition-colors text-on-surface-variant hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[20px]">help_outline</span></button></div><div class="h-4 w-px bg-outline-variant/60"></div><div class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors cursor-pointer"><div class="flex flex-col text-left"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Cloud</span><span class="font-caption-xs text-caption-xs text-on-surface-variant leading-none">us-east-prod</span></div><span class="material-symbols-outlined text-[16px] text-on-surface-variant">arrow_drop_down</span></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between overflow-y-auto shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="p-space-md flex flex-col gap-space-md"><div class="p-space-sm bg-surface-container-low rounded-lg flex items-center justify-between cursor-pointer"><div class="flex items-center gap-space-sm"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col"><span class="font-body-sm-medium text-body-sm-medium text-on-surface leading-tight">Acme Cloud</span><span class="font-caption-xs text-caption-xs text-on-surface-variant">us-east-prod</span></div></div><span class="material-symbols-outlined text-[18px] text-on-surface-variant">unfold_more</span></div><div class="flex flex-col gap-space-md"><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Core Compute</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#">Applications</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#">Deployments</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Configuration &amp; Ingress</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#">Domains &amp; DNS</a><a aria-current="page" class="flex items-center justify-between px-space-sm py-1.5 transition-colors bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg" data-path="environment-variables" href="#">Environment Variables</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#">Secrets</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Runtime &amp; Ops</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#">Logs Explorer</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#">Metrics &amp; Observability</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#">Storage &amp; Volumes</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#">Networking &amp; Gateways</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#">Cron &amp; Scheduled Jobs</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#">Backups &amp; Recovery</a></nav></div><div class="flex flex-col gap-0.5"><span class="px-space-sm font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Team &amp; Commercial</span><nav class="flex flex-col gap-0.5 mt-1" data-active-classes="bg-primary-container text-on-primary-container font-body-sm-medium rounded-lg"><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#">Team &amp; Access</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#">Tasks &amp; Operations</a><a class="flex items-center justify-between px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#">Billing &amp; Usage</a></nav></div></div></div><div class="p-space-md border-t border-outline-variant/30 flex flex-col gap-space-md bg-surface-container-lowest"><div class="p-space-sm rounded-lg bg-surface-container-low flex flex-col gap-space-xs"><div class="flex items-center justify-between"><span class="font-body-sm-medium text-body-sm-medium text-on-surface">Pro Plan</span><span class="px-1.5 py-0.2 rounded bg-tertiary-fixed font-caption-xs text-caption-xs text-on-tertiary-fixed font-medium">Operational</span></div><div class="w-full bg-secondary-container h-1.5 rounded-full overflow-hidden"><div class="bg-primary-container h-full w-[41%]"></div></div><span class="font-caption-xs text-caption-xs text-on-surface-variant">41% quota ($284 / $500/mo)</span></div><div class="flex items-center justify-between text-caption-xs font-caption-xs text-on-surface-variant"><div class="flex items-center gap-space-sm"><span class="text-on-surface-variant">Docs</span><span>·</span><span class="text-on-surface-variant">API</span></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></aside><div class="pl-64"><main class="pt-14 min-h-screen bg-background"><div class="w-full max-w-[1440px] mx-auto p-space-xl"><div class="flex flex-col w-full">
+<!-- Breadcrumb Navigation & Top Action Deck -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md mb-space-lg">
+<div class="flex items-center gap-space-xs text-on-surface-variant font-caption-xs text-caption-xs">
+<span class="hover:text-on-surface transition-colors cursor-pointer">Home</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="hover:text-on-surface transition-colors cursor-pointer">Configuration</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Variables</span>
+</div>
+<div class="flex items-center gap-space-sm flex-wrap">
+<button class="px-3 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm hover:bg-surface-container-low transition-all flex items-center gap-1.5" id="compare-env-btn" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary">compare_arrows</span>
+<span>Compare Environments</span>
+</button>
+<button class="px-3 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm hover:bg-surface-container-low transition-all flex items-center gap-1.5" id="bulk-edit-btn" type="button">
+<span class="material-symbols-outlined text-[18px] text-secondary">terminal</span>
+<span>Bulk Edit (Raw JSON / .env)</span>
+</button>
+<button class="px-3.5 py-1.5 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium shadow-sm hover:bg-primary transition-all flex items-center gap-1.5" id="quick-scroll-add" type="button">
+<span class="material-symbols-outlined text-[18px]">add</span>
+<span>Add Variable</span>
+</button>
+</div>
+</div>
+<!-- Header Block with Modern Asymmetric Layout -->
+<div class="relative bg-surface-container-lowest rounded-xl p-space-xl mb-space-lg shadow-sm overflow-hidden">
+<div class="absolute -right-16 -bottom-16 w-80 h-80 bg-primary/5 rounded-full blur-3xl pointer-events-none"></div>
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-lg relative z-10">
+<div class="max-w-2xl">
+<div class="flex items-center gap-2 mb-1">
+<span class="px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-on-surface-variant font-medium uppercase tracking-wider">Config Layer</span>
+<span class="inline-flex items-center gap-1.5 font-caption-xs text-caption-xs text-tertiary-container bg-surface-container-low px-2 py-0.5 rounded-full">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span>
+            Sync Engine v4.8
+          </span>
+</div>
+<h1 class="font-display-xl text-display-xl text-on-surface tracking-tight">Environment Variables</h1>
+<p class="font-body-base text-body-base text-on-surface-variant mt-1">
+          Manage non-sensitive runtime configurations and environment flags across workloads. Changes trigger rolling microVM updates.
+        </p>
+</div>
+<!-- Quick Metrics Ribbon Inline -->
+<div class="flex items-center gap-space-md p-space-sm bg-surface-container-low rounded-xl">
+<div class="px-space-md py-1 flex flex-col">
+<span class="font-caption-xs text-caption-xs uppercase text-outline tracking-wider">Active Scopes</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">3 Tier Clusters</span>
+</div>
+<div class="w-px h-8 bg-surface-container-high"></div>
+<div class="px-space-md py-1 flex flex-col">
+<span class="font-caption-xs text-caption-xs uppercase text-outline tracking-wider">Cold Boot Overhead</span>
+<span class="font-headline-sm text-headline-sm text-tertiary-container font-code-base">&lt; 14ms</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Security Warning & Secrets Router Banner -->
+<div class="mb-space-lg rounded-xl bg-surface-container-lowest p-space-md shadow-sm flex items-start gap-space-md">
+<div class="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center shrink-0 text-primary">
+<span class="material-symbols-outlined text-[20px]">shield_locked</span>
+</div>
+<div class="flex-1 flex flex-col sm:flex-row sm:items-center justify-between gap-space-sm">
+<div>
+<h4 class="font-body-sm-medium text-body-sm-medium text-on-surface">Sensitive Data Policy</h4>
+<p class="font-caption-xs text-caption-xs text-on-surface-variant">
+          Environment variables are injected as plain plaintext strings. Authentication tokens, API keys, database credentials, and SSL certificates must reside in Porter Encrypted Secrets.
+        </p>
+</div>
+<a class="shrink-0 px-3 py-1.5 rounded-lg bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium hover:bg-surface-container-high transition-colors flex items-center gap-1" data-path="secrets" href="#">
+<span>Go to Secrets Vault</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</a>
+</div>
+</div>
+<!-- Control & Segment Deck: Environments, Workload Filter, Summary Ribbon -->
+<div class="flex flex-col gap-space-md mb-space-lg">
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md">
+<!-- Multi-environment Segmented Control -->
+<div class="inline-flex bg-surface-container-high p-1 rounded-xl shadow-inner">
+<button class="px-4 py-1.5 rounded-lg bg-surface-container-lowest text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm flex items-center gap-2 transition-all" type="button">
+<span>Production</span>
+<span class="px-1.5 py-0.5 rounded-full bg-primary-fixed text-on-primary-fixed font-code-sm text-code-sm">54</span>
+</button>
+<button class="px-4 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm flex items-center gap-2 transition-all" type="button">
+<span>Staging</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant font-code-sm text-code-sm">42</span>
+</button>
+<button class="px-4 py-1.5 rounded-lg text-on-surface-variant hover:text-on-surface font-body-sm text-body-sm flex items-center gap-2 transition-all" type="button">
+<span>Preview</span>
+<span class="px-1.5 py-0.5 rounded-full bg-surface-container-highest text-on-surface-variant font-code-sm text-code-sm">28</span>
+</button>
+</div>
+<!-- Scope Filter & Search Elements -->
+<div class="flex items-center gap-space-sm flex-1 md:justify-end">
+<div class="relative w-full max-w-xs">
+<span class="material-symbols-outlined absolute left-3 top-2 text-[18px] text-on-surface-variant pointer-events-none">filter_alt</span>
+<select class="w-full h-9 pl-9 pr-8 bg-surface-container-lowest text-on-surface font-body-sm text-body-sm rounded-lg shadow-sm focus:outline-none focus:ring-1 focus:ring-primary-container appearance-none cursor-pointer" id="app-filter-select">
+<option value="all">All Applications (Global &amp; Scoped)</option>
+<option value="api-production">api-production</option>
+<option value="web-storefront">web-storefront</option>
+<option value="worker-billing">worker-billing</option>
+<option value="gateway-01">gateway-01</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 top-2 text-[18px] text-on-surface-variant pointer-events-none">unfold_more</span>
+</div>
+<div class="relative w-full max-w-sm">
+<span class="material-symbols-outlined absolute left-3 top-2 text-[18px] text-on-surface-variant pointer-events-none">search</span>
+<input class="w-full h-9 pl-9 pr-8 bg-surface-container-lowest text-on-surface placeholder:text-on-surface-variant font-body-sm text-body-sm rounded-lg shadow-sm focus:outline-none focus:ring-1 focus:ring-primary-container" id="variable-search" placeholder="Filter by variable name or value..." type="text"/>
+<span class="material-symbols-outlined absolute right-2.5 top-2.5 text-[16px] text-outline-variant cursor-pointer hidden" id="clear-search">close</span>
+</div>
+</div>
+</div>
+<!-- Summary Bar -->
+<div class="bg-surface-container-low rounded-xl px-space-md py-space-sm flex flex-wrap items-center justify-between gap-y-2 text-on-surface-variant font-caption-xs text-caption-xs">
+<div class="flex items-center gap-space-sm">
+<span class="flex items-center gap-1.5 font-body-sm-medium text-body-sm-medium text-on-surface">
+<span class="w-2 h-2 rounded-full bg-tertiary-container animate-pulse"></span>
+          54 variables defined in Production
+        </span>
+<span class="text-outline">·</span>
+<span>Last modified 2 hours ago by <strong class="text-on-surface font-medium">Maya Chen</strong></span>
+</div>
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-[16px] text-tertiary">autorenew</span>
+<span class="text-on-surface font-medium">Automatic restart on variable changes is enabled</span>
+<a class="text-primary hover:underline ml-1" href="#">Configure rollouts</a>
+</div>
+</div>
+</div>
+<!-- Interactive Data Table Container -->
+<div class="bg-surface-container-lowest rounded-xl shadow-sm overflow-hidden mb-space-xl">
+<div class="overflow-x-auto min-w-[920px]">
+<table class="w-full text-left" id="variables-table">
+<thead>
+<tr class="bg-surface-container-low text-on-surface-variant font-caption-xs text-caption-xs uppercase tracking-wider">
+<th class="py-3 px-space-md font-semibold">Key</th>
+<th class="py-3 px-space-md font-semibold">Value</th>
+<th class="py-3 px-space-md font-semibold">Application Scope</th>
+<th class="py-3 px-space-md font-semibold">Type</th>
+<th class="py-3 px-space-md font-semibold">Updated</th>
+<th class="py-3 px-space-md font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container font-body-sm text-body-sm text-on-surface">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="all" data-key="NODE_ENV">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">NODE_ENV</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('NODE_ENV')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>production</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-caption-xs text-caption-xs text-on-surface font-medium">All Applications</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">String</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">2d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="api-production" data-key="PORT">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">PORT</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('PORT')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>8080</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed/60 font-caption-xs text-caption-xs text-on-primary-fixed-variant font-medium">api-production</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Number</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">5d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="api-production worker-billing" data-key="LOG_LEVEL">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">LOG_LEVEL</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('LOG_LEVEL')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>info</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-1 flex-wrap">
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed/60 font-caption-xs text-caption-xs text-on-primary-fixed-variant font-medium">api-production</span>
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-caption-xs text-caption-xs text-on-surface font-medium">worker-billing</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">String</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">12d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="api-production" data-key="DATABASE_POOL_SIZE">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">DATABASE_POOL_SIZE</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('DATABASE_POOL_SIZE')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>25</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed/60 font-caption-xs text-caption-xs text-on-primary-fixed-variant font-medium">api-production</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Number</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">14d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="api-production" data-key="CACHE_TTL_SECONDS">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">CACHE_TTL_SECONDS</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('CACHE_TTL_SECONDS')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>3600</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-primary-fixed/60 font-caption-xs text-caption-xs text-on-primary-fixed-variant font-medium">api-production</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Number</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">18d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 6 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="web-storefront" data-key="FEATURE_CANARY_ROLLOUT">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">FEATURE_CANARY_ROLLOUT</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('FEATURE_CANARY_ROLLOUT')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-tertiary-fixed/40 px-2.5 py-1 rounded font-code-sm text-code-sm text-on-tertiary-fixed-variant max-w-[280px] truncate">
+<span>true</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-surface-container font-caption-xs text-caption-xs text-on-surface font-medium">web-storefront</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Boolean</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">3d ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 7 -->
+<tr class="hover:bg-surface-container-low/60 transition-colors group" data-apps="gateway-01" data-key="RATE_LIMIT_MAX_REQ">
+<td class="py-3.5 px-space-md">
+<div class="flex items-center gap-2">
+<span class="font-code-base text-code-base font-semibold text-on-surface">RATE_LIMIT_MAX_REQ</span>
+<button class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" onclick="navigator.clipboard.writeText('RATE_LIMIT_MAX_REQ')" title="Copy Key" type="button">
+<span class="material-symbols-outlined text-[15px]">content_copy</span>
+</button>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+<span>1000</span>
+</div>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="px-2 py-0.5 rounded-full bg-secondary-fixed font-caption-xs text-caption-xs text-on-secondary-fixed-variant font-medium">gateway-01</span>
+</td>
+<td class="py-3.5 px-space-md">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Number</span>
+</td>
+<td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">1mo ago</td>
+<td class="py-3.5 px-space-md text-right">
+<div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+<button class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">edit</span>
+</button>
+<button class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable" type="button">
+<span class="material-symbols-outlined text-[18px]">delete</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Empty State Result fallback for client filtering -->
+<div class="hidden p-space-xl text-center flex flex-col items-center justify-center" id="no-results-view">
+<div class="w-12 h-12 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant mb-space-sm">
+<span class="material-symbols-outlined text-[24px]">search_off</span>
+</div>
+<span class="font-headline-sm text-headline-sm text-on-surface">No matching variables found</span>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Try adjusting your query or resetting the application scope.</p>
+</div>
+<!-- Table Footer / Pagination Metadata -->
+<div class="p-space-md bg-surface-container-lowest flex items-center justify-between font-caption-xs text-caption-xs text-on-surface-variant">
+<div class="flex items-center gap-2">
+<span>Showing <strong class="text-on-surface">7</strong> of 54 environment variables</span>
+<span>·</span>
+<button class="text-primary hover:underline" type="button">Download current .env</button>
+</div>
+<div class="flex items-center gap-1">
+<button class="px-2 py-1 rounded bg-surface-container text-on-surface disabled:opacity-40" disabled="" type="button">Previous</button>
+<button class="px-2 py-1 rounded bg-primary-container text-on-primary-container font-medium" type="button">1</button>
+<button class="px-2 py-1 rounded hover:bg-surface-container text-on-surface transition-colors" type="button">2</button>
+<button class="px-2 py-1 rounded hover:bg-surface-container text-on-surface transition-colors" type="button">3</button>
+<button class="px-2 py-1 rounded hover:bg-surface-container text-on-surface transition-colors" type="button">Next</button>
+</div>
+</div>
+</div>
+<!-- Inline Quick Add Card -->
+<div class="bg-surface-container-lowest rounded-xl p-space-xl shadow-sm mb-space-xl relative overflow-hidden" id="quick-add-section">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md mb-space-lg">
+<div>
+<div class="flex items-center gap-2 mb-0.5">
+<span class="material-symbols-outlined text-[20px] text-primary">add_circle</span>
+<h3 class="font-headline-md text-headline-md text-on-surface">Inline Quick Add</h3>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Declare and propagate a single non-secret parameter across target microVM instances.</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-caption-xs text-caption-xs text-outline uppercase tracking-wider">Default Target</span>
+<span class="px-2 py-0.5 rounded bg-surface-container font-code-sm text-code-sm text-on-surface">production-cluster-01</span>
+</div>
+</div>
+<form class="grid grid-cols-1 md:grid-cols-12 gap-space-md" id="add-var-form" onsubmit="event.preventDefault(); window.handleNewVariable();">
+<div class="md:col-span-4 flex flex-col gap-1.5">
+<label class="font-caption-xs text-caption-xs uppercase tracking-wider text-on-surface-variant font-medium">Variable Key</label>
+<div class="relative">
+<input class="w-full h-10 px-space-sm bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-outline-variant font-code-base text-code-base rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-container transition-all uppercase" id="new-var-key" placeholder="e.g. NEW_VARIABLE" required="" type="text"/>
+</div>
+</div>
+<div class="md:col-span-4 flex flex-col gap-1.5">
+<label class="font-caption-xs text-caption-xs uppercase tracking-wider text-on-surface-variant font-medium">Value</label>
+<input class="w-full h-10 px-space-sm bg-surface-container-low focus:bg-surface-container-lowest text-on-surface placeholder:text-outline-variant font-code-base text-code-base rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-container transition-all" id="new-var-value" placeholder="String, integer, or raw flag..." required="" type="text"/>
+</div>
+<div class="md:col-span-2 flex flex-col gap-1.5">
+<label class="font-caption-xs text-caption-xs uppercase tracking-wider text-on-surface-variant font-medium">Target Scope</label>
+<div class="relative">
+<select class="w-full h-10 px-space-sm bg-surface-container-low focus:bg-surface-container-lowest text-on-surface font-body-sm text-body-sm rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-container appearance-none cursor-pointer" id="new-var-scope">
+<option value="All Applications">All Applications</option>
+<option value="api-production">api-production</option>
+<option value="web-storefront">web-storefront</option>
+<option value="worker-billing">worker-billing</option>
+<option value="gateway-01">gateway-01</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 top-2.5 text-[18px] text-on-surface-variant pointer-events-none">unfold_more</span>
+</div>
+</div>
+<div class="md:col-span-2 flex flex-col justify-end">
+<button class="w-full h-10 px-4 rounded-lg bg-primary-container hover:bg-primary text-on-primary-container font-body-sm-medium text-body-sm-medium shadow-sm flex items-center justify-center gap-2 transition-colors" type="submit">
+<span class="material-symbols-outlined text-[18px]">publish</span>
+<span>Save &amp; Redeploy</span>
+</button>
+</div>
+</form>
+</div>
+<!-- Bento Section: Synchronization Metrics & Live MicroVM Deployer Status -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-space-lg mb-space-xl">
+<!-- Card 1: Propagation Stepper Pipeline -->
+<div class="lg:col-span-2 bg-surface-container-lowest rounded-xl p-space-lg shadow-sm">
+<div class="flex items-center justify-between mb-space-md">
+<div>
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Runtime Orchestration</span>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">Declarative Variable Pipeline</h4>
+</div>
+<span class="px-2 py-0.5 rounded bg-tertiary-fixed font-caption-xs text-caption-xs text-on-tertiary-fixed font-medium">Zero-Downtime Shift</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-space-lg">
+        Porter compiles variables into an immutable kernel boot manifest prior to firing guest microVM sockets.
+      </p>
+<!-- Step Sequence Indicator -->
+<div class="grid grid-cols-1 sm:grid-cols-4 gap-space-sm">
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-tertiary-container">01 / DRAFT</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Parsed &amp; Sanitized</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Validated POSIX syntax</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-tertiary-container">02 / IMMUTABLE</span>
+<span class="material-symbols-outlined text-[16px] text-tertiary">check_circle</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">RootFS Ingestion</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Layer digest calculated</span>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded-lg flex flex-col gap-1">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-primary">03 / IN-FLIGHT</span>
+<span class="material-symbols-outlined text-[16px] text-primary animate-spin">refresh</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Spawn Standby VMs</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Firecracker boot: 18ms</span>
+</div>
+<div class="bg-surface-container-low/50 p-space-sm rounded-lg flex flex-col gap-1 opacity-70">
+<div class="flex items-center justify-between">
+<span class="font-code-sm text-code-sm font-semibold text-outline">04 / TRAFFIC</span>
+<span class="material-symbols-outlined text-[16px] text-outline">hourglass_empty</span>
+</div>
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">Drain Old Nodes</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">eBPF Socket redirect</span>
+</div>
+</div>
+</div>
+<!-- Card 2: Environment Parity Radar / Sparkline -->
+<div class="bg-surface-container-lowest rounded-xl p-space-lg shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between mb-space-xs">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-outline">Consistency Check</span>
+<span class="material-symbols-outlined text-[18px] text-tertiary">verified</span>
+</div>
+<h4 class="font-headline-sm text-headline-sm text-on-surface">Environment Parity</h4>
+<p class="font-caption-xs text-caption-xs text-on-surface-variant mt-1">
+          Comparing keys defined in Production against Staging &amp; Preview definitions.
+        </p>
+</div>
+<!-- Compact SVG Gauge / Sparkline -->
+<div class="py-space-md flex items-center justify-center">
+<div class="relative flex items-center justify-center">
+<svg class="w-32 h-32 transform -rotate-90" viewbox="0 0 36 36">
+<path class="text-surface-container" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"></path>
+<path class="text-primary-container stroke-current" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke-dasharray="92, 100" stroke-linecap="round" stroke-width="3.5"></path>
+</svg>
+<div class="absolute flex flex-col items-center">
+<span class="font-display-xl text-headline-lg text-on-surface font-semibold tracking-tight">92%</span>
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Key Parity</span>
+</div>
+</div>
+</div>
+<div class="bg-surface-container-low p-space-sm rounded-lg flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs text-on-surface-variant">Missing in Staging</span>
+<span class="font-code-sm text-code-sm font-semibold text-error">4 variables</span>
+</div>
+</div>
+</div>
+<!-- Raw JSON / .env Bulk Edit Modal (Hidden by Default) -->
+<div class="fixed inset-0 z-50 bg-inverse-surface/40 backdrop-blur-sm hidden items-center justify-center p-space-lg" id="bulk-modal">
+<div class="bg-surface-container-lowest rounded-xl max-w-2xl w-full shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+<div class="p-space-md bg-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[20px] text-primary">code</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">Bulk Environment Editor</span>
+</div>
+<button class="p-1 rounded text-on-surface-variant hover:text-on-surface hover:bg-surface-container" id="close-modal-btn" type="button">
+<span class="material-symbols-outlined text-[20px]">close</span>
+</button>
+</div>
+<div class="p-space-lg flex flex-col gap-space-md">
+<div class="flex items-center gap-space-sm">
+<button class="px-3 py-1 rounded-lg bg-primary-container text-on-primary-container font-caption-xs text-caption-xs font-semibold" type="button">.env Format</button>
+<button class="px-3 py-1 rounded-lg bg-surface-container text-on-surface-variant font-caption-xs text-caption-xs" type="button">JSON Object</button>
+</div>
+<textarea class="w-full bg-surface-container-low text-on-surface p-space-md font-code-sm text-code-sm rounded-lg focus:outline-none focus:ring-1 focus:ring-primary-container" rows="9" spellcheck="false">NODE_ENV=production
+PORT=8080
+LOG_LEVEL=info
+DATABASE_POOL_SIZE=25
+CACHE_TTL_SECONDS=3600
+FEATURE_CANARY_ROLLOUT=true
+RATE_LIMIT_MAX_REQ=1000</textarea>
+<div class="flex items-center justify-between text-caption-xs text-on-surface-variant">
+<span>Parsing checks automatically strip wrapping quotes and trim trailing carriage returns.</span>
+<span class="font-code-sm text-code-sm text-tertiary-container">Syntax Valid</span>
+</div>
+</div>
+<div class="p-space-md bg-surface-container-low flex items-center justify-end gap-space-sm">
+<button class="px-4 py-1.5 rounded-lg bg-surface-container text-on-surface font-body-sm text-body-sm hover:bg-surface-container-high transition-colors" id="cancel-modal-btn" type="button">Cancel</button>
+<button class="px-4 py-1.5 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium hover:bg-primary transition-colors" id="apply-bulk-btn" type="button">Apply &amp; Validate Sync</button>
+</div>
+</div>
+</div>
+<!-- Notification Toast Component (Dynamic) -->
+<div class="fixed bottom-6 right-6 bg-inverse-surface text-inverse-on-surface px-space-md py-space-sm rounded-lg shadow-xl font-body-sm text-body-sm flex items-center gap-space-sm transition-all transform translate-y-20 opacity-0 pointer-events-none z-50" id="toast-msg">
+<span class="material-symbols-outlined text-[18px] text-tertiary-fixed">check_circle</span>
+<span id="toast-text">Variable deployed successfully</span>
+</div>
+</div>
+<script>
+  (function() {
+    // Quick Scroll to Add Card
+    const scrollAddBtn = document.getElementById('quick-scroll-add');
+    const quickAddCard = document.getElementById('quick-add-section');
+    if (scrollAddBtn && quickAddCard) {
+      scrollAddBtn.addEventListener('click', () => {
+        quickAddCard.scrollIntoView({ behavior: 'smooth' });
+        const keyInput = document.getElementById('new-var-key');
+        if (keyInput) keyInput.focus();
+      });
+    }
+
+    // Client-side Search & Application Scope Filter
+    const searchInput = document.getElementById('variable-search');
+    const appFilter = document.getElementById('app-filter-select');
+    const clearSearch = document.getElementById('clear-search');
+    const tableBody = document.querySelector('#variables-table tbody');
+    const noResults = document.getElementById('no-results-view');
+
+    function filterRows() {
+      if (!tableBody) return;
+      const query = (searchInput ? searchInput.value : '').toLowerCase().trim();
+      const selectedApp = (appFilter ? appFilter.value : 'all');
+      const rows = tableBody.querySelectorAll('tr');
+      let visibleCount = 0;
+
+      rows.forEach(row => {
+        const keyText = (row.getAttribute('data-key') || '').toLowerCase();
+        const appsText = (row.getAttribute('data-apps') || '').toLowerCase();
+        const fullRowText = row.innerText.toLowerCase();
+
+        const matchesQuery = !query || fullRowText.includes(query) || keyText.includes(query);
+        const matchesApp = (selectedApp === 'all') || appsText.includes(selectedApp) || appsText.includes('all');
+
+        if (matchesQuery && matchesApp) {
+          row.classList.remove('hidden');
+          visibleCount++;
+        } else {
+          row.classList.add('hidden');
+        }
+      });
+
+      if (clearSearch) {
+        if (query.length > 0) {
+          clearSearch.classList.remove('hidden');
+        } else {
+          clearSearch.classList.add('hidden');
+        }
+      }
+
+      if (noResults) {
+        if (visibleCount === 0) {
+          noResults.classList.remove('hidden');
+        } else {
+          noResults.classList.add('hidden');
+        }
+      }
+    }
+
+    if (searchInput) searchInput.addEventListener('input', filterRows);
+    if (appFilter) appFilter.addEventListener('change', filterRows);
+    if (clearSearch) {
+      clearSearch.addEventListener('click', () => {
+        searchInput.value = '';
+        filterRows();
+        searchInput.focus();
+      });
+    }
+
+    // Modal Interaction for Bulk Edit
+    const bulkBtn = document.getElementById('bulk-edit-btn');
+    const modal = document.getElementById('bulk-modal');
+    const closeBtn = document.getElementById('close-modal-btn');
+    const cancelBtn = document.getElementById('cancel-modal-btn');
+    const applyBulkBtn = document.getElementById('apply-bulk-btn');
+
+    function toggleModal(show) {
+      if (!modal) return;
+      if (show) {
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+      } else {
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+      }
+    }
+
+    if (bulkBtn) bulkBtn.addEventListener('click', () => toggleModal(true));
+    if (closeBtn) closeBtn.addEventListener('click', () => toggleModal(false));
+    if (cancelBtn) cancelBtn.addEventListener('click', () => toggleModal(false));
+    if (applyBulkBtn) {
+      applyBulkBtn.addEventListener('click', () => {
+        toggleModal(false);
+        showToast('Bulk variables synchronized & rolling restarts queued');
+      });
+    }
+
+    // Toast Messenger
+    function showToast(text) {
+      const toast = document.getElementById('toast-msg');
+      const toastText = document.getElementById('toast-text');
+      if (!toast || !toastText) return;
+      toastText.innerText = text;
+      toast.classList.remove('translate-y-20', 'opacity-0');
+      toast.classList.add('translate-y-0', 'opacity-100');
+      setTimeout(() => {
+        toast.classList.add('translate-y-20', 'opacity-0');
+        toast.classList.remove('translate-y-0', 'opacity-100');
+      }, 3400);
+    }
+
+    // Global hook for Inline Variable addition
+    window.handleNewVariable = function() {
+      const keyInput = document.getElementById('new-var-key');
+      const valInput = document.getElementById('new-var-value');
+      const scopeInput = document.getElementById('new-var-scope');
+
+      if (!keyInput || !valInput || !tableBody) return;
+      const key = keyInput.value.trim();
+      const val = valInput.value.trim();
+      const scope = scopeInput ? scopeInput.value : 'All Applications';
+
+      if (!key || !val) return;
+
+      const newRow = document.createElement('tr');
+      newRow.className = 'hover:bg-surface-container-low/60 transition-colors group animate-in fade-in duration-200';
+      newRow.setAttribute('data-key', key);
+      newRow.setAttribute('data-apps', scope.toLowerCase());
+
+      newRow.innerHTML = `
+        <td class="py-3.5 px-space-md">
+          <div class="flex items-center gap-2">
+            <span class="font-code-base text-code-base font-semibold text-on-surface">${key}</span>
+            <button type="button" class="copy-trigger text-outline-variant hover:text-on-surface transition-colors" title="Copy Key" onclick="navigator.clipboard.writeText('${key}')">
+              <span class="material-symbols-outlined text-[15px]">content_copy</span>
+            </button>
+          </div>
+        </td>
+        <td class="py-3.5 px-space-md">
+          <div class="inline-flex items-center gap-1.5 bg-surface-container-low px-2.5 py-1 rounded font-code-sm text-code-sm text-on-surface max-w-[280px] truncate">
+            <span>${val}</span>
+          </div>
+        </td>
+        <td class="py-3.5 px-space-md">
+          <span class="px-2 py-0.5 rounded-full bg-primary-fixed/60 font-caption-xs text-caption-xs text-on-primary-fixed-variant font-medium">${scope}</span>
+        </td>
+        <td class="py-3.5 px-space-md">
+          <span class="font-caption-xs text-caption-xs text-on-surface-variant">String</span>
+        </td>
+        <td class="py-3.5 px-space-md text-on-surface-variant font-caption-xs text-caption-xs">Just now</td>
+        <td class="py-3.5 px-space-md text-right">
+          <div class="flex items-center justify-end gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
+            <button type="button" class="p-1 rounded text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors" title="Edit Variable">
+              <span class="material-symbols-outlined text-[18px]">edit</span>
+            </button>
+            <button type="button" class="p-1 rounded text-on-surface-variant hover:text-error hover:bg-error-container/30 transition-colors" title="Delete Variable">
+              <span class="material-symbols-outlined text-[18px]">delete</span>
+            </button>
+          </div>
+        </td>
+      `;
+
+      tableBody.prepend(newRow);
+      keyInput.value = '';
+      valInput.value = '';
+      showToast(`Variable ${key} created & queued for deployment`);
+      filterRows();
+    };
+
+    // Compare Environments trigger demo toast
+    const compareBtn = document.getElementById('compare-env-btn');
+    if (compareBtn) {
+      compareBtn.addEventListener('click', () => {
+        showToast('Environment Diff generated: 4 mismatched keys detected');
+      });
+    }
+  })();
+</script></div></main></div></body></html>

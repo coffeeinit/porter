@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+
+<html lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><title>Porter - Cloud Infrastructure Control Plane</title><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base { html, body { margin: 0; padding: 0; } body { overscroll-behavior: none; } main > :first-child { margin-top: 0 !important; } main > :last-child { margin-bottom: 0 !important; } } ::-webkit-scrollbar { display: none; }</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "on-secondary-container": "#636469", "surface-container-lowest": "#ffffff", "outline": "#727786", "background": "#f9f9ff", "secondary": "#5d5e63", "surface-variant": "#dce3f2", "error-container": "#ffdad6", "surface-container": "#e7eefd", "secondary-container": "#e2e2e8", "inverse-on-surface": "#ebf1ff", "on-secondary": "#ffffff", "on-primary-container": "#fffdff", "inverse-surface": "#2a313c", "inverse-primary": "#b0c6ff", "on-error-container": "#93000a", "on-secondary-fixed": "#1a1c20", "error": "#ba1a1a", "on-tertiary-fixed-variant": "#005232", "tertiary-fixed-dim": "#5fdd9d", "on-tertiary-container": "#fefffa", "surface-dim": "#d3dae9", "on-secondary-fixed-variant": "#45474b", "on-tertiary": "#ffffff", "on-primary-fixed": "#001945", "primary-fixed-dim": "#b0c6ff", "surface": "#f9f9ff", "on-tertiary-fixed": "#002111", "on-background": "#151c27", "on-primary": "#ffffff", "on-primary-fixed-variant": "#00429c", "secondary-fixed-dim": "#c6c6cb", "on-error": "#ffffff", "tertiary-container": "#008755", "surface-container-high": "#e2e8f7", "surface-tint": "#0058cb", "on-surface-variant": "#424655", "tertiary-fixed": "#7dfab7", "surface-container-low": "#eff3ff", "primary-fixed": "#d9e2ff", "surface-container-highest": "#dce3f2", "surface-bright": "#f9f9ff", "outline-variant": "#c2c6d7", "on-surface": "#151c27", "primary-container": "#146ef5", "primary": "#0056c8", "tertiary": "#006b43", "secondary-fixed": "#e2e2e8" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "space-xs": "0.25rem", "space-xl": "1.5rem", "margin": "1.5rem", "gutter": "1rem", "space-lg": "1rem", "space-md": "0.75rem", "space-sm": "0.5rem" }, "fontFamily": { "body-base": ["Inter"], "body-sm": ["Inter"], "body-base-medium": ["Inter"], "headline-md": ["Inter"], "display-xl": ["Inter"], "headline-lg": ["Inter"], "code-base": ["JetBrains Mono"], "code-sm": ["JetBrains Mono"], "caption-xs": ["Inter"], "body-sm-medium": ["Inter"], "headline-sm": ["Inter"] }, "fontSize": { "body-base": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }], "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }], "body-base-medium": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "500" }], "headline-md": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }], "display-xl": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.025em", "fontWeight": "600" }], "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }], "code-base": ["13px", { "lineHeight": "18px", "letterSpacing": "-0.01em", "fontWeight": "400" }], "code-sm": ["11px", { "lineHeight": "14px", "letterSpacing": "0em", "fontWeight": "500" }], "caption-xs": ["11px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }], "body-sm-medium": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "500" }], "headline-sm": ["15px", { "lineHeight": "20px", "letterSpacing": "-0.01em", "fontWeight": "600" }] } } } };</script></head><body class="bg-background font-body-base text-body-base text-on-surface antialiased"><header class="fixed top-0 left-0 right-0 h-14 z-50 bg-surface-container-lowest shadow-[0_1px_8px_rgba(0,0,0,0.04)]"><div class="h-14 w-full px-space-xl flex items-center justify-between gap-space-lg"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-sm"><div class="w-7 h-7 rounded-lg bg-inverse-surface flex items-center justify-center shadow-sm"><span class="font-headline-sm text-headline-sm text-inverse-on-surface leading-none font-bold">P</span></div><span class="font-headline-md text-headline-md font-bold text-on-surface tracking-tight">Porter</span></div><span class="px-space-xs py-0.5 rounded-lg bg-surface-container font-caption-xs text-caption-xs text-primary font-medium tracking-wide uppercase">ADMIN</span><div class="h-4 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-xs px-space-sm py-1 rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors font-body-sm-medium text-body-sm-medium text-on-surface"><span class="material-symbols-outlined text-secondary text-[16px]">cloud_done</span><span>Acme Cloud / us-east-prod</span><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div><div class="flex-1 max-w-xl mx-auto px-space-md"><div class="relative flex items-center w-full"><span class="material-symbols-outlined absolute left-space-md text-outline text-[18px] pointer-events-none">search</span><input class="w-full h-9 pl-9 pr-14 rounded-lg bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:bg-surface-container-lowest focus:ring-1 focus:ring-primary shadow-[0_1px_3px_rgba(0,0,0,0.02)] transition-all" placeholder="Search resources, microVMs, clusters, deployments..." type="text"/><div class="absolute right-space-sm flex items-center px-1.5 py-0.5 rounded-lg bg-surface-container-high text-on-surface-variant font-code-sm text-code-sm shadow-sm border-0">⌘K</div></div></div><div class="flex items-center gap-space-sm"><button aria-label="Notifications" class="relative w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">notifications</span><span class="absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-primary text-on-primary font-caption-xs text-caption-xs flex items-center justify-center leading-none font-bold">3</span></button><button aria-label="Documentation &amp; Help" class="w-9 h-9 flex items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors"><span class="material-symbols-outlined text-[20px]">help</span></button><div class="h-5 w-px bg-outline-variant mx-space-xs"></div><button class="flex items-center gap-space-sm pl-1 pr-2 py-1 rounded-lg hover:bg-surface-container-high transition-colors"><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div><span class="material-symbols-outlined text-secondary text-[16px]">expand_more</span></button></div></div></header><aside class="fixed left-0 top-14 bottom-0 w-64 bg-surface-container-lowest z-40 flex flex-col justify-between shadow-[0_1px_8px_rgba(0,0,0,0.04)] overflow-y-auto"><div class="flex flex-col"><div class="p-space-md border-b-0"><div class="flex items-center justify-between p-space-sm rounded-lg bg-surface-container-low hover:bg-surface-container-high transition-colors cursor-pointer"><div class="flex items-center gap-space-sm min-w-0"><div class="w-2 h-2 rounded-full bg-tertiary-container ring-2 ring-tertiary-fixed"></div><div class="flex flex-col truncate"><span class="font-body-sm-medium text-body-sm-medium text-on-surface truncate">Acme Cloud</span><span class="font-code-sm text-code-sm text-secondary truncate">us-east-prod</span></div></div><span class="material-symbols-outlined text-secondary text-[16px]">unfold_more</span></div></div><nav class="flex flex-col px-space-sm space-y-space-sm pb-space-md" data-active-classes="bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg"><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Infrastructure &amp; Compute</span></div><div class="space-y-0.5"><a aria-current="page" class="flex items-center px-space-sm py-1.5 transition-colors bg-primary-container text-on-primary-container font-body-base-medium text-body-base-medium rounded-lg" data-path="projects-and-environments" href="#">Projects &amp; Environments</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="nodes-and-microvms" href="#">Nodes &amp; MicroVMs</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="applications" href="#">Applications</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="deployments" href="#">Deployments</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Configuration &amp; Ingress</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="domains-and-dns" href="#">Domains &amp; DNS</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="environment-variables" href="#">Environment Variables</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="secrets" href="#">Secrets</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Runtime &amp; Ops</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="logs-explorer" href="#">Logs Explorer</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="metrics-and-observability" href="#">Metrics &amp; Observability</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="storage-and-volumes" href="#">Storage &amp; Volumes</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="networking-and-gateways" href="#">Networking &amp; Gateways</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="cron-and-scheduled-jobs" href="#">Cron &amp; Scheduled Jobs</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="backups-and-recovery" href="#">Backups &amp; Recovery</a></div><div class="px-space-sm pt-space-xs"><span class="font-caption-xs text-caption-xs font-semibold text-secondary uppercase tracking-wider">Team &amp; Commercial</span></div><div class="space-y-0.5"><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="team-and-access" href="#">Team &amp; Access</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="tasks-and-operations" href="#">Tasks &amp; Operations</a><a class="flex items-center px-space-sm py-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface transition-colors font-body-sm text-body-sm" data-path="billing-and-usage" href="#">Billing &amp; Usage</a></div></nav></div><div class="p-space-md mt-auto"><div class="p-space-md rounded-xl bg-surface-container-low shadow-[0_1px_3px_rgba(0,0,0,0.02)] space-y-space-sm"><div class="flex items-center justify-between"><div class="flex items-center gap-space-xs"><span class="font-headline-sm text-headline-sm font-semibold text-on-surface">PRO PLAN</span></div><span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-surface-container-lowest font-caption-xs text-caption-xs text-tertiary font-semibold"><span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-pulse"></span>Operational</span></div><div class="space-y-1"><div class="flex justify-between font-caption-xs text-caption-xs text-secondary"><span>Monthly Quota</span><span class="font-code-sm text-code-sm text-on-surface font-semibold">$284 / $500 (41%)</span></div><div class="w-full h-1.5 rounded-full bg-surface-container-high overflow-hidden"><div class="h-full rounded-full bg-primary" style="width: 41%;"></div></div></div><div class="pt-space-xs flex items-center justify-between font-caption-xs text-caption-xs text-secondary"><div class="flex items-center gap-space-sm"><a class="hover:text-primary transition-colors" href="#">Docs</a><span>•</span><a class="hover:text-primary transition-colors" href="#">API</a></div><span class="font-code-sm text-code-sm text-outline">v2.9.0</span></div></div></div></aside><div class="pl-64"><main class="relative pt-14 min-h-screen bg-background w-full px-space-xl py-space-xl"><div class="flex flex-col w-full">
+<!-- Breadcrumbs & Operational Control Header -->
+<div class="flex flex-col gap-space-md mb-space-xl">
+<div class="flex items-center gap-space-xs text-caption-xs font-caption-xs text-secondary tracking-wide">
+<a class="hover:text-primary transition-colors flex items-center gap-1" href="#">
+<span class="material-symbols-outlined text-[14px]">home</span>Home
+      </a>
+<span class="text-outline-variant">/</span>
+<span class="text-secondary">Core Compute</span>
+<span class="text-outline-variant">/</span>
+<span class="text-on-surface font-semibold">Projects &amp; Environments</span>
+</div>
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-lg">
+<div class="space-y-1">
+<h1 class="font-display-xl text-display-xl text-on-surface tracking-tight font-bold">Projects &amp; Multi-Environment Pipelines</h1>
+<p class="font-body-sm text-body-sm text-secondary max-w-4xl">
+          Multi-tenant project boundaries, automated promotion workflows (Dev → Preview → Staging → Production), strict branch protection rules, and declarative secret isolation matrices.
+        </p>
+</div>
+<div class="flex items-center gap-space-sm self-start md:self-center shrink-0">
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-surface-container-lowest hover:bg-surface-container-low text-on-surface font-body-sm-medium text-body-sm-medium shadow-sm transition-all">
+<span class="material-symbols-outlined text-[16px] text-primary">rule_folder</span>
+<span>Configure Promotion Gates</span>
+</button>
+<button class="flex items-center gap-space-xs px-space-md py-2 rounded-lg bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium shadow-sm hover:brightness-105 active:brightness-95 transition-all">
+<span class="material-symbols-outlined text-[16px]">add</span>
+<span>New Project</span>
+</button>
+</div>
+</div>
+</div>
+<!-- KPI Cards Grid (4 Columns) -->
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-gutter mb-space-xl">
+<!-- Card 1 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="absolute -right-4 -top-4 w-20 h-20 rounded-full bg-primary/5 group-hover:scale-125 transition-transform duration-500"></div>
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Total Projects</span>
+<span class="material-symbols-outlined text-primary text-[20px]">account_tree</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">6</span>
+<span class="font-body-sm-medium text-body-sm-medium text-tertiary">Active</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary truncate">Across 3 functional business units</p>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center justify-between text-caption-xs font-code-sm text-secondary">
+<span>Allocation: Core &amp; Infra</span>
+<span class="text-on-surface font-semibold">100% OK</span>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="absolute -right-4 -top-4 w-20 h-20 rounded-full bg-tertiary/5 group-hover:scale-125 transition-transform duration-500"></div>
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Active Environments</span>
+<span class="material-symbols-outlined text-tertiary text-[20px]">layers</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">18</span>
+<span class="font-body-sm text-body-sm text-secondary">Total</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary truncate">6 Prod • 6 Stg • 4 Prv • 2 Dev</p>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center gap-1.5 text-caption-xs font-caption-xs text-tertiary">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container animate-ping"></span>
+<span class="truncate">All synced to git manifests</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="absolute -right-4 -top-4 w-20 h-20 rounded-full bg-surface-container group-hover:scale-125 transition-transform duration-500"></div>
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Promotion Success</span>
+<span class="material-symbols-outlined text-tertiary text-[20px]">verified</span>
+</div>
+<div class="space-y-1">
+<div class="flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">99.4%</span>
+<span class="font-caption-xs text-caption-xs text-tertiary bg-surface-container-low px-1.5 py-0.5 rounded font-semibold">+0.6%</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary truncate">Average promotion time: 3m 12s</p>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center justify-between text-caption-xs font-code-sm text-secondary">
+<span>Rollback Frequency</span>
+<span class="text-tertiary font-semibold">0.06%</span>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between relative overflow-hidden group hover:shadow-md transition-shadow">
+<div class="absolute -right-4 -top-4 w-20 h-20 rounded-full bg-error/5 group-hover:scale-125 transition-transform duration-500"></div>
+<div class="flex items-center justify-between mb-space-sm">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Gated Promotions</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-surface-container font-caption-xs text-caption-xs text-on-primary-fixed-variant font-semibold">
+          Action Required
+        </span>
+</div>
+<div class="space-y-1">
+<div class="flex items-baseline gap-2">
+<span class="font-display-xl text-display-xl font-bold text-on-surface tracking-tight">2</span>
+<span class="font-body-sm-medium text-body-sm-medium text-secondary">Awaiting Approval</span>
+</div>
+<p class="font-caption-xs text-caption-xs text-secondary truncate">Production deployment gates active</p>
+</div>
+<div class="mt-space-md pt-space-xs flex items-center justify-between text-caption-xs font-body-sm text-primary font-medium cursor-pointer hover:underline">
+<span>Review promotion queue</span>
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+</div>
+</div>
+</div>
+<!-- Section 1: Multi-Environment Promotion Pipeline Matrix -->
+<div class="p-space-xl rounded-xl bg-surface-container-lowest shadow-sm mb-space-xl">
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md pb-space-lg mb-space-lg bg-surface-container-low/50 -mx-space-xl -mt-space-xl p-space-xl rounded-t-xl">
+<div class="space-y-1">
+<div class="flex items-center gap-space-sm">
+<span class="px-2 py-0.5 rounded bg-primary text-on-primary font-caption-xs text-caption-xs font-semibold uppercase tracking-wider">Automated Matrix</span>
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">Declarative Promotion Pipeline Architecture</h2>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Continuous artifact propagation across microVM execution rings with immutable SHA manifests</p>
+</div>
+<div class="flex items-center gap-space-md text-code-sm font-code-sm text-secondary">
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-tertiary-container"></span>
+<span>Zero-downtime Canary</span>
+</div>
+<div class="flex items-center gap-1.5">
+<span class="w-2.5 h-2.5 rounded-full bg-primary-container"></span>
+<span>Fast TAP Network Rebind</span>
+</div>
+</div>
+</div>
+<!-- Visual 4-Stage Stepper Track -->
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-gutter relative">
+<!-- Stage 1 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col justify-between relative group hover:bg-surface-container transition-colors">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Stage 01 • Sandbox</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container-lowest font-caption-xs text-caption-xs text-tertiary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>Active
+            </span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Ephemeral Dev</h3>
+<p class="font-body-sm text-body-sm text-secondary mt-1">Feature branches isolated in lightweight microVMs with synthetic data fixtures.</p>
+</div>
+<div class="space-y-1 pt-space-xs font-code-sm text-code-sm text-secondary">
+<div class="flex items-center justify-between">
+<span>TTL Lifespan:</span>
+<span class="text-on-surface font-medium">48h teardown</span>
+</div>
+<div class="flex items-center justify-between">
+<span>State Store:</span>
+<span class="text-on-surface font-medium">Mock / Ephemeral</span>
+</div>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm bg-surface-container-lowest/80 -mx-space-md -mb-space-md p-space-md rounded-b-lg flex items-center justify-between text-caption-xs font-caption-xs">
+<span class="text-secondary">Auto-sync: git commit</span>
+<span class="font-code-sm text-primary font-medium">100% CI pass</span>
+</div>
+</div>
+<!-- Stage 2 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col justify-between relative group hover:bg-surface-container transition-colors">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Stage 02 • Ephemeral Ingress</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container-lowest font-caption-xs text-caption-xs text-tertiary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary-container"></span>Active
+            </span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">PR Preview Rings</h3>
+<p class="font-body-sm text-body-sm text-secondary mt-1">Direct GitHub PR trigger with dynamic subdomains, TLS certificates, and end-to-end telemetry.</p>
+</div>
+<div class="space-y-1 pt-space-xs font-code-sm text-code-sm text-secondary">
+<div class="flex items-center justify-between">
+<span>Route Mapping:</span>
+<span class="text-primary font-medium truncate max-w-[120px]">*.preview.acme</span>
+</div>
+<div class="flex items-center justify-between">
+<span>E2E Harness:</span>
+<span class="text-on-surface font-medium">Playwright (Headless)</span>
+</div>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm bg-surface-container-lowest/80 -mx-space-md -mb-space-md p-space-md rounded-b-lg flex items-center justify-between text-caption-xs font-caption-xs">
+<span class="text-secondary">Merge condition</span>
+<span class="font-code-sm text-tertiary font-medium">Fast-forward</span>
+</div>
+</div>
+<!-- Stage 3 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex flex-col justify-between relative group hover:bg-surface-container transition-colors">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-secondary font-semibold">Stage 03 • Pre-Release Mirror</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container-lowest font-caption-xs text-caption-xs text-primary font-semibold">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>Synced
+            </span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Staging Environment</h3>
+<p class="font-body-sm text-body-sm text-secondary mt-1">High-fidelity clone of production topology running continuous integration and chaos simulations.</p>
+</div>
+<div class="space-y-1 pt-space-xs font-code-sm text-code-sm text-secondary">
+<div class="flex items-center justify-between">
+<span>Load Test:</span>
+<span class="text-on-surface font-medium">Synthetic 2.5k RPS</span>
+</div>
+<div class="flex items-center justify-between">
+<span>Database:</span>
+<span class="text-on-surface font-medium">Masked Sanitized Replica</span>
+</div>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm bg-surface-container-lowest/80 -mx-space-md -mb-space-md p-space-md rounded-b-lg flex items-center justify-between text-caption-xs font-caption-xs">
+<span class="text-secondary">Release candidate</span>
+<span class="font-code-sm text-on-surface font-medium">v2.9.0-rc.3</span>
+</div>
+</div>
+<!-- Stage 4 -->
+<div class="p-space-md rounded-lg bg-surface-container-highest/60 flex flex-col justify-between relative group hover:bg-surface-container-highest transition-colors">
+<div class="space-y-space-sm">
+<div class="flex items-center justify-between">
+<span class="font-caption-xs text-caption-xs uppercase tracking-wider text-on-surface-variant font-semibold">Stage 04 • Edge Gateway</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container-lowest font-caption-xs text-caption-xs text-error font-semibold">
+<span class="material-symbols-outlined text-[13px] text-error">lock</span>Gated (2-Key)
+            </span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Production Cluster</h3>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Production workloads guarded by multi-party approval, 10% canary shifting, and auto-rollback.</p>
+</div>
+<div class="space-y-1 pt-space-xs font-code-sm text-code-sm text-on-surface-variant">
+<div class="flex items-center justify-between">
+<span>Traffic Canary:</span>
+<span class="text-on-surface font-medium">10% → 50% → 100%</span>
+</div>
+<div class="flex items-center justify-between">
+<span>Rollback Trigger:</span>
+<span class="text-error font-medium">&gt; 1.00% 5xx SLA</span>
+</div>
+</div>
+</div>
+<div class="mt-space-md pt-space-sm bg-surface-container-lowest/80 -mx-space-md -mb-space-md p-space-md rounded-b-lg flex items-center justify-between text-caption-xs font-caption-xs">
+<span class="text-secondary">Protection Mode</span>
+<span class="font-code-sm text-on-surface font-semibold">Strict RBAC</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Section 2: Projects Overview & Service Matrix Table -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm mb-space-xl">
+<!-- Filtering & Control Toolbar -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-space-md pb-space-lg">
+<!-- Tabs -->
+<div class="flex items-center gap-space-xs overflow-x-auto">
+<button class="px-space-md py-1.5 rounded-lg bg-surface-container text-primary font-body-sm-medium text-body-sm-medium whitespace-nowrap">
+          All Projects (6)
+        </button>
+<button class="px-space-md py-1.5 rounded-lg hover:bg-surface-container-low text-secondary hover:text-on-surface font-body-sm-medium text-body-sm-medium transition-colors whitespace-nowrap">
+          Production Active (6)
+        </button>
+<button class="px-space-md py-1.5 rounded-lg hover:bg-surface-container-low text-secondary hover:text-on-surface font-body-sm-medium text-body-sm-medium transition-colors whitespace-nowrap flex items-center gap-1.5">
+<span>Pending Promotion</span>
+<span class="w-4 h-4 rounded-full bg-primary-container text-on-primary-container text-[10px] flex items-center justify-center font-bold">2</span>
+</button>
+<button class="px-space-md py-1.5 rounded-lg hover:bg-surface-container-low text-secondary hover:text-on-surface font-body-sm-medium text-body-sm-medium transition-colors whitespace-nowrap">
+          Archived
+        </button>
+</div>
+<!-- Search and Views -->
+<div class="flex items-center gap-space-sm w-full md:w-auto">
+<div class="relative flex-1 md:w-72">
+<span class="material-symbols-outlined absolute left-2.5 top-2 text-outline text-[18px]">search</span>
+<input class="w-full h-8 pl-8 pr-3 rounded-lg bg-surface-container-low text-on-surface placeholder:text-outline font-body-sm text-body-sm focus:outline-none focus:ring-1 focus:ring-primary shadow-xs" placeholder="Filter projects or microservices..." type="text"/>
+</div>
+<button class="p-1.5 rounded-lg bg-surface-container-low hover:bg-surface-container text-secondary hover:text-on-surface transition-colors" title="Export Manifest">
+<span class="material-symbols-outlined text-[18px]">file_download</span>
+</button>
+</div>
+</div>
+<!-- High-Density Data Table -->
+<div class="overflow-x-auto rounded-lg">
+<table class="w-full text-left font-body-sm text-body-sm">
+<thead class="bg-surface-container-low text-secondary font-caption-xs text-caption-xs uppercase tracking-wider">
+<tr>
+<th class="py-2.5 px-space-md font-semibold">Project &amp; Subsystem</th>
+<th class="py-2.5 px-space-md font-semibold">Promotion Topology Flow</th>
+<th class="py-2.5 px-space-md font-semibold">Attached Microservices</th>
+<th class="py-2.5 px-space-md font-semibold">Compute Quota (vCPU / RAM)</th>
+<th class="py-2.5 px-space-md font-semibold">Last Promotion</th>
+<th class="py-2.5 px-space-md font-semibold text-right">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y-0 text-on-surface">
+<!-- Row 1: Core Platform -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[18px]">token</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">Core Platform</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">Main high-throughput backend APIs &amp; Auth engine</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary" title="Dev microVM active">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary" title="Preview PR-819 active">PRV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface font-medium" title="Staging synced">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-tertiary-container text-on-tertiary-container font-medium" title="Production running">
+<span class="material-symbols-outlined text-[12px]">check</span>PROD
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">5 microVMs</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">api-gateway, auth, users-svc</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>4.2 / 8.0 vCPU</span>
+<span class="text-secondary">52%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 52%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">12.0 GB / 24.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">v2.8.4 → PROD</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Maya Chen • 18m ago</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary-container hover:brightness-105 text-on-primary-container font-body-sm-medium text-body-sm-medium transition-colors">
+                  Promote
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 2: Web Commerce -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group bg-surface-container-lowest">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-tertiary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[18px]">shopping_bag</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">Web Commerce</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">Global storefront, checkout engine, and payment proxy</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">PRV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant font-medium" title="Approval Gated">
+<span class="material-symbols-outlined text-[12px] text-error">lock_clock</span>GATED
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">4 microVMs</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">storefront-ssr, stripe-relay</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>6.8 / 8.0 vCPU</span>
+<span class="text-error font-semibold">85%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-error" style="width: 85%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">18.4 GB / 20.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-primary font-semibold">v3.1.0-rc2 • Staging</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Awaiting 1 Senior Signoff</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary hover:brightness-110 text-on-primary font-body-sm-medium text-body-sm-medium transition-colors shadow-xs">
+                  Review Gate
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 3: Data Pipeline -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-surface-container-highest flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-surface-variant text-[18px]">reorder</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">Data Pipeline</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">Real-time Kafka ingestion, ClickHouse ETL sinks</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-low text-outline">-</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-tertiary-container text-on-tertiary-container font-medium">
+<span class="material-symbols-outlined text-[12px]">check</span>PROD
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">8 workers</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">kafka-streamer, etl-sink-01</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>14.2 / 16.0 vCPU</span>
+<span class="text-secondary">88%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 88%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">38.0 GB / 48.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">v1.12.0 → PROD</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Automated CI • 4h ago</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary-container hover:brightness-105 text-on-primary-container font-body-sm-medium text-body-sm-medium transition-colors">
+                  Promote
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 4: ML Inference -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group bg-surface-container-lowest">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[18px]">psychology</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">ML Inference</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">vLLM host runtime with CUDA acceleration TAP bridge</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">PRV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-surface-container text-on-surface-variant font-medium">
+<span class="material-symbols-outlined text-[12px] text-error">lock_clock</span>GATED
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">3 microVMs (GPU)</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">mistral-7b-eval, embeddings</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>16.0 / 16.0 vCPU</span>
+<span class="text-error font-semibold">100%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-error" style="width: 100%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">64.0 GB / 64.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-primary font-semibold">v0.9.1 • Waiting Lead</span>
+<span class="font-caption-xs text-caption-xs text-secondary">Finance Ops approval required</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary hover:brightness-110 text-on-primary font-body-sm-medium text-body-sm-medium transition-colors shadow-xs">
+                  Review Gate
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 5: Internal Tools -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-secondary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-secondary text-[18px]">build_circle</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">Internal Tools</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">Employee admin cockpit, customer support impersonation</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">PRV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-tertiary-container text-on-tertiary-container font-medium">
+<span class="material-symbols-outlined text-[12px]">check</span>PROD
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">2 microVMs</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">support-desk, audit-logger</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>1.8 / 4.0 vCPU</span>
+<span class="text-secondary">45%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 45%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">4.0 GB / 8.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">v1.4.1 → PROD</span>
+<span class="font-caption-xs text-caption-xs text-secondary">David K. • Yesterday</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary-container hover:brightness-105 text-on-primary-container font-body-sm-medium text-body-sm-medium transition-colors">
+                  Promote
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Row 6: Edge CDN Gateway -->
+<tr class="hover:bg-surface-container-low/40 transition-colors group bg-surface-container-lowest">
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-space-sm">
+<div class="w-8 h-8 rounded-lg bg-tertiary/10 flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-tertiary text-[18px]">hub</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface truncate">Edge CDN Gateway</span>
+<span class="font-caption-xs text-caption-xs text-secondary truncate">Anycast DNS termination &amp; Envoy dynamic router</span>
+</div>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex items-center gap-1 font-code-sm text-code-sm">
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">DEV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary">PRV</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface font-medium">STG</span>
+<span class="text-outline-variant text-[10px]">→</span>
+<span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-tertiary-container text-on-tertiary-container font-medium">
+<span class="material-symbols-outlined text-[12px]">check</span>PROD
+                </span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-body-sm-medium text-body-sm-medium text-on-surface">12 anycast nodes</span>
+<span class="font-code-sm text-code-sm text-secondary truncate max-w-[170px]">envoy-edge-01..12</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col w-36 space-y-1">
+<div class="flex justify-between font-code-sm text-code-sm">
+<span>8.0 / 12.0 vCPU</span>
+<span class="text-secondary">66%</span>
+</div>
+<div class="w-full h-1.5 rounded-full bg-surface-container overflow-hidden">
+<div class="h-full rounded-full bg-primary" style="width: 66%;"></div>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">16.0 GB / 24.0 GB RAM</span>
+</div>
+</td>
+<td class="py-3 px-space-md">
+<div class="flex flex-col">
+<span class="font-code-sm text-code-sm text-on-surface font-semibold">v4.0.2 → PROD</span>
+<span class="font-caption-xs text-caption-xs text-secondary">System Gate • 2d ago</span>
+</div>
+</td>
+<td class="py-3 px-space-md text-right whitespace-nowrap">
+<div class="flex items-center justify-end gap-1.5 opacity-90 group-hover:opacity-100 transition-opacity">
+<button class="px-2.5 py-1 rounded-lg bg-surface-container-low hover:bg-surface-container text-on-surface font-body-sm-medium text-body-sm-medium transition-colors">
+                  Envs
+                </button>
+<button class="px-2.5 py-1 rounded-lg bg-primary-container hover:brightness-105 text-on-primary-container font-body-sm-medium text-body-sm-medium transition-colors">
+                  Promote
+                </button>
+<button class="p-1 rounded hover:bg-surface-container text-secondary transition-colors">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="mt-space-md pt-space-md bg-surface-container-low/30 -mx-space-lg -mb-space-lg p-space-lg rounded-b-xl flex flex-col sm:flex-row items-center justify-between gap-space-md text-caption-xs font-caption-xs text-secondary">
+<div class="flex items-center gap-space-sm">
+<span>Showing 6 of 6 registered production projects</span>
+<span>•</span>
+<span class="text-on-surface font-medium">Memory footprint: 142.4 GB allocated</span>
+</div>
+<div class="flex items-center gap-space-xs font-body-sm">
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-secondary opacity-60 cursor-not-allowed">Previous</button>
+<button class="px-2 py-1 rounded bg-primary text-on-primary font-semibold">1</button>
+<button class="px-2 py-1 rounded bg-surface-container-lowest text-secondary opacity-60 cursor-not-allowed">Next</button>
+</div>
+</div>
+</div>
+<!-- Section 3: Bottom Split Grid (Policies & Recent Operations) -->
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-gutter mb-space-xl">
+<!-- Left Column: Promotion Policies & Branch Protection -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-space-md mb-space-md bg-surface-container-low/40 -mx-space-lg -mt-space-lg p-space-lg rounded-t-xl">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[22px]">security</span>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Environment Promotion Policies</h3>
+<p class="font-body-sm text-body-sm text-secondary">Declarative branch rules &amp; isolation constraints</p>
+</div>
+</div>
+<button class="text-primary font-body-sm-medium text-body-sm-medium hover:underline flex items-center gap-1">
+            Edit YAML
+            <span class="material-symbols-outlined text-[14px]">code</span>
+</button>
+</div>
+<div class="space-y-space-md">
+<!-- Policy 1 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start justify-between gap-space-md">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">Production Gate RBAC</span>
+<span class="px-1.5 py-0.5 rounded bg-primary/10 text-primary font-caption-xs text-caption-xs font-semibold uppercase">Enforced</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Requires 2 Senior Approvals and 100% automated integration health probes passing prior to microVM boot.</p>
+<div class="flex items-center gap-space-sm pt-1 font-code-sm text-code-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-tertiary">check_circle</span>
+<span>Canary traffic auto-reverts on &gt;1% HTTP 5xx errors</span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Policy 2 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start justify-between gap-space-md">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">Auto-Deploy Staging on Main</span>
+<span class="px-1.5 py-0.5 rounded bg-tertiary/10 text-tertiary font-caption-xs text-caption-xs font-semibold uppercase">Active</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Automatic rootfs rebuild and TAP interface reprovisioning whenever commits land on the `main` git branch.</p>
+<div class="flex items-center gap-space-sm pt-1 font-code-sm text-code-sm text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px] text-secondary">commit</span>
+<span>Branch: <code class="font-bold text-on-surface">refs/heads/main</code></span>
+</div>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Policy 3 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start justify-between gap-space-md">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">Ephemeral Ingress Auto-Destroy</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container text-secondary font-caption-xs text-caption-xs font-semibold uppercase">Cost Saver</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Auto-destroy PR preview microVMs instantly when GitHub PR is closed or merged, or if idle for &gt;72h.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<!-- Policy 4 -->
+<div class="p-space-md rounded-lg bg-surface-container-low flex items-start justify-between gap-space-md">
+<div class="space-y-1">
+<div class="flex items-center gap-2">
+<span class="font-body-base-medium text-body-base-medium font-semibold text-on-surface">Cryptographic Secrets Isolation</span>
+<span class="px-1.5 py-0.5 rounded bg-error/10 text-error font-caption-xs text-caption-xs font-semibold uppercase">Zero-Trust</span>
+</div>
+<p class="font-body-sm text-body-sm text-secondary">Hard boundary prohibiting Dev and PR preview environments from accessing production Cloud KMS keyrings.</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+<input checked="" class="sr-only peer" type="checkbox"/>
+<div class="w-9 h-5 bg-surface-container-highest peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+</div>
+</div>
+<div class="mt-space-lg pt-space-sm flex items-center justify-between text-caption-xs font-code-sm text-secondary">
+<span>Policy engine: Open Policy Agent (OPA)</span>
+<span class="text-tertiary flex items-center gap-1 font-medium">
+<span class="material-symbols-outlined text-[13px]">verified_user</span>All rules passing audit
+        </span>
+</div>
+</div>
+<!-- Right Column: Recent Promotion Operations Log -->
+<div class="p-space-lg rounded-xl bg-surface-container-lowest shadow-sm flex flex-col justify-between">
+<div>
+<div class="flex items-center justify-between pb-space-md mb-space-md bg-surface-container-low/40 -mx-space-lg -mt-space-lg p-space-lg rounded-t-xl">
+<div class="flex items-center gap-space-sm">
+<span class="material-symbols-outlined text-primary text-[22px]">history</span>
+<div>
+<h3 class="font-headline-sm text-headline-sm font-bold text-on-surface">Recent Promotion Operations</h3>
+<p class="font-body-sm text-body-sm text-secondary">Real-time trace of promotion artifacts &amp; gateway events</p>
+</div>
+</div>
+<button class="text-secondary hover:text-on-surface transition-colors p-1 rounded">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+</button>
+</div>
+<!-- Timeline -->
+<div class="space-y-space-md relative before:absolute before:inset-0 before:left-4 before:w-0.5 before:bg-surface-container">
+<!-- Timeline Item 1: Approved & Completed -->
+<div class="relative flex items-start gap-space-md pl-1">
+<div class="w-7 h-7 rounded-full bg-tertiary-container flex items-center justify-center shrink-0 shadow-sm z-10">
+<span class="material-symbols-outlined text-on-tertiary-container text-[16px]">check</span>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex-1 space-y-1">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">api-production:v2.8.4 → PROD</span>
+<span class="font-caption-xs text-caption-xs text-secondary">18m ago</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                Promoted from <span class="font-medium text-on-surface">Staging</span> to <span class="font-medium text-on-surface">Production</span>. Shifted 100% traffic across 5 microVM replicas.
+              </p>
+<div class="flex items-center gap-space-md pt-1 font-caption-xs text-caption-xs text-secondary">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[13px] text-tertiary">how_to_reg</span>
+<span>Maya Chen &amp; Alex Morgan</span>
+</span>
+<span>•</span>
+<span class="font-code-sm">Duration: 4m 14s</span>
+</div>
+</div>
+</div>
+<!-- Timeline Item 2: Auto-Created PR Preview -->
+<div class="relative flex items-start gap-space-md pl-1">
+<div class="w-7 h-7 rounded-full bg-primary-container flex items-center justify-center shrink-0 shadow-sm z-10">
+<span class="material-symbols-outlined text-on-primary-container text-[16px]">add_link</span>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container-low flex-1 space-y-1">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">pr-312-cart-fix • Ephemeral</span>
+<span class="font-caption-xs text-caption-xs text-secondary">1h 05m ago</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">
+                Generated dynamically via GitHub PR #312 push event. MicroVM booted and routed to edge ingress.
+              </p>
+<div class="flex items-center gap-space-sm pt-1 font-code-sm text-code-sm text-primary">
+<span class="material-symbols-outlined text-[14px]">link</span>
+<a class="hover:underline truncate" href="#">pr-312.preview.acme.cloud</a>
+</div>
+</div>
+</div>
+<!-- Timeline Item 3: Gated Waiting Approval -->
+<div class="relative flex items-start gap-space-md pl-1">
+<div class="w-7 h-7 rounded-full bg-surface-container-highest flex items-center justify-center shrink-0 shadow-sm z-10">
+<span class="material-symbols-outlined text-error text-[16px]">hourglass_top</span>
+</div>
+<div class="p-space-md rounded-lg bg-surface-container flex-1 space-y-1">
+<div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+<div class="flex items-center gap-2">
+<span class="font-code-sm text-code-sm font-bold text-on-surface">worker-billing:v1.5.0 → PROD</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-lowest font-caption-xs text-caption-xs text-error font-semibold">Gated</span>
+</div>
+<span class="font-caption-xs text-caption-xs text-secondary">2h 42m ago</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface">
+                Pending financial compliance check. Awaiting 1 remaining approval from Finance Ops Lead.
+              </p>
+<div class="flex items-center justify-between pt-2">
+<span class="font-caption-xs text-caption-xs text-secondary">1 of 2 required signatures acquired</span>
+<button class="px-2.5 py-1 rounded bg-primary-container text-on-primary-container font-body-sm-medium text-body-sm-medium hover:brightness-105 transition-all text-xs">
+                  Grant Approval
+                </button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-space-lg pt-space-sm flex items-center justify-between text-caption-xs font-code-sm text-secondary">
+<a class="text-primary hover:underline flex items-center gap-1" href="#">
+<span>View complete deployment audit log</span>
+<span class="material-symbols-outlined text-[13px]">arrow_forward</span>
+</a>
+<span>Audit Trail: Immutable Log (v2)</span>
+</div>
+</div>
+</div>
+</div></main></div></body></html>
