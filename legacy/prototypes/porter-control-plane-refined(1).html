@@ -1,0 +1,1672 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Porter — MicroVM Control Plane</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+<script src="https://unpkg.com/lucide@0.451.0/dist/umd/lucide.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.1/dist/cdn.min.js"></script>
+<script>
+  tailwind.config = { theme: { extend: { fontFamily: {
+    sans: ['-apple-system','BlinkMacSystemFont','Inter','Segoe UI','sans-serif'],
+    mono: ['ui-monospace','SFMono-Regular','Menlo','Monaco','Consolas','monospace'],
+  }}}};
+</script>
+<style>
+  [x-cloak]{display:none!important}
+  html,body{background:#000;color:#ededed;min-height:100vh}
+  ::-webkit-scrollbar{width:8px;height:8px}
+  ::-webkit-scrollbar-track{background:#0a0a0a}
+  ::-webkit-scrollbar-thumb{background:#262626;border-radius:4px}
+  ::-webkit-scrollbar-thumb:hover{background:#404040}
+  .no-scrollbar::-webkit-scrollbar{display:none}
+  .no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+  .card{background:#0a0a0a;border:1px solid #1f1f1f;border-radius:0.5rem}
+  .card-hover{transition:all .15s}
+  .card-hover:hover{background:#0f0f0f;border-color:#333}
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;border-radius:4px;font-size:10px;font-family:ui-monospace,monospace;border:1px solid}
+  .badge-v{background:rgba(16,185,129,.1);border-color:rgba(16,185,129,.3);color:#34d399}
+  .badge-p{background:rgba(245,158,11,.1);border-color:rgba(245,158,11,.3);color:#fbbf24}
+  .badge-s{background:rgba(239,68,68,.1);border-color:rgba(239,68,68,.3);color:#f87171}
+  .badge-b{background:rgba(59,130,246,.1);border-color:rgba(59,130,246,.3);color:#60a5fa}
+  .badge-violet{background:rgba(139,92,246,.1);border-color:rgba(139,92,246,.3);color:#a78bfa}
+  .ring-active{position:absolute;bottom:0;left:0;right:0;height:2px;background:#fff}
+  .input{background:#111;border:1px solid #2b2b2b;border-radius:4px;padding:6px 10px;color:#fff;font-size:12px;font-family:ui-monospace,monospace;width:100%}
+  .input:focus{outline:none;border-color:#404040}
+  .btn-primary{background:#fff;color:#000;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500;transition:background .15s}
+  .btn-primary:hover{background:#e6e6e6}
+  .btn-secondary{background:#111;color:#fff;border:1px solid #2b2b2b;padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500;transition:all .15s}
+  .btn-secondary:hover{border-color:#404040}
+  .btn-danger{background:rgba(239,68,68,.1);color:#f87171;border:1px solid rgba(239,68,68,.3);padding:6px 14px;border-radius:6px;font-size:12px;font-weight:500}
+  .btn-danger:hover{border-color:rgba(239,68,68,.5)}
+  .btn-ghost{background:transparent;color:#888;padding:4px 8px;border-radius:4px;font-size:12px}
+  .btn-ghost:hover{background:#111;color:#fff}
+  .dot{width:6px;height:6px;border-radius:50%;display:inline-block}
+  .dot-ok{background:#10b981}
+  .dot-warn{background:#f59e0b}
+  .dot-err{background:#ef4444}
+  .dot-info{background:#38bdf8}
+  .dot-pulse{animation:pulse 2s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+  .modal-backdrop{background:rgba(0,0,0,.8);backdrop-filter:blur(2px)}
+  .vital-bar{height:8px;border-radius:4px;background:#1a1a1a;overflow:hidden;position:relative}
+  .vital-bar > div{height:100%;border-radius:4px;transition:width .4s}
+  .inner-tab{border-bottom:1px solid transparent;transition:all .15s}
+  .inner-tab.active{border-bottom-color:#fff;color:#fff}
+  .toolbar-fab{position:fixed;bottom:24px;right:24px;z-index:45;width:48px;height:48px;border-radius:50%;background:#fff;color:#000;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 32px rgba(0,0,0,.5);cursor:pointer;transition:transform .15s}
+  .toolbar-fab:hover{transform:scale(1.08)}
+  .toolbar-panel{position:fixed;bottom:88px;right:24px;z-index:45;width:340px;background:#0a0a0a;border:1px solid #262626;border-radius:12px;box-shadow:0 16px 48px rgba(0,0,0,.6);overflow:hidden}
+  .comment-pin{position:absolute;width:28px;height:28px;border-radius:50%;background:#3b82f6;color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;box-shadow:0 4px 12px rgba(59,130,246,.5);cursor:pointer;z-index:20;border:2px solid #fff}
+  .terminal{background:#000;border:1px solid #1a1a1a;border-radius:6px;font-family:ui-monospace,monospace;font-size:12px;line-height:1.6;padding:12px}
+  .terminal .prompt{color:#10b981}
+  .terminal .output{color:#abb2bf}
+  .terminal .cursor{display:inline-block;width:7px;height:14px;background:#10b981;animation:blink 1s infinite;vertical-align:middle}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+  .accordion-row{cursor:pointer;transition:background .15s}
+  .accordion-row:hover{background:#0f0f0f}
+  .section-rail{position:sticky;top:126px;align-self:flex-start}
+  .section-rail button{width:100%;text-align:left;padding:8px 10px;border-left:2px solid transparent;color:#777;font-size:11px;transition:.15s}
+  .section-rail button:hover{background:#111;color:#fff}
+  .section-rail button.active{border-left-color:#fff;background:#111;color:#fff}
+  .metric-spark{height:46px;display:flex;align-items:end;gap:3px}
+  .metric-spark i{display:block;flex:1;border-radius:2px 2px 0 0;background:linear-gradient(180deg,#60a5fa,#2563eb);opacity:.8}
+  .metric-spark.green i{background:linear-gradient(180deg,#34d399,#047857)}
+  .deployment-focus{border-color:#3b82f6!important;box-shadow:0 0 0 1px rgba(59,130,246,.18),0 12px 30px rgba(0,0,0,.16)}
+  .subnav-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;padding:8px 0}
+  @media(max-width:900px){.subnav-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.section-rail{position:static}}
+  @media(max-width:620px){.subnav-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+  .mini-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#666}
+  .operator-sidebar{position:fixed;left:0;top:142px;bottom:0;width:224px;border-right:1px solid #1f1f1f;background:#050505;z-index:30;overflow-y:auto;border-top:1px solid #1f1f1f;padding:14px 10px}
+  .operator-sidebar .nav-group{margin:14px 8px 6px;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#555}
+  .operator-sidebar button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;color:#888;font-size:12px;text-align:left;transition:.15s}
+  .operator-sidebar button:hover{background:#111;color:#fff}
+  .operator-sidebar button.active{background:#171717;color:#fff;box-shadow:inset 2px 0 #fff}.operator-sidebar [x-show="route==='project_detail'"] button{font-size:11px;padding-top:7px;padding-bottom:7px}
+  .operator-sidebar .nav-meta{margin-left:auto;font-size:10px;color:#555;font-family:ui-monospace,monospace}
+  .operator-sidebar .status-card{margin:16px 2px 4px;padding:10px;border:1px solid #1f1f1f;border-radius:8px;background:#090909}
+  @media(min-width:1100px){main{margin-left:246px!important;max-width:calc(100% - 270px)!important}.operator-sidebar{display:block}}
+  @media(max-width:1099px){.operator-sidebar{display:none}}
+  .page-kicker{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:#666}
+  .flow-step{position:relative;padding:12px 14px;border:1px solid #222;background:#080808;border-radius:8px}
+  .flow-step:not(:last-child):after{content:'→';position:absolute;right:-16px;top:50%;color:#444;z-index:2}
+  @media(max-width:760px){.flow-step:not(:last-child):after{content:'↓';right:50%;top:auto;bottom:-19px}}
+  .table-row{transition:.15s}.table-row:hover{background:#0f0f0f}
+  .project-detail-layout{display:grid;grid-template-columns:196px minmax(0,1fr);gap:24px;align-items:start}
+  .project-local-sidebar{position:sticky;top:158px;border:1px solid #1f1f1f;background:#070707;border-radius:10px;padding:10px}
+  .project-local-sidebar button{width:100%;display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:6px;color:#777;font-size:11px;text-align:left;transition:.15s}
+  .project-local-sidebar button:hover{background:#111;color:#fff}
+  .project-local-sidebar button.active{background:#171717;color:#fff;box-shadow:inset 2px 0 #fff}
+  .project-local-sidebar .local-label{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#555;padding:3px 9px 9px}
+  .project-detail-content{min-width:0}
+  @media(max-width:900px){.project-detail-layout{grid-template-columns:1fr}.project-local-sidebar{position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px}.project-local-sidebar .local-label{grid-column:1/-1}.project-local-sidebar .project-local-meta{grid-column:1/-1}}
+  @media(max-width:620px){.project-local-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}}
+</style>
+</head>
+<body>
+
+<div x-data="porter()" x-effect="$nextTick(() => lucide.createIcons())" x-cloak>
+
+  <!-- DEMO BANNER -->
+  <div class="bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-[11px] text-center py-1.5 font-mono flex items-center justify-center gap-3 flex-wrap">
+    <i data-lucide="alert-triangle" class="w-3 h-3"></i>
+    <span>DEMO PREVIEW · Mocked data · No backend</span>
+    <span class="text-amber-500/50">·</span>
+    <span>Runtime: <button @click="runtimeMode=runtimeMode==='mock'?'firecracker':'mock'" class="underline hover:text-white" x-text="runtimeMode"></button></span>
+    <span class="text-amber-500/50">·</span>
+    <span><kbd class="px-1 rounded bg-amber-500/20">⌘K</kbd> commands</span>
+    <span class="text-amber-500/50">·</span>
+    <span>Toolbar: bottom-right</span>
+  </div>
+
+  <!-- HEADER -->
+  <header class="sticky top-0 z-40 bg-black/95 backdrop-blur border-b border-[#1f1f1f] px-4">
+    <div class="max-w-7xl mx-auto h-14 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 shrink-0 overflow-hidden">
+        <button @click="navigate('projects')" class="flex items-center gap-2 hover:opacity-85 shrink-0">
+          <svg class="w-5 h-5 fill-white" viewBox="0 0 75 65"><path d="M37.5 0L75 65H0z"/></svg>
+          <span class="font-semibold text-white text-sm">Porter</span>
+        </button>
+        <span class="text-[#333]">/</span>
+        <div class="flex items-center gap-2 text-xs whitespace-nowrap overflow-hidden">
+          <template x-if="route==='projects'"><span class="text-[#888]">Control Plane</span></template>
+          <template x-if="route==='project_detail'">
+            <div class="flex items-center gap-1.5">
+              <button @click="navigate('projects')" class="text-[#888] hover:text-white">Projects</button>
+              <span class="text-[#333]">/</span>
+              <span class="text-white font-medium truncate" x-text="activeProject?.name"></span>
+              <span class="dot dot-ok dot-pulse"></span>
+            </div>
+          </template>
+          <template x-if="route==='replica_detail'">
+            <div class="flex items-center gap-1.5 overflow-hidden">
+              <button @click="navigate('projects')" class="text-[#888] hover:text-white shrink-0">Projects</button>
+              <span class="text-[#333]">/</span>
+              <button @click="navigateToProject(activeProject?.id)" class="text-[#888] hover:text-white truncate shrink-0" x-text="activeProject?.name"></button>
+              <span class="text-[#333]">/</span>
+              <button @click="navigateToProject(activeProject?.id)" class="text-[#888] hover:text-white shrink-0 text-[11px]" x-text="activeReplica?.deployment_id || 'no-deployment'"></button>
+              <span class="text-[#333]">/</span>
+              <span class="text-white font-mono truncate" x-text="activeReplica?.name"></span>
+              <template x-if="activeReplica?.is_primary"><span class="badge badge-p shrink-0">⭐ PRIMARY</span></template>
+            </div>
+          </template>
+          <template x-if="route==='nodes' || route==='node_detail'">
+            <div class="flex items-center gap-1.5">
+              <button @click="navigate('nodes')" :class="route==='node_detail'?'text-[#888] hover:text-white':'text-white font-medium'">Fleet</button>
+              <span class="text-[#333]">/</span>
+              <span :class="route==='nodes'?'text-white font-medium':'text-[#888]'" x-text="fleetSubTab==='nodes'?'Nodes':'Fleet Doctor'"></span>
+              <template x-if="route==='node_detail'">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-[#333]">/</span>
+                  <span class="text-white font-mono truncate" x-text="activeServer?.hostname"></span>
+                  <span class="dot dot-ok dot-pulse"></span>
+                </div>
+              </template>
+            </div>
+          </template>
+          <template x-if="route==='observability'"><span class="text-white font-medium">Observability</span></template>
+          <template x-if="route==='ai_operator'"><span class="text-white font-medium">AI Operator</span></template>
+        </div>
+      </div>
+
+      <div class="flex-1"></div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="relative">
+          <button @click="eventsDropdownOpen=!eventsDropdownOpen" class="p-1.5 rounded hover:bg-[#111] relative"><i data-lucide="bell" class="w-4 h-4 text-[#888]"></i><span class="absolute top-0 right-0 w-1.5 h-1.5 rounded-full bg-red-400"></span></button>
+          <div x-show="eventsDropdownOpen" @click.outside="eventsDropdownOpen=false" class="absolute right-0 top-full mt-2 w-80 card p-3 z-50 shadow-2xl">
+            <div class="text-xs text-white font-semibold mb-2 px-1">Recent Events</div>
+            <div class="space-y-1.5 max-h-64 overflow-y-auto">
+              <template x-for="e in events.slice(0,5)" :key="e.id">
+                <div class="p-2 rounded hover:bg-[#111] text-[11px] font-mono"><div class="flex items-center gap-1.5 mb-0.5"><span class="dot" :class="e.type.includes('fail')?'dot-err':'dot-ok'"></span><span class="text-white" x-text="e.type"></span></div><div class="text-[#888]" x-text="e.detail"></div><div class="text-[#555] text-[10px] mt-0.5" x-text="fmtDate(e.timestamp)"></div></div>
+              </template>
+            </div>
+          </div>
+        </div>
+        <button @click="openCommandPalette()" class="hidden md:flex items-center gap-2 px-2 py-1 rounded bg-[#0a0a0a] border border-[#262626] text-[11px] text-[#888] hover:text-white hover:border-[#404040]"><i data-lucide="search" class="w-3 h-3"></i><span>Search</span><kbd class="px-1 rounded bg-[#1a1a1a] text-[10px]">⌘K</kbd></button>
+        <button @click="refresh()" class="p-1.5 rounded hover:bg-[#111]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#888]"></i></button>
+        <button @click="enrollModalOpen=true" class="btn-secondary whitespace-nowrap hidden sm:block">+ Enroll</button>
+        <button @click="deployStep=1; deployModalOpen=true" class="btn-primary whitespace-nowrap">Deploy</button>
+      </div>
+    </div>
+
+    <!-- FLEET SUB-TABS -->
+    <div x-show="route==='nodes'" class="max-w-7xl mx-auto flex items-center gap-5 text-xs font-medium border-t border-[#1a1a1a]">
+      <template x-for="t in [{id:'nodes',l:'Nodes'},{id:'doctor',l:'Fleet Doctor'}]" :key="t.id">
+        <button @click="fleetSubTab=t.id" :class="fleetSubTab===t.id?'text-white':'text-[#888] hover:text-white'" class="py-3 relative"><span x-text="t.l"></span><span x-show="fleetSubTab===t.id" class="ring-active"></span></button>
+      </template>
+    </div>
+
+    <!-- NODE SUB-TABS -->
+    <div x-show="route==='node_detail'" class="max-w-7xl mx-auto flex items-center gap-5 text-xs font-medium border-t border-[#1a1a1a] overflow-x-auto no-scrollbar">
+      <template x-for="t in [{id:'overview',l:'Overview & Actions'},{id:'metrics',l:'Live Metrics'},{id:'vms',l:'Hosted MicroVMs'},{id:'traces',l:'Network'},{id:'doctor',l:'Doctor'},{id:'logs',l:'Logs'},{id:'agent',l:'Agent Config'}]" :key="t.id">
+        <button @click="nodeSubTab=t.id" :class="nodeSubTab===t.id?'text-white':'text-[#888] hover:text-white'" class="py-3 relative whitespace-nowrap"><span x-text="t.l"></span><span x-show="nodeSubTab===t.id" class="ring-active"></span></button>
+      </template>
+    </div>
+
+    <!-- REPLICA SUB-TABS: operational surfaces only -->
+    <div x-show="route==='replica_detail'" class="max-w-7xl mx-auto border-t border-[#1a1a1a]">
+      <div class="subnav-grid text-xs font-medium" style="grid-template-columns:repeat(5,minmax(0,1fr))">
+        <template x-for="t in [
+          {id:'overview',l:'Overview & Health'}, {id:'traffic',l:'Traffic'}, {id:'metrics',l:'Metrics & Usage'},
+          {id:'logs',l:'Logs & Console'}, {id:'storage',l:'Config & Storage'}
+        ]" :key="t.id">
+          <button @click="replicaSubTab=t.id" :class="replicaSubTab===t.id?'text-white bg-[#111]':'text-[#888] hover:text-white'" class="px-2 py-2 rounded text-left whitespace-nowrap" x-text="t.l"></button>
+        </template>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== OPERATOR SIDEBAR ===== -->
+  <aside class="operator-sidebar">
+    <div class="flex items-center justify-between px-2 mb-3"><div><div class="page-kicker">Workspace</div><div class="text-sm text-white font-semibold mt-1">porter-control-plane</div></div><span class="badge badge-v">LIVE</span></div>
+    <div class="space-y-0.5">
+      <button @click="navigate('admin')" :class="route==='admin'?'active':''"><i data-lucide="home" class="w-3.5 h-3.5"></i>Overview</button>
+      <button @click="navigate('projects')" :class="['projects','project_detail','replica_detail'].includes(route)?'active':''"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Projects<span class="nav-meta">4</span></button>
+      <button @click="navigate('nodes')" :class="['nodes','node_detail'].includes(route)?'active':''"><i data-lucide="server" class="w-3.5 h-3.5"></i>Fleet<span class="nav-meta">4</span></button>
+      <button @click="navigate('observability')" :class="route==='observability'?'active':''"><i data-lucide="activity" class="w-3.5 h-3.5"></i>Observability</button>
+      <button @click="navigate('ai_operator')" :class="route==='ai_operator'?'active':''"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>AI Operator<span class="nav-meta">beta</span></button>
+    </div>
+    <div class="nav-group">Platform</div>
+    <div class="space-y-0.5">
+      <button @click="navigate('networks')" :class="route==='networks'?'active':''"><i data-lucide="network" class="w-3.5 h-3.5"></i>Networks & Gateway</button>
+      <button @click="navigate('storage')" :class="route==='storage'?'active':''"><i data-lucide="database" class="w-3.5 h-3.5"></i>Storage & Backups</button>
+      <button @click="navigate('security')" :class="route==='security'?'active':''"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Security & IAM</button>
+      <button @click="navigate('automation')" :class="route==='automation'?'active':''"><i data-lucide="workflow" class="w-3.5 h-3.5"></i>Automation</button>
+      <button @click="navigate('doctor')" :class="route==='doctor'?'active':''"><i data-lucide="stethoscope" class="w-3.5 h-3.5"></i>Porter Doctor<span class="nav-meta text-emerald-400">pass</span></button>
+    </div>
+    <div class="nav-group">Business</div>
+    <div class="space-y-0.5">
+      <button @click="navigate('customers')" :class="route==='customers'?'active':''"><i data-lucide="users" class="w-3.5 h-3.5"></i>Customers & Teams</button>
+      <button @click="navigate('billing')" :class="route==='billing'?'active':''"><i data-lucide="receipt" class="w-3.5 h-3.5"></i>Usage & Billing<span class="nav-meta">$412</span></button>
+      <button @click="navigate('audit')" :class="route==='audit'?'active':''"><i data-lucide="file-clock" class="w-3.5 h-3.5"></i>Audit & Events</button>
+    </div>
+    <div class="status-card"><div class="flex items-center gap-2 text-xs text-white"><span class="dot dot-ok dot-pulse"></span>Control plane healthy</div><div class="text-[10px] text-[#666] font-mono mt-2">API 12ms · DB 4ms · scheduler synced</div><button @click="navigate('doctor')" class="text-[10px] text-[#aaa] underline mt-2">View diagnostics</button></div>
+  </aside>
+
+  <!-- ===== PROJECTS LIST ===== -->
+  <main x-show="route==='projects'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="relative flex-1 max-w-sm"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666]"></i><input type="text" x-model="searchQuery" placeholder="Search projects..." class="input pl-8" /></div>
+      <div class="text-xs font-mono text-[#888] flex items-center gap-3"><span><span class="text-white" x-text="vms.filter(v=>v.state==='running').length"></span> MicroVMs</span><span>·</span><span><span class="text-white" x-text="servers.reduce((a,s)=>a+s.cpus,0)"></span> vCPUs</span><span>·</span><span><span class="text-white" x-text="Math.round(servers.reduce((a,s)=>a+s.memory_mb,0)/1024)"></span> GB</span></div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <template x-for="proj in filteredProjects" :key="proj.id">
+        <div @click="navigateToProject(proj.id)" class="card card-hover p-5 cursor-pointer flex flex-col justify-between gap-4 group">
+          <div class="space-y-2.5">
+            <div class="flex items-start justify-between"><div><div class="flex items-center gap-1.5"><h3 class="font-semibold text-white text-sm group-hover:text-[#38bdf8] transition" x-text="proj.name"></h3><i data-lucide="chevron-right" class="w-3.5 h-3.5 text-[#666]"></i></div><div class="text-xs text-[#888] font-mono mt-0.5" x-text="proj.domain"></div></div><span class="dot dot-ok dot-pulse mt-1"></span></div>
+            <p class="text-xs text-[#737373] line-clamp-2 leading-relaxed" x-text="proj.description"></p>
+          </div>
+          <div class="pt-3 border-t border-[#1a1a1a] text-xs font-mono flex items-center justify-between text-[#888]"><div class="flex items-center gap-1.5"><i data-lucide="git-branch" class="w-3 h-3 text-[#666]"></i><span x-text="proj.branch"></span></div><div class="flex items-center gap-2"><template x-if="proj.canary?.enabled"><span class="badge badge-p" x-text="'Canary '+proj.canary.canary_weight_percent+'%'"></span></template><span class="text-white" x-text="proj.vms+' VM'+(proj.vms>1?'s':'')"></span></div></div>
+        </div>
+      </template>
+    </div>
+  </main>
+
+  <!-- ===== PROJECT DETAIL ===== -->
+  <main x-show="route==='project_detail' && activeProject" class="max-w-7xl mx-auto px-4 py-6">
+    <div class="project-detail-layout">
+      <aside class="project-local-sidebar" aria-label="Current project navigation">
+        <div class="local-label">Current project</div>
+        <div class="project-local-meta px-2 pb-2"><div class="text-xs text-white font-semibold truncate" x-text="activeProject?.name"></div><div class="text-[10px] text-[#666] font-mono truncate mt-1" x-text="activeProject?.domain"></div></div>
+        <template x-for="t in [
+          {id:'overview',l:'Overview',icon:'layout-dashboard'},
+          {id:'replicas',l:'Replica groups',icon:'boxes'},
+          {id:'deployments',l:'Deployments',icon:'rocket'},
+          {id:'traffic_scaling',l:'Traffic & Scaling',icon:'split'},
+          {id:'config_storage',l:'Config & Storage',icon:'database'},
+          {id:'logs',l:'Logs',icon:'terminal'},
+          {id:'analytics',l:'Metrics & Usage',icon:'bar-chart-3'},
+          {id:'activity',l:'Activity',icon:'history'},
+          {id:'settings',l:'Settings',icon:'settings'}
+        ]" :key="t.id">
+          <button @click="setProjectSubTab(t.id)" :class="projectSubTab===t.id?'active':''"><i :data-lucide="t.icon" class="w-3.5 h-3.5"></i><span x-text="t.l"></span></button>
+        </template>
+      </aside>
+      <div class="project-detail-content space-y-6">
+    <button @click="navigate('projects')" class="text-xs text-[#888] hover:text-white flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>Back to Projects</button>
+
+    <div class="card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2 flex-wrap"><h1 class="text-2xl font-bold text-white" x-text="activeProject.name"></h1><span class="badge badge-v"><span class="dot dot-ok"></span>Ready</span><span class="badge" style="background:#141414;border-color:#262626;color:#888">Production</span><template x-if="activeProject.canary?.enabled"><span class="badge badge-p" x-text="'Canary '+activeProject.canary.canary_weight_percent+'%'"></span></template><template x-if="abEnabled"><span class="badge badge-violet">A/B Running</span></template></div>
+        <div class="text-xs text-[#888] font-mono flex flex-wrap items-center gap-2"><a :href="'https://'+activeProject.domain" class="text-white hover:underline" x-text="'https://'+activeProject.domain"></a><span>·</span><span x-text="activeProject.git_repo"></span><span>·</span><span x-text="'Branch: '+activeProject.branch"></span><span>·</span><span x-text="'Port '+activeProject.port"></span></div>
+      </div>
+    </div>
+
+    <!-- ==== OVERVIEW ==== -->
+    <div x-show="projectSubTab==='overview'" class="space-y-5">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Active Replicas</div><div class="text-2xl font-bold text-white mt-1" x-text="projectReplicas.length"></div><div class="text-emerald-400 text-[11px]"><span x-text="new Set(projectReplicas.map(v=>v.server_id)).size"></span> nodes</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Deployments</div><div class="text-2xl font-bold text-white mt-1" x-text="deployments.length"></div><div class="text-emerald-400 text-[11px]" x-text="'Latest: '+(deployments[0]?.commit_hash||'—')"></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Request Rate</div><div class="text-2xl font-bold text-white mt-1" x-text="Math.round(totalReqs/60)+'/s'"></div><div class="text-emerald-400 text-[11px]">p99: 2.1ms</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Storage</div><div class="text-2xl font-bold text-white mt-1" x-text="totalStorageGb+' GB'"></div><div class="text-[#888] text-[11px]"><span x-text="volumes.length"></span> persistent</div></div>
+      </div>
+      <div class="card p-5 space-y-2">
+        <div class="flex items-center justify-between"><div class="text-sm font-semibold text-white">SLO & Error Budget</div><span class="badge badge-v">Healthy</span></div>
+        <div class="grid grid-cols-3 gap-4 text-xs font-mono"><div><div class="text-[#888]">Uptime</div><div class="text-xl font-bold text-emerald-400">99.98%</div><div class="text-[#666] text-[10px]">Target 99.9%</div></div><div><div class="text-[#888]">Error Budget</div><div class="text-xl font-bold text-white">72%</div><div class="text-[#666] text-[10px]">Remaining</div></div><div><div class="text-[#888]">Burn Rate</div><div class="text-xl font-bold text-white">0.3x</div><div class="text-[#666] text-[10px]">Safe</div></div></div>
+      </div>
+      <div class="card p-5 space-y-3">
+        <div><h2 class="text-sm font-semibold text-white">Project Actions</h2><p class="text-xs text-[#888] mt-0.5">Redeploy creates new release. Restart reboots in place.</p></div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <button @click="handleRedeploy()" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left transition"><div class="flex items-center gap-2 text-white font-medium text-sm"><i data-lucide="refresh-cw" class="w-4 h-4 text-[#888]"></i>Redeploy</div><div class="text-[11px] text-[#888] mt-1 font-mono">Build → boot → flip traffic</div></button>
+          <button @click="handleRestart()" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left transition"><div class="flex items-center gap-2 text-white font-medium text-sm"><i data-lucide="power" class="w-4 h-4 text-[#888]"></i>Restart ACPI</div><div class="text-[11px] text-[#888] mt-1 font-mono">Graceful reboot</div></button>
+          <button @click="setProjectSubTab('traffic_scaling'); trafficScalingTab='autoscaling'" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left transition"><div class="flex items-center gap-2 text-white font-medium text-sm"><i data-lucide="trending-up" class="w-4 h-4 text-[#888]"></i>Configure Scaling</div><div class="text-[11px] text-[#888] mt-1 font-mono">Min/max & CPU trigger</div></button>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <div class="card p-4 lg:col-span-2"><div class="flex items-center justify-between mb-3"><div><div class="text-sm font-semibold text-white">Release flow</div><div class="text-xs text-[#888] mt-0.5">Preview first, promote second, scale last.</div></div><span class="badge badge-v">SAFE ROLLOUT</span></div><div class="flex items-center gap-2 text-[11px] font-mono text-[#888] flex-wrap"><span class="px-2 py-1 rounded bg-[#111] text-white">1 · PR preview MicroVM</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">2 · Deployment</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">3 · Replica group</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">4 · Autoscale policy</span></div></div>
+        <div class="card p-4 border-blue-500/20 bg-blue-500/[.03]"><div class="mini-label">What does Add Replica do?</div><div class="text-sm font-semibold text-white mt-1">Immediate capacity</div><p class="text-[11px] text-[#888] mt-1 leading-relaxed">Adds MicroVMs to this deployment now. Autoscaling is the reusable min/max policy that decides when to do that automatically.</p></div>
+      </div>
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-3">Project → Deployment → Replica</h3>
+        <div class="space-y-2 text-xs font-mono text-[#888]">
+          <div class="flex items-center gap-2"><span class="dot dot-ok"></span><span class="text-white">Project</span> — logical group</div>
+          <div class="flex items-center gap-2 pl-5"><i data-lucide="corner-down-right" class="w-3 h-3 text-[#444]"></i><span class="dot dot-info"></span><span class="text-white">Deployment</span> — immutable build (v2.4.0)</div>
+          <div class="flex items-center gap-2 pl-10"><i data-lucide="corner-down-right" class="w-3 h-3 text-[#444]"></i><span class="dot" style="background:#a78bfa"></span><span class="text-white">Replica</span> — running MicroVM (replica-1 = primary)</div>
+        </div>
+      </div>
+      <div class="card p-5 border-red-500/20">
+        <h3 class="text-sm font-semibold text-red-400 mb-2">Danger Zone</h3>
+        <p class="text-xs text-[#888] mb-3">Destructive operations require confirmation.</p>
+        <button @click="notify('Delete cancelled (requires type-to-confirm)', 'warning')" class="btn-danger">Delete Project</button>
+      </div>
+    </div>
+
+    <!-- ==== REPLICAS (grouped by deployment) ==== -->
+    <div x-show="projectSubTab==='replicas'" class="space-y-4">
+      <div class="p-4 rounded-lg border border-[#38bdf8]/20 bg-[#38bdf8]/5 text-xs font-mono">
+        <div class="flex items-start gap-2">
+          <i data-lucide="info" class="w-4 h-4 text-[#38bdf8] mt-0.5 shrink-0"></i>
+          <div>
+            <div class="text-white font-semibold mb-1">Deployment vs Replica</div>
+            <div class="text-[#888]"><span class="text-white">Deployment</span> = immutable build artifact (v2.4.0, v2.5.0-rc1). <span class="text-white">Replica</span> = running MicroVM serving that build.<br/>→ 1 deployment can have 1..N replicas. → Replica-1 is primary (always on).</div>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div><h2 class="text-sm font-semibold text-white">Replicas grouped by Deployment</h2><p class="text-xs text-[#888] mt-0.5" x-text="projectReplicas.length + ' replicas across ' + deploymentsWithReplicas.length + ' deployments'"></p></div>
+        <button @click="addReplicaModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Add Replica</button>
+      </div>
+      <template x-for="group in replicasByDeployment" :key="group.depId">
+        <div class="card overflow-hidden">
+          <div class="p-3 bg-[#0f0f0f] border-b border-[#1f1f1f] flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <i data-lucide="package" class="w-4 h-4 text-[#888]"></i>
+              <span class="text-sm font-semibold text-white font-mono" x-text="group.depId"></span>
+              <span class="badge badge-b" x-text="group.version"></span>
+              <span class="text-xs text-[#666] font-mono" x-text="group.replicas.length + ' replica' + (group.replicas.length>1?'s':'')"></span>
+            </div>
+            <span class="text-[11px] text-[#666] font-mono" x-text="group.commit"></span>
+          </div>
+          <div class="divide-y divide-[#1a1a1a]">
+            <template x-for="vm in group.replicas" :key="vm.id">
+              <div @click="navigateToReplica(vm.id)" class="accordion-row p-3 flex items-center justify-between gap-3">
+                <div class="flex items-center gap-3 min-w-0">
+                  <i data-lucide="box" class="w-4 h-4 text-[#888] shrink-0"></i>
+                  <div class="min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-sm text-white font-mono truncate" x-text="vm.name"></span>
+                      <template x-if="vm.is_primary"><span class="badge badge-p">⭐ PRIMARY</span></template>
+                      <template x-if="vm.version_tag && vm.version_tag.includes('Canary')"><span class="badge badge-p" x-text="vm.version_tag"></span></template>
+                    </div>
+                    <div class="text-[11px] text-[#888] font-mono mt-0.5" x-text="vm.ip + ' · ' + vm.vcpu + ' vCPU · ' + vm.memory_mb + ' MB · ' + (vm.traffic_weight||0) + '% traffic'"></div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <span class="badge badge-v" x-text="vm.state.toUpperCase()"></span>
+                  <i data-lucide="chevron-right" class="w-4 h-4 text-[#666]"></i>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </template>
+    </div>
+
+    <!-- ==== TRAFFIC & SCALING WRAPPER ==== -->
+    <div x-show="projectSubTab==='traffic_scaling'" class="space-y-4">
+      <div class="flex items-center gap-1 border-b border-[#1a1a1a] overflow-x-auto no-scrollbar">
+        <template x-for="t in [{id:'canary',l:'Canary'},{id:'ab_test',l:'A/B Test'},{id:'autoscaling',l:'Autoscaling'},{id:'domains',l:'Domains & LB'}]" :key="t.id">
+          <button @click="trafficScalingTab=t.id" :class="trafficScalingTab===t.id?'text-white border-white':'text-[#888] hover:text-white border-transparent'" class="inner-tab px-3 py-2 text-xs font-medium whitespace-nowrap" x-text="t.l"></button>
+        </template>
+      </div>
+
+      <!-- Canary -->
+      <div x-show="trafficScalingTab==='canary'" class="space-y-4">
+        <div class="flex items-start justify-between gap-4 flex-wrap"><div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="split" class="w-4 h-4 text-amber-400"></i>Canary Deployment</h2><p class="text-xs text-[#888] mt-0.5">Route a % of production traffic to one new version, promote when healthy.</p></div><div class="flex gap-2"><button @click="handlePromoteCanary()" class="btn-primary">Promote to 100%</button><button @click="handleAbortCanary()" class="btn-danger">Abort</button></div></div>
+        <div class="card p-5 space-y-4 text-xs font-mono">
+          <div class="flex justify-between"><div class="flex items-center gap-2"><span class="dot dot-info"></span><span class="text-white">Stable</span><span class="text-[#888]" x-text="'('+(100-canaryWeight)+'%)'"></span></div><div class="flex items-center gap-2"><span class="dot dot-warn"></span><span class="text-white" x-text="'Canary '+canaryVersion"></span><span class="text-amber-400" x-text="canaryWeight+'%'"></span></div></div>
+          <div class="w-full h-4 rounded-full overflow-hidden flex bg-[#1a1a1a]"><div class="h-full" :style="'width:'+(100-canaryWeight)+'%'" style="background:#38bdf8"></div><div class="h-full" :style="'width:'+canaryWeight+'%'" style="background:#fbbf24"></div></div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-[#1a1a1a]">
+            <div><label class="block text-[#888] mb-1.5">Canary Weight</label><input type="range" min="1" max="50" x-model.number="canaryWeight" class="w-full accent-amber-400" /><div class="flex justify-between text-[11px] text-[#666] mt-1"><span>1%</span><span class="text-white font-bold" x-text="canaryWeight+'%'"></span><span>50%</span></div></div>
+            <div><label class="block text-[#888] mb-1.5">Target Version</label><div class="flex gap-2"><select x-model="canaryVersion" class="input"><option>v2.4.0</option><option>v2.5.0-rc1</option><option>v2.5.0-rc2</option><option>v2.5.1</option><option>v2.6.0-beta</option></select><button @click="handleApplyCanary()" class="btn-primary">Apply</button></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- A/B Test -->
+      <div x-show="trafficScalingTab==='ab_test'" class="space-y-4">
+        <div class="flex items-start justify-between gap-4 flex-wrap"><div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="flask-conical" class="w-4 h-4 text-violet-400"></i>A/B Traffic Test</h2><p class="text-xs text-[#888] mt-0.5">Two versions side-by-side. No auto-promote.</p></div><div class="flex gap-2"><button @click="handleApplyABTest()" class="btn-primary">Start Test</button><button @click="handleStopABTest()" class="btn-danger">Conclude</button></div></div>
+        <div class="card p-5 space-y-4 text-xs font-mono">
+          <div class="flex justify-between"><div class="flex items-center gap-2"><span class="dot" style="background:#8b5cf6"></span><span class="text-white" x-text="'A: '+abVariantA"></span><span class="text-[#888]" x-text="'('+(100-abSplitB)+'%)'"></span></div><div class="flex items-center gap-2"><span class="dot dot-info"></span><span class="text-white" x-text="'B: '+abVariantB"></span><span class="text-cyan-400" x-text="abSplitB+'%'"></span></div></div>
+          <div class="w-full h-4 rounded-full overflow-hidden flex bg-[#1a1a1a]"><div class="h-full" :style="'width:'+(100-abSplitB)+'%'" style="background:#8b5cf6"></div><div class="h-full" :style="'width:'+abSplitB+'%'" style="background:#22d3ee"></div></div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3 pt-3 border-t border-[#1a1a1a]"><div><label class="block text-[#888] mb-1">Variant A</label><select x-model="abVariantA" class="input"><option>v2.3.9</option><option>v2.4.0</option><option>v2.5.0-rc1</option></select></div><div><label class="block text-[#888] mb-1">Variant B</label><select x-model="abVariantB" class="input"><option>v2.5.0-beta</option><option>v2.5.1</option><option>v2.6.0-beta</option></select></div><div><label class="block text-[#888] mb-1">Split B</label><input type="range" min="1" max="99" x-model.number="abSplitB" class="w-full accent-cyan-400" /><div class="text-[10px] text-[#666] mt-1" x-text="abSplitB+'%'"></div></div></div>
+        </div>
+      </div>
+
+      <!-- Autoscaling -->
+      <div x-show="trafficScalingTab==='autoscaling'" class="space-y-4">
+        <div><h2 class="text-sm font-semibold text-white">Auto-Scaling Policy</h2><p class="text-xs text-[#888] mt-0.5">Replica-1 always warm. Extra replicas 2..N scale with load.</p></div>
+        <div class="card p-5 space-y-5 text-xs font-mono">
+          <div class="flex items-center justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-white font-semibold">Autonomous Scaler</div><div class="text-[#888] mt-0.5">Boots/suspends guests in ~15ms.</div></div><button @click="autoEnabled=!autoEnabled" class="badge" :class="autoEnabled?'badge-v':'badge-p'" x-text="autoEnabled?'ACTIVE':'DISABLED'"></button></div>
+          <div class="grid grid-cols-2 gap-3"><div><label class="block text-white font-semibold mb-1">Min Replicas</label><input type="number" min="1" max="10" x-model.number="autoMin" class="input" /></div><div><label class="block text-white font-semibold mb-1">Max Replicas</label><input type="number" min="1" max="32" x-model.number="autoMax" class="input" /></div></div>
+          <div><div class="flex justify-between mb-1"><span class="text-white font-semibold">CPU Trigger</span><span class="text-white font-bold" x-text="autoCpuThreshold+'%'"></span></div><input type="range" min="30" max="90" x-model.number="autoCpuThreshold" class="w-full accent-white" /></div>
+          <div class="p-3 bg-[#050505] rounded border border-[#1a1a1a] space-y-2"><div class="flex items-center justify-between"><div><div class="text-white font-semibold text-sm">Idle → Suspend</div><div class="text-[#888] text-[11px]">Suspend idle replicas 1..N. Keep replica-1 warm.</div></div><span class="badge badge-p">Preview</span></div><div class="flex items-center gap-2 text-[11px]"><span class="text-[#888]">Suspend after</span><input type="number" value="300" class="input" style="width:80px" /><span class="text-[#888]">seconds idle</span></div></div>
+          <div class="flex justify-end pt-2 border-t border-[#1a1a1a]"><button @click="handleSaveAutoscaling()" class="btn-primary">Save Policy</button></div>
+        </div>
+      </div>
+
+      <!-- Domains & LB -->
+      <div x-show="trafficScalingTab==='domains'" class="space-y-4">
+        <div class="flex justify-between items-center flex-wrap gap-2"><div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="globe" class="w-4 h-4"></i>Domains, Load Balancer & SSL</h2><p class="text-xs text-[#888] mt-0.5">Traffic algorithm, TLS, custom domains.</p></div><button @click="addDomainModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Add Domain</button></div>
+
+        <div class="card p-4 space-y-3 text-xs font-mono">
+          <div class="text-white font-semibold">Load Balancing Algorithm</div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <template x-for="a in [{id:'round_robin',n:'Round Robin',d:'Even distribution'},{id:'least_conn',n:'Least Conn',d:'Fewest active streams'},{id:'ip_hash',n:'IP Hash',d:'Sticky sessions'}]" :key="a.id">
+              <div @click="lbAlgo=a.id" class="p-3 rounded border cursor-pointer transition" :class="lbAlgo===a.id?'bg-white/5 border-white':'bg-[#050505] border-[#1f1f1f] hover:border-[#333]'"><div class="text-white font-bold text-xs flex justify-between"><span x-text="a.n"></span><span x-show="lbAlgo===a.id" class="dot dot-ok"></span></div><div class="text-[10px] text-[#666] mt-0.5" x-text="a.d"></div></div>
+            </template>
+          </div>
+          <div class="grid grid-cols-2 gap-3 pt-2">
+            <div><label class="block text-white font-semibold mb-1">Health Path</label><input x-model="lbHealthPath" class="input" /></div>
+            <div><label class="block text-white font-semibold mb-1">TLS</label><div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex justify-between"><span class="text-white">ACME auto</span><span class="text-emerald-400 text-[11px]">expires 47d</span></div></div>
+          </div>
+          <div class="flex justify-end pt-2 border-t border-[#1a1a1a]"><button @click="handleSaveLoadBalancer()" class="btn-primary">Save LB</button></div>
+        </div>
+
+        <div class="card p-4 space-y-3 text-xs font-mono">
+          <div class="text-white font-semibold">SSL Certificates</div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-bold" x-text="activeProject.domain"></div><div class="text-emerald-400 mt-1 text-[11px]">expires in 47d</div><div class="text-[#666] text-[10px]">Wildcard: *.porter.test</div></div>
+            <div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-bold">edge.company.io</div><div class="text-emerald-400 mt-1 text-[11px]">expires in 89d</div><div class="text-[#666] text-[10px]">CNAME verified</div></div>
+            <div class="p-3 bg-[#050505] rounded border border-[#1a1a1a] flex items-center justify-center"><button @click="notify('ACME renewal triggered','success')" class="btn-secondary text-[11px]">Renew All</button></div>
+          </div>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="p-3 border-b border-[#1f1f1f] flex justify-between items-center"><div class="text-sm font-semibold text-white">DNS Records</div><span class="text-[11px] font-mono text-[#888]">NS: ns1.porter-dns.com</span></div>
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Type</th><th class="py-2 px-3">Name</th><th class="py-2 px-3">Value</th><th class="py-2 px-3">TTL</th><th class="py-2 px-3 text-right">Status</th></tr></thead>
+            <tbody class="divide-y divide-[#1a1a1a]">
+              <template x-for="r in dnsRecords" :key="r.id"><tr><td class="py-2 px-3"><span class="badge" style="background:#171717;border-color:#262626;color:#fff" x-text="r.type"></span></td><td class="py-2 px-3 text-white" x-text="r.name"></td><td class="py-2 px-3 text-[#888]" x-text="r.value"></td><td class="py-2 px-3 text-[#888]" x-text="r.ttl"></td><td class="py-2 px-3 text-right"><span class="badge badge-v" x-text="r.status"></span></td></tr></template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==== PREVIEWS: intentionally deployment-scoped ==== -->
+    <div x-show="projectSubTab==='previews'" class="space-y-4">
+      <div class="card p-5 border-violet-500/25 bg-violet-500/[.03]"><div class="flex items-start gap-3"><i data-lucide="git-pull-request" class="w-5 h-5 text-violet-300 mt-0.5"></i><div><h2 class="text-sm font-semibold text-white">Previews live inside Deployments</h2><p class="text-xs text-[#888] mt-1 leading-relaxed">A preview is an ephemeral MicroVM created from a pull request and attached to the deployment it validates. It is not a second production control plane. Open <button @click="setProjectSubTab('deployments')" class="text-white underline">Deployments</button> and expand a deployment to see its preview URL, VM, comments, and toolbar.</p></div></div></div>
+    </div>
+
+    <!-- ==== DEPLOYMENTS (with expandable rows) ==== -->
+    <div x-show="projectSubTab==='deployments'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Deployment History</h2>
+      <p class="text-xs text-[#888]">Click any row to expand its replicas.</p>
+      <div class="card overflow-hidden">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2.5 px-3 font-medium w-6"></th><th class="py-2.5 px-3 font-medium">ID</th><th class="py-2.5 px-3 font-medium">Commit</th><th class="py-2.5 px-3 font-medium">Duration</th><th class="py-2.5 px-3 font-medium">Replicas</th><th class="py-2.5 px-3 font-medium">State</th><th class="py-2.5 px-3 font-medium text-right">Action</th></tr></thead>
+          <tbody class="divide-y divide-[#1a1a1a]">
+            <template x-for="d in deployments" :key="d.id">
+              <template x-if="true">
+                <tbody>
+                  <tr class="hover:bg-[#111] cursor-pointer" @click="toggleDeploymentExpand(d.id)">
+                    <td class="py-2.5 px-3 text-[#666]"><i :data-lucide="expandedDeployments.includes(d.id)?'chevron-down':'chevron-right'" class="w-3.5 h-3.5"></i></td>
+                    <td class="py-2.5 px-3 text-white font-bold" x-text="d.id"></td>
+                    <td class="py-2.5 px-3 text-[#888] font-sans truncate max-w-xs" x-text="d.commit_message"></td>
+                    <td class="py-2.5 px-3 text-[#888]" x-text="d.duration_seconds+'s'"></td>
+                    <td class="py-2.5 px-3 text-[#38bdf8]" x-text="vms.filter(v=>v.deployment_id===d.id).length + ' replicas'"></td>
+                    <td class="py-2.5 px-3 text-emerald-400" x-text="d.state"></td>
+                    <td class="py-2.5 px-3 text-right"><button @click.stop="notify('Rollback to '+d.commit_hash,'warning')" class="text-[#888] hover:text-white underline">Rollback</button></td>
+                  </tr>
+                  <tr x-show="expandedDeployments.includes(d.id)">
+                    <td></td>
+                    <td colspan="6" class="p-0">
+                      <div class="p-3 bg-[#050505] border-l-2 border-[#38bdf8]/50">
+                        <div class="flex items-center justify-between gap-3 mb-3"><div><div class="text-[11px] text-[#888] font-mono">Runtime attached to this immutable deployment</div><div class="text-white text-xs mt-0.5">Replicas serving this deployment</div></div><button @click.stop="notify('Preview MicroVM created for '+d.id,'success')" class="btn-secondary text-[11px] flex items-center gap-1"><i data-lucide="git-pull-request" class="w-3 h-3"></i>Create preview VM</button></div>
+                        <div x-show="d.id==='dep_prod_01'" class="mb-3 p-3 rounded border border-violet-500/25 bg-violet-500/[.04]"><div class="flex items-center justify-between gap-2"><div><div class="text-white text-xs font-semibold">Preview environment · PR #142</div><div class="text-[11px] text-[#888] mt-0.5 font-mono">edge-api-pr142.porter.app · commit 7f3c8b2</div></div><span class="badge badge-violet">READY</span></div><div class="flex items-center gap-3 mt-2 text-[10px] font-mono text-[#888]"><span>1 preview MicroVM</span><span>·</span><span>comments + toolbar enabled</span><button @click.stop="toolbarVisible=true; toolbarOpen=true; notify('Preview toolbar opened','info')" class="ml-auto text-white underline">Open preview</button></div></div>
+                        <template x-if="vms.filter(v=>v.deployment_id===d.id).length===0">
+                          <div class="text-xs text-[#666] font-mono py-2">No active replicas — deployment archived.</div>
+                        </template>
+                        <template x-for="vm in vms.filter(v=>v.deployment_id===d.id)" :key="vm.id">
+                          <div @click="navigateToReplica(vm.id)" class="p-2 rounded hover:bg-[#111] cursor-pointer flex items-center justify-between">
+                            <div class="flex items-center gap-2"><i data-lucide="box" class="w-3.5 h-3.5 text-[#888]"></i><span class="text-white font-mono text-xs" x-text="vm.name"></span><template x-if="vm.is_primary"><span class="badge badge-p text-[9px]">⭐ PRIMARY</span></template></div>
+                            <div class="text-[11px] text-[#888] font-mono" x-text="vm.ip + ' · ' + (vm.traffic_weight||0) + '%'"></span></div>
+                          </div>
+                        </template>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </template>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ==== CONFIG & STORAGE WRAPPER ==== -->
+    <div x-show="projectSubTab==='config_storage'" class="space-y-4">
+      <div class="flex items-center gap-1 border-b border-[#1a1a1a]">
+        <template x-for="t in [{id:'volumes',l:'Volumes'},{id:'env',l:'Env & Secrets'}]" :key="t.id">
+          <button @click="configStorageTab=t.id" :class="configStorageTab===t.id?'text-white border-white':'text-[#888] hover:text-white border-transparent'" class="inner-tab px-3 py-2 text-xs font-medium" x-text="t.l"></button>
+        </template>
+      </div>
+
+      <div x-show="configStorageTab==='volumes'" class="space-y-3">
+        <div class="flex justify-between items-center"><div><h2 class="text-sm font-semibold text-white">Persistent Volumes</h2><p class="text-xs text-[#888] mt-0.5">Ephemeral rootfs deleted on stop. Persistent volumes survive stop/start.</p></div><button @click="volumeModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Attach Volume</button></div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <template x-for="vol in volumes" :key="vol.id">
+            <div class="card p-4 space-y-2 text-xs font-mono"><div class="flex justify-between"><span class="text-white font-bold" x-text="vol.name"></span><span class="badge badge-v" x-text="vol.state"></span></div><div class="text-[#888] space-y-0.5"><div>Mount: <span class="text-white" x-text="vol.mount_path"></span></div><div>FS: <span class="text-white" x-text="vol.filesystem"></span></div><div>Size: <span class="text-white" x-text="vol.size_gb+' GB'"></span></div><div>Persistence: <span class="text-emerald-400">Persistent</span></div></div><div class="pt-2 border-t border-[#1a1a1a] flex justify-end"><button @click="handleDetachVolume(vol.id)" class="text-[#f87171] hover:underline text-[11px]">Detach</button></div></div>
+          </template>
+        </div>
+        <template x-if="volumes.length===0"><div class="card p-8 text-center text-xs font-mono text-[#888]">No persistent volumes yet.</div></template>
+      </div>
+
+      <div x-show="configStorageTab==='env'" class="space-y-3">
+        <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Environment & Secrets</h2><button @click="showSecrets=!showSecrets" class="btn-secondary flex items-center gap-1"><i :data-lucide="showSecrets?'eye-off':'eye'" class="w-3 h-3"></i><span x-text="showSecrets?'Hide':'Reveal'"></span></button></div>
+        <div class="card overflow-hidden">
+          <table class="w-full text-left text-xs font-mono">
+            <thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2.5 px-3">Key</th><th class="py-2.5 px-3">Value</th><th class="py-2.5 px-3">Env</th></tr></thead>
+            <tbody class="divide-y divide-[#1a1a1a]">
+              <template x-for="[k,v] in Object.entries(activeProject.env || {})" :key="k"><tr><td class="py-2 px-3 text-white" x-text="k"></td><td class="py-2 px-3 text-[#888]" x-text="showSecrets?v:'••••••'"></td><td class="py-2 px-3 text-[#888]">Production</td></tr></template>
+              <template x-for="s in secrets" :key="s.id"><tr><td class="py-2 px-3 text-white" x-text="s.key"></td><td class="py-2 px-3 text-[#888]" x-text="showSecrets?'raw_secret_value':s.value_masked"></td><td class="py-2 px-3 text-[#888]">Production</td></tr></template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==== LOGS ==== -->
+    <div x-show="projectSubTab==='logs'" class="space-y-3">
+      <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Project Logs</h2><span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>STREAMING</span></div>
+      <div class="flex items-center justify-between text-xs text-[#888] font-mono"><div class="relative flex-1 max-w-sm"><i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#666]"></i><input x-model="projectLogSearch" placeholder="Search..." class="input pl-8" /></div><span x-text="filteredProjectLogs.length + ' lines'"></span></div>
+      <div class="card p-3 font-mono text-xs space-y-0.5 overflow-y-auto" style="max-height:500px"><template x-for="(l,i) in filteredProjectLogs" :key="i"><div class="text-[#abb2bf] hover:bg-[#111] px-1 py-0.5 rounded" :class="l.includes('error')?'text-red-400':(l.includes('Ready')?'text-emerald-400':'')" x-text="l"></div></template></div>
+    </div>
+
+    <!-- ==== ANALYTICS ==== -->
+    <div x-show="projectSubTab==='analytics'" class="space-y-4">
+      <div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="bar-chart-3" class="w-4 h-4"></i>Analytics & Speed Insights</h2><p class="text-xs text-[#888] mt-0.5">Real-user Core Web Vitals, request rate, function observability.</p></div>
+      <div class="card p-4"><div class="text-sm font-semibold text-white mb-3">Core Web Vitals (Real User Data)</div><div class="grid grid-cols-2 md:grid-cols-5 gap-3"><template x-for="v in webVitals" :key="v.name"><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a] text-xs font-mono"><div class="flex justify-between items-center mb-1"><span class="text-[#888]" x-text="v.name"></span><span class="badge" :class="v.status==='good'?'badge-v':(v.status==='needs-improvement'?'badge-p':'badge-s')" x-text="v.status"></span></div><div class="text-xl font-bold" :class="v.status==='good'?'text-emerald-400':(v.status==='needs-improvement'?'text-amber-400':'text-red-400')" x-text="v.value"></div><div class="vital-bar mt-2"><div :style="'width:'+v.pct+'%'" :class="v.status==='good'?'bg-emerald-400':(v.status==='needs-improvement'?'bg-amber-400':'bg-red-400')"></div></div><div class="text-[10px] text-[#666] mt-1" x-text="'p75 · '+v.target"></div></div></template></div></div>
+      <div class="card p-4"><div class="flex justify-between items-center mb-3"><div class="text-sm font-semibold text-white">Request Rate (last 60 min)</div></div><div style="height:220px"><canvas id="request-chart"></canvas></div></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono space-y-1"><div class="text-[#888] flex items-center gap-1"><i data-lucide="timer" class="w-3 h-3"></i>Idle</div><div class="text-2xl font-bold text-white">142s</div><div class="text-[#666] text-[11px]">Aggregate</div></div>
+        <div class="card p-4 text-xs font-mono space-y-1"><div class="text-[#888] flex items-center gap-1"><i data-lucide="zap" class="w-3 h-3"></i>Avg Startup</div><div class="text-2xl font-bold text-emerald-400">14.8 ms</div><div class="text-[#666] text-[11px]">Boot to ready</div></div>
+        <div class="card p-4 text-xs font-mono space-y-1"><div class="text-[#888] flex items-center gap-1"><i data-lucide="database" class="w-3 h-3"></i>Storage / VM</div><div class="text-2xl font-bold text-white" x-text="Math.round(totalStorageGb/Math.max(1,projectReplicas.length))+' GB'"></div><div class="text-[#666] text-[11px]"><span x-text="totalStorageGb"></span> GB</div></div>
+        <div class="card p-4 text-xs font-mono space-y-1"><div class="text-[#888] flex items-center gap-1"><i data-lucide="file-text" class="w-3 h-3"></i>Access Logs</div><div class="text-2xl font-bold text-white">4.89M</div><div class="text-[#666] text-[11px]">30d retention</div></div>
+      </div>
+    </div>
+
+    <!-- ==== ACTIVITY ==== -->
+    <div x-show="projectSubTab==='activity'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Audit & Activity</h2>
+      <div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Resource</th><th class="py-2 px-3">Outcome</th><th class="py-2 px-3">When</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="a in auditLogs" :key="a.id"><tr><td class="py-2 px-3"><div class="flex items-center gap-1.5"><span class="badge" :class="a.actor_type==='ai'?'badge-p':(a.actor_type==='service-account'?'badge-b':'badge-v')" x-text="a.actor_type"></span><span class="text-white" x-text="a.actor_id"></span></div></td><td class="py-2 px-3 text-[#888]" x-text="a.action"></td><td class="py-2 px-3 text-[#888]" x-text="a.resource"></td><td class="py-2 px-3"><span :class="a.outcome==='denied'?'text-red-400':(a.outcome==='executed'?'text-emerald-400':'text-white')" x-text="a.outcome"></span></td><td class="py-2 px-3 text-[#888]" x-text="fmtDate(a.timestamp)"></td></tr></template></tbody></table></div>
+    </div>
+
+    <!-- ==== SETTINGS ==== -->
+    <div x-show="projectSubTab==='settings'" class="space-y-4">
+      <div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="settings" class="w-4 h-4"></i>Project Settings</h2></div>
+      <div class="card p-4 space-y-3 text-xs font-mono">
+        <div class="text-white font-semibold">Deployment Protection</div>
+        <div class="flex items-center justify-between p-2 bg-[#050505] rounded border border-[#1a1a1a]"><div><div class="text-white">Vercel Authentication</div><div class="text-[#888] text-[11px]">Only team members can access previews</div></div><button @click="notify('Protection toggled','success')" class="badge badge-v">ENABLED</button></div>
+        <div class="flex items-center justify-between p-2 bg-[#050505] rounded border border-[#1a1a1a]"><div><div class="text-white">Password Protection</div><div class="text-[#888] text-[11px]">Require password for all deployments</div></div><button @click="notify('Toggled','info')" class="badge" style="background:#171717;border-color:#262626;color:#888">DISABLED</button></div>
+        <div class="flex items-center justify-between p-2 bg-[#050505] rounded border border-[#1a1a1a]"><div><div class="text-white">Trusted IPs</div><div class="text-[#888] text-[11px]">IP allowlist</div></div><button @click="notify('Opened','info')" class="badge" style="background:#171717;border-color:#262626;color:#888">CONFIGURE</button></div>
+      </div>
+      <div class="card p-4 space-y-3 text-xs font-mono"><div class="text-white font-semibold">Build & Deploy</div><div class="grid grid-cols-2 gap-3"><div><label class="block text-[#888] mb-1">Framework</label><select class="input"><option>Node.js (Express)</option><option>Go</option><option>Python</option></select></div><div><label class="block text-[#888] mb-1">Node Version</label><select class="input"><option>20.x</option><option>22.x</option></select></div></div></div>
+    </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== REPLICA DETAIL ===== -->
+  <main x-show="route==='replica_detail' && activeReplica" class="max-w-7xl mx-auto px-4 py-6 space-y-5">
+    <button @click="navigateToProject(activeProject.id)" class="text-xs text-[#888] hover:text-white flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>Back to <span x-text="activeProject.name"></span></button>
+
+    <!-- Primary banner -->
+    <template x-if="activeReplica.is_primary">
+      <div class="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 flex items-center gap-2 text-xs font-mono">
+        <i data-lucide="star" class="w-4 h-4 text-amber-400 shrink-0"></i>
+        <div class="flex-1">
+          <span class="text-white font-semibold">⭐ PRIMARY replica</span>
+          <span class="text-[#888]"> — actions here control the entire replica group for this deployment.</span>
+        </div>
+      </div>
+    </template>
+    <template x-if="!activeReplica.is_primary">
+      <div class="p-3 rounded-lg border border-[#38bdf8]/30 bg-[#38bdf8]/5 flex items-center gap-2 text-xs font-mono">
+        <i data-lucide="info" class="w-4 h-4 text-[#38bdf8] shrink-0"></i>
+        <div class="flex-1">
+          <span class="text-white font-semibold">Secondary replica</span>
+          <span class="text-[#888]"> — this replica can be removed independently without affecting the primary.</span>
+        </div>
+      </div>
+    </template>
+
+    <!-- Header -->
+    <div class="card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div class="space-y-1.5">
+        <div class="flex items-center gap-2 flex-wrap">
+          <h1 class="text-xl font-bold text-white font-mono" x-text="activeReplica.name"></h1>
+          <span class="badge badge-v">RUNNING · 14.8ms</span>
+          <template x-if="activeReplica.is_primary"><span class="badge badge-p">⭐ PRIMARY</span></template>
+          <template x-if="activeReplica.version_tag"><span class="badge badge-b" x-text="activeReplica.version_tag"></span></template>
+        </div>
+        <div class="text-xs text-[#888] font-mono">Replica action surface · <span class="text-[#38bdf8]" x-text="activeReplica.deployment_id"></span></div>
+      </div>
+      <!-- Action bar - conditional on primary vs secondary -->
+      <div class="flex flex-wrap gap-2">
+        <template x-if="activeReplica.is_primary">
+          <div class="flex flex-wrap gap-2">
+            <button @click="addReplicaModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Add Replica</button>
+            <button @click="scaleDownModalOpen=true" class="btn-secondary">Scale Down</button>
+            <button @click="replicaSubTab='overview'" class="btn-secondary">Lifecycle & Doctor</button>
+          </div>
+        </template>
+        <template x-if="!activeReplica.is_primary">
+          <div class="flex flex-wrap gap-2">
+            <button @click="handleRestartReplica()" class="btn-secondary">Restart ACPI</button>
+            <button @click="removeReplicaModalOpen=true" class="btn-danger">Remove this Replica</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- OVERVIEW -->
+    <div x-show="replicaSubTab==='overview'" class="space-y-4">
+      <!-- VM identity and runtime context: intentionally below the action header -->
+      <div class="card p-5 border-[#2a2a2a] bg-[#090909]"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4"><div><div class="mini-label">MicroVM identity</div><div class="flex items-center gap-2 flex-wrap mt-1"><h2 class="text-base font-semibold text-white font-mono" x-text="activeReplica.name"></h2><span class="badge badge-v">RUNNING</span><template x-if="activeReplica.is_primary"><span class="badge badge-p">⭐ PRIMARY</span></template></div><div class="text-xs text-[#888] mt-2">This card is the runtime object behind the deployment. Changes to the replica group are controlled from the action bar above.</div></div><div class="text-right"><div class="mini-label">Boot readiness</div><div class="text-emerald-400 text-sm font-semibold mt-1">Healthy · 14.8ms</div><div class="text-[11px] text-[#666] font-mono mt-1">observedGeneration = 3</div></div></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#1a1a1a] text-xs font-mono"><div><div class="text-[#666]">Project</div><div class="text-white mt-1" x-text="activeProject.name"></div></div><div><div class="text-[#666]">Deployment</div><button @click="navigateToProject(activeProject.id); projectSubTab='deployments'" class="text-[#38bdf8] hover:underline mt-1" x-text="activeReplica.deployment_id"></button></div><div><div class="text-[#666]">Host</div><button @click="navigateToNode(activeReplica.server_id)" class="text-[#38bdf8] hover:underline mt-1" x-text="servers.find(s=>s.id===activeReplica.server_id)?.hostname || activeReplica.server_id"></button></div><div><div class="text-[#666]">Private IP</div><div class="text-white font-bold mt-1" x-text="activeReplica.ip"></div></div></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-xs font-mono"><div><div class="text-[#666]">Kernel</div><div class="text-white mt-1" x-text="activeReplica.kernel"></div></div><div><div class="text-[#666]">Firecracker socket</div><div class="text-white mt-1 truncate" x-text="activeReplica.socket"></div></div><div><div class="text-[#666]">Version</div><div class="text-white mt-1" x-text="activeReplica.version_tag || '—'"></div></div><div><div class="text-[#666]">Placement</div><div class="text-white mt-1">Spread across fleet</div></div></div></div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">State</div><div class="text-xl font-bold text-emerald-400 mt-1">Running</div><div class="text-[#666] text-[11px]">gen 3 = observed 3</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Uptime</div><div class="text-xl font-bold text-white mt-1" x-text="Math.floor(activeReplica.uptime_seconds/3600)+'h'"></div><div class="text-[#666] text-[11px]">started <span x-text="fmtDate(activeReplica.started_at)"></span></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Traffic</div><div class="text-xl font-bold text-white mt-1" x-text="(activeReplica.traffic_weight||0)+'%'"></div><div class="text-[#666] text-[11px]">of ingress</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Specs</div><div class="text-xl font-bold text-white mt-1" x-text="activeReplica.vcpu+' vCPU'"></div><div class="text-[#666] text-[11px]" x-text="activeReplica.memory_mb+' MB'"></div></div>
+      </div>
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-3">Replica Group</h3>
+        <div class="text-xs font-mono text-[#888] space-y-1">
+          <div>Sibling replicas in <span class="text-white" x-text="activeReplica.deployment_id"></span>:</div>
+          <template x-for="sib in siblings" :key="sib.id">
+            <div @click="navigateToReplica(sib.id)" class="p-2 rounded border border-[#1a1a1a] hover:border-[#333] cursor-pointer flex items-center justify-between">
+              <div class="flex items-center gap-2"><span class="dot" :class="sib.id===activeReplica.id?'dot-info':'dot-ok'"></span><span :class="sib.id===activeReplica.id?'text-white font-bold':'text-[#888]'" x-text="sib.name"></span><template x-if="sib.is_primary"><span class="badge badge-p text-[9px]">⭐ PRIMARY</span></template></div>
+              <span class="text-[11px]" x-text="sib.ip + ' · ' + (sib.traffic_weight||0) + '%'"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+      <div class="card p-5 border-emerald-500/20"><div class="flex items-center justify-between mb-3"><div><h3 class="text-sm font-semibold text-white">Lifecycle & Doctor</h3><p class="text-xs text-[#888] mt-0.5">Health is verified before traffic is activated.</p></div><span class="badge badge-v">10 / 10 PASSING</span></div><div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px] font-mono"><template x-for="c in ['Guest agent','Health check','Network','Storage','Gateway']" :key="c"><div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex items-center gap-1.5"><span class="dot dot-ok"></span><span class="text-[#aaa]" x-text="c"></span></div></template></div></div>
+      <div class="card p-5">
+        <h3 class="text-sm font-semibold text-white mb-2">Recent Activity</h3>
+        <div class="space-y-1 text-xs font-mono">
+          <template x-for="e in events.slice(0,3)" :key="e.id"><div class="flex items-start gap-2 py-1 border-b border-[#1a1a1a] last:border-0"><span class="dot dot-ok mt-1 shrink-0"></span><div><div class="text-white" x-text="e.type"></div><div class="text-[#666] text-[11px]" x-text="fmtDate(e.timestamp)+' · '+e.detail"></div></div></div></template>
+        </div>
+      </div>
+    </div>
+
+    <!-- TRAFFIC -->
+    <div x-show="replicaSubTab==='traffic'" class="space-y-4">
+      <h2 class="text-sm font-semibold text-white">Ingress Traffic</h2>
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Req Rate</div><div class="text-2xl font-bold text-white mt-1">480/s</div><div class="text-emerald-400 text-[11px]">0 dropped</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Rx</div><div class="text-2xl font-bold text-white mt-1">3.4 MB/s</div><div class="text-[#666] text-[11px]">virtio-net</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Tx</div><div class="text-2xl font-bold text-white mt-1">8.9 MB/s</div><div class="text-[#666] text-[11px]">eBPF</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">p99</div><div class="text-2xl font-bold text-emerald-400 mt-1">2.34ms</div><div class="text-[#666] text-[11px]">p50: 0.42ms</div></div>
+      </div>
+    </div>
+
+    <!-- METRICS & USAGE -->
+    <div x-show="replicaSubTab==='metrics'" class="space-y-4">
+      <h2 class="text-sm font-semibold text-white">Resource Metrics & Usage</h2>
+      <div class="grid grid-cols-3 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">CPU</div><div class="text-2xl font-bold text-white mt-1">14.2%</div><div class="text-[#666] text-[11px]">2 Cores</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Memory</div><div class="text-2xl font-bold text-white mt-1">384/1024 MB</div><div class="text-emerald-400 text-[11px]">ballooning</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Block I/O</div><div class="text-2xl font-bold text-white mt-1">1.7 MB/s</div><div class="text-[#666] text-[11px]">R:480 W:1200</div></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div class="card p-4"><div class="flex justify-between text-xs font-mono"><span class="text-white">CPU over last 15m</span><span class="text-emerald-400">stable · 14.2%</span></div><div class="metric-spark mt-3 green"><template x-for="v in [18,24,20,28,26,31,23,25,29,22,24,27]"><i :style="'height:'+v+'%'"></i></template></div></div><div class="card p-4"><div class="flex justify-between text-xs font-mono"><span class="text-white">Request latency</span><span class="text-emerald-400">p99 · 2.34ms</span></div><div class="metric-spark mt-3"><template x-for="v in [30,38,34,44,36,52,40,42,48,39,45,41]"><i :style="'height:'+v+'%'"></i></template></div></div></div>
+      <div class="card p-4 space-y-2">
+        <div class="text-sm font-semibold text-white mb-2">Cost Estimate (current usage)</div>
+        <div class="grid grid-cols-3 gap-3 text-xs font-mono"><div><div class="text-[#888]">Hourly</div><div class="text-xl font-bold text-white">$0.042</div></div><div><div class="text-[#888]">Monthly (30d)</div><div class="text-xl font-bold text-white">$30.24</div></div><div><div class="text-[#888]">Uptime this month</div><div class="text-xl font-bold text-emerald-400">99.98%</div></div></div>
+      </div>
+    </div>
+
+    <!-- TRACES -->
+    <div x-show="replicaSubTab==='traces'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Network Trace (Waterfall)</h2>
+      <div class="card p-4 text-xs font-mono space-y-2">
+        <div class="grid grid-cols-2 gap-3 text-[#888]"><div>TAP: <span class="text-white">tap0 / porter0</span></div><div>MAC: <span class="text-white">AA:FC:00:10:02</span></div><div>eBPF: <span class="text-emerald-400">FORWARD_DIRECT</span></div><div>MTU: <span class="text-white">1500 · TSO/CSO</span></div></div>
+        <div class="pt-3 border-t border-[#1a1a1a] space-y-1.5">
+          <div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex justify-between items-center"><span class="text-white">Edge GW → Bridge</span><div class="flex-1 mx-2 h-1 bg-[#1a1a1a] rounded"><div class="h-full bg-[#38bdf8] rounded" style="width:20%"></div></div><span class="text-white">0.12ms</span></div>
+          <div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex justify-between items-center"><span class="text-white">Bridge → Guest</span><div class="flex-1 mx-2 h-1 bg-[#1a1a1a] rounded"><div class="h-full bg-[#38bdf8] rounded" style="width:45%"></div></div><span class="text-white">0.28ms</span></div>
+          <div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex justify-between items-center"><span class="text-white">Guest → App</span><div class="flex-1 mx-2 h-1 bg-[#1a1a1a] rounded"><div class="h-full bg-emerald-400 rounded" style="width:70%"></div></div><span class="text-emerald-400">0.44ms</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGS -->
+    <div x-show="replicaSubTab==='logs'" class="space-y-3">
+      <div class="flex justify-between items-center flex-wrap gap-2"><div class="flex items-center gap-2"><h2 class="text-sm font-semibold text-white">Serial & App Logs</h2><span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>STREAMING</span></div><div class="flex items-center gap-1 text-xs font-mono"><template x-for="f in [{id:'all',l:'All'},{id:'http',l:'HTTP'},{id:'kernel',l:'Kernel'}]" :key="f.id"><button @click="replicaLogFilter=f.id" :class="replicaLogFilter===f.id?'bg-white text-black':'text-[#888] hover:text-white'" class="px-2 py-1 rounded" x-text="f.l"></button></template></div></div>
+      <div class="relative max-w-sm"><i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#666]"></i><input x-model="replicaLogSearch" placeholder="Search logs..." class="input pl-8" /></div>
+      <div class="card p-3 font-mono text-xs space-y-0.5 overflow-y-auto" style="max-height:450px"><template x-for="(l,i) in filteredReplicaLogs" :key="i"><div class="text-[#abb2bf] hover:bg-[#111] px-1 py-0.5 rounded" x-text="l"></div></template><template x-if="filteredReplicaLogs.length===0"><div class="text-center text-[#666] py-4">No matching log lines</div></template></div>
+    </div>
+
+    <!-- CONSOLE (Preview) -->
+    <div x-show="replicaSubTab==='logs'" class="space-y-3">
+      <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Interactive Console (ttyS0)</h2><span class="badge badge-p">PREVIEW · read-only stream</span></div>
+      <div class="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs font-mono flex items-start gap-2"><i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i><div><span class="text-white font-semibold">Honest Preview</span><span class="text-[#888]"> — guest-vsock agent not enabled, so this terminal is read-only. Interactive exec will be available once the guest agent is wired.</span></div></div>
+      <div class="terminal h-80 overflow-y-auto" id="replica-console">
+        <div class="output text-[#abb2bf]"><span class="prompt">porter@<span x-text="activeReplica.name"></span>:~$</span> <span class="text-[#666]"># Serial stream attached</span></div>
+        <template x-for="(l,i) in consoleLines" :key="i"><div class="output text-[#abb2bf]" x-text="l"></div></template>
+        <div class="output mt-2"><span class="prompt">porter@<span x-text="activeReplica.name"></span>:~$</span> <span class="cursor"></span></div>
+      </div>
+      <div class="p-3 rounded border border-[#1a1a1a] bg-[#050505] text-xs font-mono text-[#888]"><i data-lucide="info" class="w-3 h-3 inline mr-1"></i>Input is disabled in read-only mode. Once guest-vsock is enabled, this terminal will accept commands with full audit logging.</div>
+    </div>
+
+    <!-- STORAGE (Volumes + Snapshots) -->
+    <div x-show="replicaSubTab==='storage'" class="space-y-4">
+      <h2 class="text-sm font-semibold text-white">Storage</h2>
+      <div class="card p-4 text-xs font-mono space-y-3">
+        <div class="flex justify-between pb-2 border-b border-[#1a1a1a]"><div><div class="text-white font-bold">/dev/vdb → /data</div><div class="text-[#888] text-[11px]">virtio-blk sparse</div></div><span class="badge badge-v">MOUNTED</span></div>
+        <div class="grid grid-cols-2 gap-3 text-[#888]"><div>Capacity: <span class="text-white font-bold">50 GB ext4</span></div><div>Persistence: <span class="text-emerald-400 font-bold">Persistent</span></div><div>Mount: <span class="text-white">/data</span></div><div>I/O: <span class="text-white">O_DIRECT</span></div></div>
+      </div>
+      <div class="card p-4">
+        <div class="flex justify-between items-center mb-3"><div class="text-sm font-semibold text-white">Snapshots</div><button @click="notify('Snapshot created · snp_'+(Date.now()%10000),'success')" class="btn-secondary text-[11px] flex items-center gap-1"><i data-lucide="camera" class="w-3 h-3"></i>Take Snapshot</button></div>
+        <div class="space-y-2 text-xs font-mono">
+          <template x-for="s in snapshots" :key="s.id"><div class="p-2 rounded border border-[#1a1a1a] flex justify-between items-center"><div><div class="text-white font-bold" x-text="s.id"></div><div class="text-[#888] text-[11px]" x-text="s.size + ' · ' + s.age"></div></div><div class="flex gap-2"><button @click="notify('Restore started','info')" class="text-[#38bdf8] hover:underline text-[11px]">Restore</button><button @click="notify('Snapshot deleted','warning')" class="text-[#f87171] hover:underline text-[11px]">Delete</button></div></div></template>
+        </div>
+      </div>
+    </div>
+
+    <!-- ENV -->
+    <div x-show="replicaSubTab==='storage'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Environment Variables for this Replica</h2>
+      <div class="card overflow-hidden">
+        <table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Key</th><th class="py-2 px-3">Value</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]">
+          <template x-for="[k,v] in Object.entries(activeProject.env || {})" :key="k"><tr><td class="py-2 px-3 text-white" x-text="k"></td><td class="py-2 px-3 text-[#888]" x-text="v"></td></tr></template>
+        </tbody></table>
+      </div>
+      <button @click="notify('Env copied to clipboard','success')" class="btn-secondary text-xs">Copy env for local dev</button>
+    </div>
+
+    <!-- LIFECYCLE -->
+    <div x-show="replicaSubTab==='lifecycle'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Lifecycle Actions</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <button @click="handleRestartReplica()" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="refresh-cw" class="w-4 h-4 text-[#888]"></i>Restart ACPI</div><div class="text-[11px] text-[#888] mt-1 font-mono">Graceful reboot in ~12ms</div></button>
+        <button @click="notify('Suspend requested (preview)','warning')" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="pause" class="w-4 h-4 text-[#888]"></i>Suspend / Resume</div><div class="text-[11px] text-[#888] mt-1 font-mono">Firecracker pause · <span class="badge badge-p text-[9px]">P</span></div></button>
+        <button @click="notify('Snapshot created','success')" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="camera" class="w-4 h-4 text-[#888]"></i>Take Snapshot</div><div class="text-[11px] text-[#888] mt-1 font-mono">Immutable recovery point</div></button>
+        <button @click="notify('Migration queued (preview)','info')" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="arrow-right-left" class="w-4 h-4 text-[#888]"></i>Migrate to another node</div><div class="text-[11px] text-[#888] mt-1 font-mono">Live migration · <span class="badge badge-p text-[9px]">P</span></div></button>
+      </div>
+      <div class="card p-4 border-red-500/20 mt-4">
+        <h3 class="text-sm font-semibold text-red-400 mb-2">Danger Zone</h3>
+        <p class="text-xs text-[#888] mb-3"><template x-if="activeReplica.is_primary">This is the primary replica — cannot be removed directly. Use "Scale Down" on the replica group instead.</template><template x-if="!activeReplica.is_primary">This replica can be removed independently.</template></p>
+        <button @click="activeReplica.is_primary ? notify('Cannot remove primary replica directly','warning') : (removeReplicaModalOpen=true)" :disabled="activeReplica.is_primary" class="btn-danger" :class="activeReplica.is_primary?'opacity-40 cursor-not-allowed':''">Remove this Replica</button>
+      </div>
+    </div>
+
+    <!-- DOCTOR -->
+    <div x-show="replicaSubTab==='doctor'" class="space-y-3">
+      <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Guest Diagnostics</h2><span class="badge badge-p">Preview · 4/6</span></div>
+      <div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Subsystem</th><th class="py-2 px-3">Detail</th><th class="py-2 px-3 text-right">Result</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]">
+        <tr><td class="py-2 px-3 text-white">Boot Latency</td><td class="py-2 px-3 text-[#888]">14.8ms</td><td class="py-2 px-3 text-right text-emerald-400">PASS</td></tr>
+        <tr><td class="py-2 px-3 text-white">virtio-net</td><td class="py-2 px-3 text-[#888]">TAP up</td><td class="py-2 px-3 text-right text-emerald-400">PASS</td></tr>
+        <tr><td class="py-2 px-3 text-white">virtio-balloon</td><td class="py-2 px-3 text-[#888]">OK</td><td class="py-2 px-3 text-right text-emerald-400">PASS</td></tr>
+        <tr><td class="py-2 px-3 text-white">virtio-blk</td><td class="py-2 px-3 text-[#888]">ext4 clean</td><td class="py-2 px-3 text-right text-emerald-400">PASS</td></tr>
+        <tr><td class="py-2 px-3 text-white">SSH / Exec</td><td class="py-2 px-3 text-[#888]">guest-vsock agent not enabled</td><td class="py-2 px-3 text-right"><span class="badge badge-s">Not Implemented</span></td></tr>
+        <tr><td class="py-2 px-3 text-white">Console (interactive)</td><td class="py-2 px-3 text-[#888]">read-only stream</td><td class="py-2 px-3 text-right"><span class="badge badge-p">Preview</span></td></tr>
+      </tbody></table></div>
+    </div>
+  </main>
+
+  <!-- ===== NODES (with Fleet sub-tabs) ===== -->
+  <main x-show="route==='nodes'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <!-- Nodes sub-tab -->
+    <div x-show="fleetSubTab==='nodes'" class="space-y-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#1f1f1f] pb-5">
+        <div><h1 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="server" class="w-5 h-5"></i>Bare-Metal Fleet</h1><p class="text-xs text-[#888] mt-0.5">Physical nodes. Click a node for full details.</p></div>
+        <button @click="enrollModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Enroll Server</button>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Nodes</div><div class="text-xl font-bold text-white mt-1" x-text="servers.length"></div><div class="text-emerald-400 text-[11px]">100% online</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">vCPUs</div><div class="text-xl font-bold text-white mt-1" x-text="servers.reduce((a,s)=>a+s.cpus,0)"></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">RAM</div><div class="text-xl font-bold text-white mt-1" x-text="Math.round(servers.reduce((a,s)=>a+s.memory_mb,0)/1024)+' GB'"></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">MicroVMs</div><div class="text-xl font-bold text-white mt-1" x-text="vms.length"></div></div>
+      </div>
+      <div class="flex flex-col sm:flex-row justify-between gap-3">
+        <div class="relative flex-1 max-w-sm"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666]"></i><input x-model="nodeSearchQuery" placeholder="Search hostname, IP, region..." class="input pl-8" /></div>
+        <select x-model="nodeRegionFilter" class="input" style="width:auto"><option value="all">All Regions</option><option value="us-east-1">us-east-1</option><option value="eu-west-1">eu-west-1</option></select>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="node in filteredServers" :key="node.id">
+          <div @click="navigateToNode(node.id)" class="card card-hover p-5 cursor-pointer flex flex-col justify-between gap-4 group">
+            <div class="space-y-2.5">
+              <h3 class="font-semibold text-white text-sm group-hover:text-[#38bdf8] transition font-mono" x-text="node.hostname"></h3>
+              <div class="space-y-1 text-xs font-mono"><div class="flex justify-between"><span class="text-[#666]">Status</span><span class="text-emerald-400 flex items-center gap-1"><span class="dot dot-ok dot-pulse"></span>ONLINE</span></div><div class="flex justify-between"><span class="text-[#666]">Region</span><span class="badge" style="background:#171717;border-color:#262626;color:#fff" x-text="node.region"></span></div><div class="flex justify-between"><span class="text-[#666]">IP</span><span class="text-white" x-text="node.ip"></span></div></div>
+              <template x-if="diskWarning(node)"><div class="p-2 rounded border border-red-500/30 bg-red-500/10 flex items-center gap-2"><i data-lucide="alert-circle" class="w-3.5 h-3.5 text-red-400 shrink-0"></i><div class="text-[11px] font-mono text-red-300"><strong>Low Disk:</strong> <span x-text="node.disk_free_gb"></span> GB (<span x-text="((node.disk_free_gb/node.disk_gb)*100).toFixed(1)"></span>%)</div></div></template>
+              <div><div class="flex justify-between text-xs font-mono text-[#888] mb-1"><span>Memory</span><span class="text-white" x-text="Math.round(node.memory_used_mb/1024)+'/'+Math.round(node.memory_mb/1024)+' GB'"></span></div><div class="w-full bg-[#1a1a1a] h-1.5 rounded-full overflow-hidden"><div class="bg-white h-full" :style="'width:'+Math.round(node.memory_used_mb/node.memory_mb*100)+'%'"></div></div></div>
+              <div class="grid grid-cols-2 gap-2 text-xs font-mono pt-1"><div><div class="text-[#666] text-[10px]">CPU</div><div class="text-white" x-text="node.cpus+' cores'"></div></div><div><div class="text-[#666] text-[10px]">Disk</div><div :class="diskWarning(node)?'text-red-400':'text-white'" x-text="node.disk_free_gb+'/'+node.disk_gb+' GB'"></div></div></div>
+            </div>
+            <div class="pt-3 border-t border-[#1f1f1f] flex justify-between text-xs font-mono"><span class="text-[#888]"><span class="text-white" x-text="vms.filter(v=>v.server_id===node.id).length"></span> MicroVMs</span><span class="text-[#38bdf8] group-hover:underline flex items-center gap-1">Inspect <i data-lucide="chevron-right" class="w-3 h-3"></i></span></div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Fleet Doctor sub-tab -->
+    <div x-show="fleetSubTab==='doctor'" class="space-y-4">
+      <div class="flex justify-between items-center flex-wrap gap-3"><div><h1 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="stethoscope" class="w-5 h-5"></i>Fleet Doctor</h1><p class="text-xs text-[#888] mt-0.5">Platform-wide diagnostics across the fleet.</p></div><span class="badge badge-v">9/10 PASSING</span></div>
+      <div class="card p-3 text-xs font-mono flex items-center gap-4 flex-wrap"><span class="text-[#888]">Legend:</span><span class="badge badge-v">✓ Verified</span><span class="badge badge-p">◐ Preview</span><span class="badge badge-s">✗ Not Implemented</span></div>
+      <div class="card overflow-hidden">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Component</th><th class="py-2 px-3">Target</th><th class="py-2 px-3">Detail</th><th class="py-2 px-3 text-right">Status</th></tr></thead>
+          <tbody class="divide-y divide-[#1a1a1a]">
+            <template x-for="c in [{c:'Linux Kernel',t:'6.1.102',d:'KVM enabled',s:'v'},{c:'KVM',t:'/dev/kvm',d:'0660, exit <2.1µs',s:'v'},{c:'Firecracker',t:'v1.7.0',d:'Jailer, cgroups v2',s:'v'},{c:'BuildKit',t:'v0.13.1',d:'OCI pipeline',s:'v'},{c:'Network',t:'porter0',d:'/30 subnet ready',s:'v'},{c:'Storage',t:'ext4 sparse',d:'verified',s:'v'},{c:'Gateway/TLS',t:'Caddy',d:'Port 80/443',s:'v'},{c:'PostgreSQL',t:'pg_pool',d:'32 conns',s:'v'},{c:'Reconciliation',t:'2s loop',d:'0 drift',s:'v'},{c:'Guest Agent',t:'vsock',d:'not enabled',s:'s'}]" :key="c.c">
+              <tr><td class="py-2 px-3 text-white" x-text="c.c"></td><td class="py-2 px-3 text-[#888]" x-text="c.t"></td><td class="py-2 px-3 text-[#888]" x-text="c.d"></td><td class="py-2 px-3 text-right"><span class="badge" :class="c.s==='v'?'badge-v':(c.s==='p'?'badge-p':'badge-s')" x-text="c.s==='v'?'✓ PASS':(c.s==='p'?'◐ PREVIEW':'✗ NOT IMPL')"></span></td></tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="space-y-2">
+        <h2 class="text-sm font-semibold text-white">Operation Inbox</h2>
+        <div class="card p-3 space-y-2">
+          <template x-if="operations.length===0"><div class="text-xs text-[#888] font-mono text-center py-3">No operations yet. Trigger a redeploy or add replica to see progress.</div></template>
+          <template x-for="op in operations" :key="op.id">
+            <div class="p-2 rounded border border-[#1a1a1a] text-xs font-mono"><div class="flex justify-between items-center mb-1"><span class="text-white" x-text="op.id+' · '+op.type"></span><span class="badge" :class="op.status==='succeeded'?'badge-v':'badge-p'" x-text="op.status"></span></div><div class="w-full bg-[#1a1a1a] h-1.5 rounded-full overflow-hidden"><div class="h-full transition-all" :class="op.status==='succeeded'?'bg-emerald-400':'bg-amber-400'" :style="'width:'+op.progress+'%'"></div></div><div class="text-[#888] text-[10px] mt-1" x-text="op.resource"></div></div>
+          </template>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== NODE DETAIL (specs moved to Overview) ===== -->
+  <main x-show="route==='node_detail' && activeServer" class="max-w-7xl mx-auto px-4 py-6 space-y-5">
+    <button @click="navigate('nodes')" class="text-xs text-[#888] hover:text-white flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>Back to Fleet</button>
+
+    <!-- Compact header — just name + status -->
+    <div class="card p-5">
+      <div class="flex items-center gap-3 flex-wrap">
+        <h1 class="text-2xl font-bold text-white font-mono" x-text="activeServer.hostname"></h1>
+        <span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>ONLINE</span>
+        <template x-if="activeServer.cordoned"><span class="badge badge-p">CORDONED</span></template>
+      </div>
+    </div>
+
+    <div x-show="nodeSubTab==='overview'" class="space-y-4">
+      <!-- Node Info card (specs moved here) -->
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-white mb-3 flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>Node information & capacity</h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
+          <div><div class="text-[#666]">IP</div><div class="text-white font-bold" x-text="activeServer.ip"></div></div>
+          <div><div class="text-[#666]">Region</div><div class="text-white" x-text="activeServer.region"></div></div>
+          <div><div class="text-[#666]">Role</div><div class="text-white" x-text="activeServer.role"></div></div>
+          <div><div class="text-[#666]">Uptime</div><div class="text-white" x-text="(activeServer.uptime_seconds/86400).toFixed(1)+' days'"></div></div>
+          <div><div class="text-[#666]">Kernel</div><div class="text-white" x-text="activeServer.kernel"></div></div>
+          <div><div class="text-[#666]">Firecracker</div><div class="text-white" x-text="activeServer.firecracker_version"></div></div>
+          <div><div class="text-[#666]">CPU</div><div class="text-white" x-text="activeServer.cpus+' cores'"></div></div>
+          <div><div class="text-[#666]">Disk</div><div :class="diskWarning(activeServer)?'text-red-400':'text-white'" x-text="activeServer.disk_free_gb+'/'+activeServer.disk_gb+' GB'"></div></div>
+        </div>
+      </div>
+      <!-- Actions -->
+      <div class="card p-5 space-y-3">
+        <div><h2 class="text-sm font-semibold text-white">Node Actions</h2><p class="text-xs text-[#888] mt-0.5">Restart agent, cordon, drain.</p></div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <button @click="notify('porter-agent restarted','success')" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="refresh-cw" class="w-4 h-4 text-[#888]"></i>Restart Agent</div><div class="text-[11px] text-[#888] mt-1 font-mono">porter-agent.service</div></button>
+          <button @click="toggleCordon(activeServer)" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left"><div class="text-white font-medium text-sm flex items-center gap-2"><i data-lucide="shield-alert" class="w-4 h-4 text-[#888]"></i><span x-text="activeServer.cordoned?'Uncordon':'Cordon'"></span></div><div class="text-[11px] text-[#888] mt-1 font-mono"><span x-text="activeServer.cordoned?'Allow scheduling':'Block new VMs'"></span></div></button>
+          <button @click="notify('Draining '+activeServer.hostname,'warning')" class="p-4 bg-[#050505] hover:bg-red-500/5 border border-red-500/20 hover:border-red-500/40 rounded-lg text-left"><div class="text-red-400 font-medium text-sm flex items-center gap-2"><i data-lucide="power" class="w-4 h-4"></i>Drain</div><div class="text-[11px] text-[#888] mt-1 font-mono">Migrate VMs</div></button>
+        </div>
+      </div>
+      <!-- Stats -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">CPU Cores</div><div class="text-xl font-bold text-white mt-1" x-text="activeServer.cpus"></div><div class="text-[#666] text-[11px]">Load: 0.42, 0.38, 0.31</div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Memory</div><div class="text-xl font-bold text-white mt-1" x-text="Math.round(activeServer.memory_used_mb/1024)+'/'+Math.round(activeServer.memory_mb/1024)+' GB'"></div><div class="text-emerald-400 text-[11px]" x-text="Math.round((activeServer.memory_mb-activeServer.memory_used_mb)/1024)+' GB free'"></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Disk</div><div class="text-xl font-bold" :class="diskWarning(activeServer)?'text-red-400':'text-white'" x-text="activeServer.disk_free_gb+' GB free'"></div></div>
+        <div class="card p-4 text-xs font-mono"><div class="text-[#888]">MicroVMs</div><div class="text-xl font-bold text-white mt-1" x-text="activeServerVms.length"></div></div>
+      </div>
+      <!-- Fleet connectivity -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="card p-4 text-xs font-mono"><div class="mini-label">Network interfaces</div><div class="text-white font-semibold mt-1">porter0 · bridge</div><div class="text-[#888] mt-1">172.16.0.0/16 · MTU 1500</div><div class="text-emerald-400 mt-1">carrier UP</div></div><div class="card p-4 text-xs font-mono"><div class="mini-label">Egress</div><div class="text-white font-semibold mt-1">NAT MASQ</div><div class="text-[#888] mt-1">eBPF isolation enabled</div><div class="text-emerald-400 mt-1">0.82ms RTT</div></div><div class="card p-4 text-xs font-mono"><div class="mini-label">Scheduling</div><div class="text-white font-semibold mt-1" x-text="activeServer.cordoned?'Cordoned':'Spread enabled'"></div><div class="text-[#888] mt-1">Placement respects project replica groups</div><div class="text-amber-300 mt-1">2.4 TB free</div></div></div>
+      <!-- Hardware specs -->
+      <div class="card p-5">
+        <h2 class="text-sm font-semibold text-white mb-3">Hardware & Jailer Capabilities</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono text-[#888]">
+          <div class="space-y-2"><div>KVM: <div class="text-white mt-0.5">/dev/kvm (0660)</div></div><div>Firecracker: <div class="text-white mt-0.5">v1.7.0</div></div><div>Jailer: <div class="text-white mt-0.5">v1.7.0</div></div><div>Cgroups: <div class="text-white mt-0.5">v2 unified</div></div></div>
+          <div class="space-y-2"><div>Bridges: <div class="text-white mt-0.5">porter0: 172.16.0.1/16</div></div><div>Agent: <div class="text-white mt-0.5">porter-agent v2.0.0</div></div><div>Heartbeat RTT: <div class="text-emerald-400 font-bold mt-0.5">0.82ms</div></div><div>Sensors: <div class="text-white mt-0.5">44.5°C · 185W</div></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div x-show="nodeSubTab==='metrics'" class="space-y-4">
+      <h2 class="text-sm font-semibold text-white">Live Telemetry</h2>
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="card p-4 text-xs font-mono space-y-3"><div class="flex justify-between"><span class="text-white font-semibold">CPU</span><span class="text-white font-bold">24.8%</span></div><div class="flex items-end gap-1 h-20"><template x-for="(v,i) in [22,28,31,26,29,25,24,27,30,24,26,25]" :key="i"><div class="flex-1 bg-white rounded-xs" :style="'height:'+(v*2)+'px'"></div></template></div></div>
+        <div class="card p-4 text-xs font-mono space-y-2"><div class="text-white font-semibold mb-2">Memory</div><div><div class="flex justify-between text-[#888] mb-1"><span>VMs</span><span class="text-white" x-text="Math.round(activeServer.memory_used_mb/1024)+' GB'"></span></div><div class="w-full bg-[#1a1a1a] h-2 rounded-full"><div class="bg-emerald-400 h-full rounded-full" style="width:25%"></div></div></div><div><div class="flex justify-between text-[#888] mb-1"><span>Cache</span><span class="text-white">12 GB</span></div><div class="w-full bg-[#1a1a1a] h-2 rounded-full"><div class="bg-[#38bdf8] h-full rounded-full" style="width:6%"></div></div></div></div>
+        <div class="card p-4 text-xs font-mono space-y-2"><div class="text-white font-semibold mb-2">Throughput</div><div class="p-2 bg-[#050505] rounded"><div class="text-[#888] text-[10px]">Rx</div><div class="text-white font-bold">245.8 Mbps</div></div><div class="p-2 bg-[#050505] rounded"><div class="text-[#888] text-[10px]">Tx</div><div class="text-white font-bold">512.4 Mbps</div></div></div>
+      </div>
+    </div>
+
+    <div x-show="nodeSubTab==='vms'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">MicroVMs on this host</h2>
+      <template x-if="activeServerVms.length===0"><div class="card p-8 text-center text-xs text-[#888] font-mono">No active MicroVMs.</div></template>
+      <div class="card overflow-hidden" x-show="activeServerVms.length>0"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Replica</th><th class="py-2 px-3">Project</th><th class="py-2 px-3">IP</th><th class="py-2 px-3">Specs</th><th class="py-2 px-3 text-right">Inspect</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="vm in activeServerVms" :key="vm.id"><tr @click="navigateToReplica(vm.id)" class="hover:bg-[#111] cursor-pointer"><td class="py-2 px-3 text-white" x-text="vm.name"></td><td class="py-2 px-3 text-[#888]" x-text="projects.find(p=>p.id===vm.project_id)?.name || vm.project_id"></td><td class="py-2 px-3 text-[#888]" x-text="vm.ip"></td><td class="py-2 px-3 text-[#888]" x-text="vm.vcpu+'/'+vm.memory_mb+' MB'"></td><td class="py-2 px-3 text-right text-[#38bdf8]">View →</td></tr></template></tbody></table></div>
+    </div>
+
+    <div x-show="nodeSubTab==='traces'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Network Interfaces</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs font-mono">
+        <div class="card p-4 space-y-2"><div class="text-white font-semibold">porter0 Bridge</div><div class="text-[#888] space-y-1"><div>Subnet: <strong class="text-white">172.16.0.0/16</strong></div><div>Gateway: <strong class="text-white">172.16.0.1</strong></div><div>MTU: <strong class="text-white">1500</strong></div></div></div>
+        <div class="card p-4 space-y-2"><div class="text-white font-semibold">Egress</div><div class="text-[#888] space-y-1"><div>NAT: <strong class="text-white">MASQ</strong></div><div>RTT: <strong class="text-emerald-400">0.82ms</strong></div><div>eBPF: <strong class="text-white">isolation</strong></div></div></div>
+      </div>
+    </div>
+
+    <div x-show="nodeSubTab==='doctor'" class="space-y-3">
+      <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Node Doctor</h2><span class="badge badge-v">10/10 PASSING</span></div>
+      <div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Component</th><th class="py-2 px-3">Target</th><th class="py-2 px-3">Detail</th><th class="py-2 px-3 text-right">Result</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="c in [{c:'Hardware KVM',t:'/dev/kvm',d:'VMX active'},{c:'Cgroups v2',t:'unified',d:'mounted'},{c:'Jailer Chroot',t:'/srv/jailer',d:'seccomp'},{c:'Firecracker',t:'/usr/local/bin/fc',d:'v1.7.0'},{c:'Hugepages',t:'thp',d:'madvise'},{c:'Bridge',t:'porter0',d:'carrier UP'},{c:'NAT',t:'POSTROUTING',d:'MASQ'},{c:'IPAM',t:'/30',d:'32 slots'},{c:'Agent',t:'/run/porter/agent.sock',d:'0.82ms'},{c:'Storage',t:'virtio-blk',d:'R:0.18ms W:0.34ms'}]" :key="c.c"><tr><td class="py-2 px-3 text-white" x-text="c.c"></td><td class="py-2 px-3 text-[#888]" x-text="c.t"></td><td class="py-2 px-3 text-[#888]" x-text="c.d"></td><td class="py-2 px-3 text-right text-emerald-400">PASS</td></tr></template></tbody></table></div>
+    </div>
+
+    <div x-show="nodeSubTab==='logs'" class="space-y-3">
+      <div class="flex justify-between items-center flex-wrap gap-2"><h2 class="text-sm font-semibold text-white">Agent & Kernel Logs</h2><div class="relative"><i data-lucide="search" class="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#666]"></i><input x-model="nodeLogSearch" placeholder="Filter logs..." class="input pl-8" style="width:220px" /></div></div>
+      <div class="card p-3 font-mono text-xs space-y-0.5 overflow-y-auto" style="max-height:500px"><template x-for="(l,i) in ['[systemd] Started porter-agent.service','[host-agent] socket /run/porter/agent.sock','[heartbeat] online (0.82ms)','[kvm] VMX active','[cgroups] memory controller high=90%','[jailer] private namespaces ready','[network] porter0 carrier UP','[agent] Ready (64 vCPUs)'].filter(l => !nodeLogSearch || l.toLowerCase().includes(nodeLogSearch.toLowerCase()))" :key="i"><div class="text-[#abb2bf] hover:bg-[#111] px-1 py-0.5 rounded" x-text="l"></div></template></div>
+    </div>
+
+    <div x-show="nodeSubTab==='agent'" class="space-y-3">
+      <h2 class="text-sm font-semibold text-white">Porter Agent Config</h2>
+      <div class="card p-4 space-y-3 text-xs font-mono">
+        <div class="flex justify-between items-center"><span class="text-white font-semibold">Enrollment Command</span><button @click="notify('Copied','success')" class="btn-secondary text-[11px]">Copy</button></div>
+        <div class="p-2.5 bg-black rounded border border-[#1a1a1a] text-amber-300 break-all">curl -sfL https://get.porter.run/agent.sh | sudo PORTER_TOKEN=penr_metal_node_token_<span x-text="activeServer.id"></span> PORTER_CONTROLLER=https://demo.porter.test sh</div>
+      </div>
+      <div class="card p-4 space-y-3 text-xs font-mono">
+        <div class="flex justify-between items-center"><span class="text-white font-semibold">/etc/porter/agent.toml</span><button @click="notify('TOML copied','success')" class="btn-secondary text-[11px]">Copy</button></div>
+        <pre class="p-2.5 bg-black rounded border border-[#1a1a1a] text-[#888] overflow-x-auto text-[11px] leading-relaxed" x-text="`[agent]
+node_id = &quot;${activeServer.id}&quot;
+hostname = &quot;${activeServer.hostname}&quot;
+region = &quot;${activeServer.region}&quot;
+socket_path = &quot;/run/porter/agent.sock&quot;
+
+[kvm]
+device = &quot;/dev/kvm&quot;
+firecracker_bin = &quot;/usr/local/bin/firecracker&quot;
+jailer_bin = &quot;/usr/local/bin/jailer&quot;
+
+[network]
+bridge_interface = &quot;porter0&quot;
+subnet = &quot;172.16.0.0/16&quot;`"></pre>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== PLATFORM ADMIN PAGES ===== -->
+  <main x-show="route==='admin'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <div><div class="page-kicker">Porter Admin</div><h1 class="text-2xl font-bold text-white mt-1">Control plane overview</h1><p class="text-sm text-[#888] mt-1">One place for workloads, infrastructure, policy, usage, and operations.</p></div>
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Healthy workloads</div><div class="text-2xl font-bold text-white mt-2">10 / 10</div><div class="text-emerald-400 text-[11px] mt-1">No active incidents</div></div><div class="card p-4"><div class="mini-label">Fleet capacity</div><div class="text-2xl font-bold text-white mt-2">208 vCPU</div><div class="text-[#888] text-[11px] mt-1">64% available</div></div><div class="card p-4"><div class="mini-label">Requests / hour</div><div class="text-2xl font-bold text-white mt-2">12.4M</div><div class="text-emerald-400 text-[11px] mt-1">+8.2% vs previous</div></div><div class="card p-4"><div class="mini-label">Current MRR</div><div class="text-2xl font-bold text-white mt-2">$8,412</div><div class="text-[#888] text-[11px] mt-1">24 active customers</div></div></div>
+    <div class="card p-5"><div class="flex items-center justify-between mb-4"><div><h2 class="text-sm font-semibold text-white">Intent to healthy application</h2><p class="text-xs text-[#888] mt-1">The default Porter path stays simple; infrastructure detail remains one click away.</p></div><button @click="deployStep=1; deployModalOpen=true" class="btn-primary">Create application</button></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3"><div class="flow-step"><div class="mini-label">01 · Source</div><div class="text-white text-xs font-semibold mt-2">Connect GitHub</div><div class="text-[11px] text-[#777] mt-1">Repo + branch</div></div><div class="flow-step"><div class="mini-label">02 · Build</div><div class="text-white text-xs font-semibold mt-2">Detect & build</div><div class="text-[11px] text-[#777] mt-1">BuildKit artifact</div></div><div class="flow-step"><div class="mini-label">03 · Runtime</div><div class="text-white text-xs font-semibold mt-2">Boot MicroVM</div><div class="text-[11px] text-[#777] mt-1">Network + storage</div></div><div class="flow-step"><div class="mini-label">04 · Operate</div><div class="text-white text-xs font-semibold mt-2">Route traffic</div><div class="text-[11px] text-[#777] mt-1">Health + reconcile</div></div></div></div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4"><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Recent operations</h2><button @click="navigate('audit')" class="text-xs text-[#888] underline">View audit</button></div><div class="space-y-2 text-xs font-mono"><div class="flex items-center gap-2"><span class="dot dot-ok"></span><span class="text-white">dep_prod_01</span><span class="text-[#777]">rolled out to 3 replicas</span><span class="ml-auto text-[#666]">38s</span></div><div class="flex items-center gap-2"><span class="dot dot-ok"></span><span class="text-white">vol_01</span><span class="text-[#777]">snapshot completed</span><span class="ml-auto text-[#666]">4m</span></div><div class="flex items-center gap-2"><span class="dot dot-warn"></span><span class="text-white">metal-node-04</span><span class="text-[#777]">low disk capacity</span><span class="ml-auto text-amber-300">review</span></div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Policy posture</h2><span class="badge badge-v">ENFORCED</span></div><div class="grid grid-cols-2 gap-3 text-xs font-mono"><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Production changes</div><div class="text-white mt-1">Approval required</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Destructive actions</div><div class="text-white mt-1">Explicit approval</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">AI operations</div><div class="text-white mt-1">Same IAM as humans</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Audit coverage</div><div class="text-emerald-400 mt-1">100%</div></div></div></div></div>
+  </main>
+
+  <main x-show="route==='networks'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Network</div><h1 class="text-xl font-bold text-white mt-1">Networks & Gateway</h1><p class="text-xs text-[#888] mt-1">Ingress, egress, IPAM, routing, TLS, and private service connectivity.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4 text-xs font-mono"><div class="text-[#888]">Gateway status</div><div class="text-xl font-bold text-emerald-400 mt-1">Healthy</div><div class="text-[#666] mt-1">12 routes · 0 errors</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">IPAM</div><div class="text-xl font-bold text-white mt-1">68%</div><div class="text-[#666] mt-1">172.16.0.0/16 used</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">TLS certificates</div><div class="text-xl font-bold text-white mt-1">8</div><div class="text-emerald-400 mt-1">All valid</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">Egress</div><div class="text-xl font-bold text-white mt-1">MASQ</div><div class="text-[#666] mt-1">eBPF isolation on</div></div></div><div class="card overflow-hidden"><div class="p-4 border-b border-[#1f1f1f] flex justify-between"><div><h2 class="text-sm font-semibold text-white">Gateway routes</h2><p class="text-xs text-[#888] mt-1">Every route resolves to a deployment, not directly to a node.</p></div><button @click="notify('Route wizard opened','info')" class="btn-primary">Add route</button></div><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Hostname</th><th class="p-3">Target</th><th class="p-3">Protocol</th><th class="p-3">TLS</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">api.porter.test</td><td class="p-3 text-[#888]">edge-api-service / prod</td><td class="p-3 text-[#888]">HTTPS · HTTP/2</td><td class="p-3 text-emerald-400">Valid 41d</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">portal.porter.test</td><td class="p-3 text-[#888]">customer-portal / prod</td><td class="p-3 text-[#888]">HTTPS</td><td class="p-3 text-emerald-400">Valid 19d</td><td class="p-3 text-emerald-400">Active</td></tr></tbody></table></div></main>
+
+  <main x-show="route==='storage'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Storage</div><h1 class="text-xl font-bold text-white mt-1">Storage & Backups</h1><p class="text-xs text-[#888] mt-1">Separate ephemeral runtime disks, persistent block volumes, object storage, and recovery copies.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Persistent block</div><div class="text-2xl font-bold text-white mt-2">70 GB</div><div class="text-[#888] text-[11px] mt-1">2 attached volumes</div></div><div class="card p-4"><div class="mini-label">Object storage</div><div class="text-2xl font-bold text-white mt-2">1.8 TB</div><div class="text-[#888] text-[11px] mt-1">S3-compatible</div></div><div class="card p-4"><div class="mini-label">Latest backup</div><div class="text-2xl font-bold text-emerald-400 mt-2">Passed</div><div class="text-[#888] text-[11px] mt-1">12 minutes ago</div></div><div class="card p-4"><div class="mini-label">Recovery point</div><div class="text-2xl font-bold text-white mt-2">2h</div><div class="text-[#888] text-[11px] mt-1">RPO target</div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Storage classes</h2><button @click="volumeModalOpen=true" class="btn-primary">Attach volume</button></div><div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs"><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Ephemeral</div><div class="text-[#777] mt-1">VM rootfs / scratch</div><span class="badge badge-p mt-3">PER VM</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Persistent block</div><div class="text-[#777] mt-1">Application data</div><span class="badge badge-v mt-3">ATTACHED</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Object store</div><div class="text-[#777] mt-1">Artifacts / uploads</div><span class="badge badge-b mt-3">S3 API</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Backup</div><div class="text-[#777] mt-1">Disaster recovery</div><span class="badge badge-v mt-3">DAILY</span></div></div></div></main>
+
+  <main x-show="route==='security'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Security</div><h1 class="text-xl font-bold text-white mt-1">Security & IAM</h1><p class="text-xs text-[#888] mt-1">Roles, policy gates, secrets, trusted access, and deployment protection.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Policy checks</div><div class="text-2xl font-bold text-emerald-400 mt-2">24 / 24</div><div class="text-[#888] text-[11px] mt-1">Passing</div></div><div class="card p-4"><div class="mini-label">Team members</div><div class="text-2xl font-bold text-white mt-2">18</div><div class="text-[#888] text-[11px] mt-1">3 roles</div></div><div class="card p-4"><div class="mini-label">Secrets</div><div class="text-2xl font-bold text-white mt-2">42</div><div class="text-[#888] text-[11px] mt-1">Encrypted at rest</div></div><div class="card p-4"><div class="mini-label">Last review</div><div class="text-2xl font-bold text-white mt-2">2d</div><div class="text-[#888] text-[11px] mt-1">No findings</div></div></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-4"><div class="card p-5"><h2 class="text-sm font-semibold text-white mb-3">Action classes</h2><div class="space-y-2 text-xs font-mono"><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Read</span><span class="text-emerald-400">Automatic</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Low-risk change</span><span class="text-amber-300">Policy controlled</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Production change</span><span class="text-amber-300">Approval required</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Destructive action</span><span class="text-red-400">Explicit approval</span></div></div></div><div class="card p-5"><h2 class="text-sm font-semibold text-white mb-3">Access controls</h2><div class="space-y-2 text-xs font-mono"><div class="flex justify-between"><span class="text-[#888]">SSO / SAML</span><span class="text-emerald-400">Enabled</span></div><div class="flex justify-between"><span class="text-[#888]">MFA enforcement</span><span class="text-emerald-400">All admins</span></div><div class="flex justify-between"><span class="text-[#888]">Production deploy protection</span><span class="text-emerald-400">Enabled</span></div><div class="flex justify-between"><span class="text-[#888]">AI uses human IAM</span><span class="text-emerald-400">Enforced</span></div></div></div></div></main>
+
+  <main x-show="route==='automation'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Automation</div><h1 class="text-xl font-bold text-white mt-1">Automation & Workflows</h1><p class="text-xs text-[#888] mt-1">Event-driven operations with visible plans, approvals, execution, and audit.</p></div><div class="flex justify-between items-center card p-4"><div><div class="text-sm font-semibold text-white">Active workflows</div><div class="text-xs text-[#888] mt-1">Webhooks, scheduled jobs, and deployment policies</div></div><button @click="notify('Workflow builder opened','info')" class="btn-primary">Create workflow</button></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Workflow</th><th class="p-3">Trigger</th><th class="p-3">Last run</th><th class="p-3">Policy</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">Deploy on main</td><td class="p-3 text-[#888]">GitHub push</td><td class="p-3 text-[#888]">38s ago</td><td class="p-3 text-amber-300">Production approval</td><td class="p-3 text-emerald-400">Healthy</td></tr><tr class="table-row"><td class="p-3 text-white">Nightly snapshots</td><td class="p-3 text-[#888]">02:00 UTC</td><td class="p-3 text-[#888]">12m ago</td><td class="p-3 text-emerald-400">Automatic</td><td class="p-3 text-emerald-400">Healthy</td></tr><tr class="table-row"><td class="p-3 text-white">Node disk alert</td><td class="p-3 text-[#888]">Capacity &lt; 15%</td><td class="p-3 text-[#888]">Never</td><td class="p-3 text-amber-300">Notify operator</td><td class="p-3 text-emerald-400">Armed</td></tr></tbody></table></div></main>
+
+  <main x-show="route==='doctor'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div class="flex justify-between items-start"><div><div class="page-kicker">Porter Doctor</div><h1 class="text-xl font-bold text-white mt-1">Deterministic diagnostics</h1><p class="text-xs text-[#888] mt-1">Useful without AI. Every check maps to a control-plane dependency.</p></div><button @click="notify('Doctor checks rerun','success')" class="btn-secondary">Run all checks</button></div><div class="card p-4 flex items-center justify-between"><div><div class="text-sm font-semibold text-white">Platform readiness</div><div class="text-xs text-[#888] mt-1">Last run just now · 14 checks</div></div><span class="badge badge-v">14 / 14 PASSING</span></div><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><template x-for="c in ['Control Plane','PostgreSQL','Scheduler','KVM','Firecracker','BuildKit','Kernel','Networking','Storage','DNS','TLS','Gateway','Capacity','Agent']" :key="c"><div class="card p-4 flex items-center gap-3 text-xs font-mono"><span class="dot dot-ok"></span><div class="flex-1"><div class="text-white" x-text="c"></div><div class="text-[#666] mt-0.5">healthy · observed state matches desired state</div></div><span class="text-emerald-400">PASS</span></div></template></div></main>
+
+  <main x-show="route==='customers'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div class="flex justify-between items-start"><div><div class="page-kicker">Business / Customers</div><h1 class="text-xl font-bold text-white mt-1">Customers & Teams</h1><p class="text-xs text-[#888] mt-1">Organizations, roles, entitlements, and workload ownership.</p></div><button @click="notify('Customer creation opened','info')" class="btn-primary">Add customer</button></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Organization</th><th class="p-3">Plan</th><th class="p-3">Projects</th><th class="p-3">Usage</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">Coffeeinit Labs</td><td class="p-3 text-[#888]">Pro</td><td class="p-3 text-[#888]">4</td><td class="p-3 text-[#888]">$412.60 / mo</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">Acme Systems</td><td class="p-3 text-[#888]">Business</td><td class="p-3 text-[#888]">12</td><td class="p-3 text-[#888]">$1,842.20 / mo</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">Northstar</td><td class="p-3 text-[#888]">Starter</td><td class="p-3 text-[#888]">2</td><td class="p-3 text-[#888]">$98.40 / mo</td><td class="p-3 text-amber-300">Trial</td></tr></tbody></table></div></main>
+
+  <main x-show="route==='billing'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Business / Commerce</div><h1 class="text-xl font-bold text-white mt-1">Usage & Billing</h1><p class="text-xs text-[#888] mt-1">Trace usage from invoice line to workload and infrastructure.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Current MRR</div><div class="text-2xl font-bold text-white mt-2">$8,412</div><div class="text-emerald-400 text-[11px] mt-1">+12.4%</div></div><div class="card p-4"><div class="mini-label">Usage this month</div><div class="text-2xl font-bold text-white mt-2">$4,982</div><div class="text-[#888] text-[11px] mt-1">VM + network + storage</div></div><div class="card p-4"><div class="mini-label">Open invoices</div><div class="text-2xl font-bold text-white mt-2">3</div><div class="text-amber-300 text-[11px] mt-1">$1,240 due</div></div><div class="card p-4"><div class="mini-label">Collection health</div><div class="text-2xl font-bold text-emerald-400 mt-2">99.2%</div><div class="text-[#888] text-[11px] mt-1">30-day success</div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Metered usage</h2><button @click="notify('Invoice export prepared','success')" class="btn-secondary">Export CSV</button></div><div class="space-y-3 text-xs font-mono"><div><div class="flex justify-between mb-1"><span class="text-[#888]">MicroVM runtime</span><span class="text-white">$3,842</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-blue-400 rounded" style="width:78%"></div></div></div><div><div class="flex justify-between mb-1"><span class="text-[#888]">Network egress</span><span class="text-white">$742</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-violet-400 rounded" style="width:34%"></div></div></div><div><div class="flex justify-between mb-1"><span class="text-[#888]">Persistent storage</span><span class="text-white">$398</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-emerald-400 rounded" style="width:18%"></div></div></div></div></div></main>
+
+  <main x-show="route==='audit'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Operations / Governance</div><h1 class="text-xl font-bold text-white mt-1">Audit & Events</h1><p class="text-xs text-[#888] mt-1">Human, service-account, and AI actions across the control plane.</p></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Actor</th><th class="p-3">Action</th><th class="p-3">Resource</th><th class="p-3">Policy</th><th class="p-3">Outcome</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="a in auditLogs" :key="a.id"><tr class="table-row"><td class="p-3 text-white" x-text="a.actor_id"></td><td class="p-3 text-[#888]" x-text="a.action"></td><td class="p-3 text-[#888]" x-text="a.resource"></td><td class="p-3 text-amber-300">recorded</td><td class="p-3" :class="a.outcome==='denied'?'text-red-400':'text-emerald-400'" x-text="a.outcome"></td></tr></template></tbody></table></div></main>
+
+  <!-- ===== OBSERVABILITY (NEW) ===== -->
+  <main x-show="route==='observability'" class="max-w-7xl mx-auto px-4 py-8 space-y-5">
+    <div class="flex justify-between items-center flex-wrap gap-3">
+      <div><h1 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="activity" class="w-5 h-5"></i>Platform Observability</h1><p class="text-xs text-[#888] mt-0.5">Platform-wide traffic, logs, and metrics across all projects and nodes.</p></div>
+      <div class="flex gap-2">
+        <select class="input" style="width:auto"><option>Last 1h</option><option>Last 6h</option><option>Last 24h</option></select>
+        <button @click="notify('Observability refreshed','info')" class="btn-secondary flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i>Refresh</button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Total Requests (1h)</div><div class="text-2xl font-bold text-white mt-1">12.4M</div><div class="text-emerald-400 text-[11px]">+8.2% vs prev</div></div>
+      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">p99 Latency</div><div class="text-2xl font-bold text-emerald-400 mt-1">2.1ms</div><div class="text-[#666] text-[11px]">p50: 0.42ms</div></div>
+      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Error Rate</div><div class="text-2xl font-bold text-white mt-1">0.04%</div><div class="text-emerald-400 text-[11px]">Under SLO</div></div>
+      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Active Projects</div><div class="text-2xl font-bold text-white mt-1" x-text="projects.length"></div><div class="text-[#666] text-[11px]"><span x-text="vms.length"></span> MicroVMs</div></div>
+    </div>
+
+    <div class="card p-4">
+      <div class="flex justify-between items-center mb-3"><div class="text-sm font-semibold text-white">Platform Request Throughput (24h)</div></div>
+      <div style="height:200px"><canvas id="platform-chart"></canvas></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">Top Projects by Traffic</div>
+        <div class="space-y-2 text-xs font-mono">
+          <template x-for="p in topProjects" :key="p.name">
+            <div class="flex items-center gap-2"><span class="text-white w-40 truncate" x-text="p.name"></span><div class="flex-1 h-2 bg-[#1a1a1a] rounded-full overflow-hidden"><div class="h-full bg-[#38bdf8] rounded-full" :style="'width:'+p.pct+'%'"></div></div><span class="text-[#888] w-16 text-right" x-text="p.reqs"></span></div>
+          </template>
+        </div>
+      </div>
+      <div class="card p-4">
+        <div class="text-sm font-semibold text-white mb-3">Top Endpoints</div>
+        <div class="space-y-2 text-xs font-mono">
+          <template x-for="e in topEndpoints" :key="e.path">
+            <div class="flex justify-between items-center py-1 border-b border-[#1a1a1a] last:border-0"><div class="flex items-center gap-2"><span class="badge" :class="e.method==='GET'?'badge-v':(e.method==='POST'?'badge-b':'badge-p')" x-text="e.method"></span><span class="text-white" x-text="e.path"></span></div><div class="flex gap-3"><span class="text-[#888]" x-text="e.reqs"></span><span class="text-amber-400" x-text="e.latency"></span></div></div>
+          </template>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live request log -->
+    <div class="card overflow-hidden">
+      <div class="p-3 border-b border-[#1f1f1f] flex justify-between items-center"><div class="flex items-center gap-2"><div class="text-sm font-semibold text-white">Live Request Log</div><span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>LIVE</span></div><div class="flex items-center gap-2"><input x-model="obsLogFilter" placeholder="Filter path or project..." class="input" style="width:200px" /><button @click="obsLogs=[]" class="btn-ghost text-[11px]">Clear</button></div></div>
+      <div class="p-2 font-mono text-xs overflow-y-auto" style="max-height:400px">
+        <template x-for="(l,i) in obsLogs" :key="i">
+          <div class="flex items-center gap-3 py-1 px-2 hover:bg-[#111] rounded text-[#abb2bf]">
+            <span class="text-[#666] w-20 shrink-0" x-text="l.time"></span>
+            <span class="text-white w-32 truncate shrink-0" x-text="l.project"></span>
+            <span class="w-8 shrink-0" :class="l.status<400?'text-emerald-400':'text-red-400'" x-text="l.status"></span>
+            <span class="text-[#888] w-12 shrink-0" x-text="l.method"></span>
+            <span class="flex-1 truncate" x-text="l.path"></span>
+            <span class="w-16 text-right shrink-0" :class="parseFloat(l.ms)<5?'text-emerald-400':'text-amber-400'" x-text="l.ms"></span>
+          </div>
+        </template>
+        <template x-if="filteredObsLogs.length===0"><div class="text-center text-[#666] py-6">Waiting for requests...</div></template>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== AI OPERATOR ===== -->
+  <main x-show="route==='ai_operator'" class="max-w-7xl mx-auto px-4 py-8 space-y-5">
+    <div><h1 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="bot" class="w-5 h-5"></i>AI Autonomous Operator</h1><p class="text-xs text-[#888] mt-0.5">Scoped role, inspects via /api/discover, executes within safety gates.</p></div>
+    <div class="flex items-center gap-2 p-2 card"><i data-lucide="sparkles" class="w-4 h-4 text-[#888] ml-2"></i><input x-model="aiPrompt" @keydown.enter="handleAiPrompt(aiPrompt)" placeholder="e.g. 'Scale background-worker-pool to 4 replicas' or 'Check health'..." class="flex-1 bg-transparent border-0 text-white text-xs font-mono focus:outline-none px-2" /><button @click="handleAiPrompt(aiPrompt)" class="btn-primary">Execute</button></div>
+    <template x-if="aiPlan">
+      <div class="card p-5 space-y-3 border-amber-500/30 bg-amber-500/5">
+        <div class="flex items-center justify-between"><div class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="clipboard-list" class="w-4 h-4 text-amber-400"></i>AI Plan — Approval Required</div><span class="badge badge-p">Pending</span></div>
+        <div class="grid grid-cols-2 gap-3 text-xs font-mono"><div><span class="text-[#888]">Intent:</span> <span class="text-white" x-text="aiPlan.intent"></span></div><div><span class="text-[#888]">Risk:</span> <span class="text-emerald-400" x-text="aiPlan.risk"></span></div><div><span class="text-[#888]">Current:</span> <span class="text-white" x-text="aiPlan.current"></span></div><div><span class="text-[#888]">Proposed:</span> <span class="text-white" x-text="aiPlan.proposed"></span></div><div><span class="text-[#888]">Cost:</span> <span class="text-amber-300" x-text="aiPlan.cost"></span></div><div><span class="text-[#888]">Approval:</span> <span class="text-white" x-text="aiPlan.approval"></span></div></div>
+        <div class="pt-2 border-t border-[#1a1a1a] text-xs font-mono"><div class="text-[#888] mb-1">Steps:</div><ol class="list-decimal list-inside space-y-0.5"><template x-for="(s,i) in aiPlan.steps" :key="i"><li class="text-white" x-text="s"></li></template></ol></div>
+        <div class="flex justify-end gap-2 pt-2 border-t border-[#1a1a1a]"><button @click="rejectAiPlan()" class="btn-danger">Reject</button><button @click="approveAiPlan()" class="btn-primary">Approve & Execute</button></div>
+      </div>
+    </template>
+    <template x-if="aiResult">
+      <div class="card p-4 text-xs font-mono space-y-1" :class="aiResult.outcome==='denied'?'border-red-500/30 bg-red-500/10':'border-emerald-500/30 bg-emerald-500/10'"><div><strong class="text-white">Action:</strong> <span x-text="aiResult.action"></span></div><div><strong class="text-white">Outcome:</strong> <span :class="aiResult.outcome==='denied'?'text-red-400':'text-emerald-400'" x-text="aiResult.outcome"></span></div><div><strong class="text-white">Result:</strong> <span x-text="aiResult.message"></span></div></div>
+    </template>
+    <div class="space-y-2"><h2 class="text-sm font-semibold text-white">Audit Trail</h2><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Actor</th><th class="py-2 px-3">Action</th><th class="py-2 px-3">Target</th><th class="py-2 px-3">Outcome</th><th class="py-2 px-3">Detail</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="a in auditLogs" :key="a.id"><tr><td class="py-2 px-3"><div class="flex items-center gap-1.5"><span class="badge" :class="a.actor_type==='ai'?'badge-p':(a.actor_type==='service-account'?'badge-b':'badge-v')" x-text="a.actor_type"></span><span class="text-white" x-text="a.actor_id"></span></div></td><td class="py-2 px-3 text-[#888]" x-text="a.action"></td><td class="py-2 px-3 text-[#888]" x-text="a.resource"></td><td class="py-2 px-3"><span :class="a.outcome==='denied'?'text-red-400':'text-emerald-400'" x-text="a.outcome"></span></td><td class="py-2 px-3 text-[#888] truncate max-w-xs" x-text="a.detail"></td></tr></template></tbody></table></div></div>
+  </main>
+
+  <!-- ===== ADD REPLICA MODAL ===== -->
+  <div x-show="addReplicaModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+    <div class="w-full max-w-md card p-6 space-y-4">
+      <div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Add Replicas</div><div class="text-xs text-[#888] mt-0.5">Immediate capacity for the selected deployment</div></div><button @click="addReplicaModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+      <div class="space-y-3 text-xs font-mono">
+        <div><label class="block text-[#888] mb-1">Quantity (1-5)</label><input type="number" min="1" max="5" x-model.number="addReplicaCount" class="input" /></div>
+        <div class="p-3 rounded bg-[#050505] border border-[#1a1a1a] space-y-1">
+          <div class="flex justify-between"><span class="text-[#888]">Current:</span><span class="text-white" x-text="projectReplicas.length+' replicas'"></span></div>
+          <div class="flex justify-between"><span class="text-[#888]">After:</span><span class="text-emerald-400" x-text="(projectReplicas.length+addReplicaCount)+' replicas'"></span></div>
+          <div class="flex justify-between"><span class="text-[#888]">Target:</span><span class="text-white" x-text="activeProject.name+' · current deployment'"></span></div><div class="flex justify-between"><span class="text-[#888]">Placement:</span><span class="text-white">Spread across fleet</span></div><div class="text-[11px] text-[#666] pt-1">Autoscaling policy is not changed by this action.</div>
+          <div class="flex justify-between"><span class="text-[#888]">Cost increase:</span><span class="text-amber-300" x-text="'+$'+(addReplicaCount*0.042*730).toFixed(2)+'/mo'"></span></div>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button @click="addReplicaModalOpen=false" class="btn-secondary">Cancel</button><button @click="handleAddReplica()" class="btn-primary">Add Replicas</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== SCALE DOWN MODAL ===== -->
+  <div x-show="scaleDownModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+    <div class="w-full max-w-md card p-6 space-y-4">
+      <div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Scale Down Group</div><div class="text-xs text-[#888] mt-0.5">Removes from tail. Primary stays.</div></div><button @click="scaleDownModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+      <div class="space-y-3 text-xs font-mono">
+        <div><label class="block text-[#888] mb-1">Remove how many?</label><input type="number" min="1" :max="Math.max(1,projectReplicas.length-1)" x-model.number="scaleDownCount" class="input" /></div>
+        <div class="p-3 rounded bg-[#050505] border border-[#1a1a1a] space-y-1">
+          <div class="flex justify-between"><span class="text-[#888]">Current:</span><span class="text-white" x-text="projectReplicas.length+' replicas'"></span></div>
+          <div class="flex justify-between"><span class="text-[#888]">After:</span><span class="text-amber-400" x-text="(projectReplicas.length-scaleDownCount)+' replicas'"></span></div>
+          <div class="text-[11px] text-[#666] mt-1">⚠️ Primary replica is never removed. Minimum is 1 (from autoscaling policy).</div>
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button @click="scaleDownModalOpen=false" class="btn-secondary">Cancel</button><button @click="handleScaleDown()" class="btn-danger">Scale Down</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== REMOVE REPLICA MODAL ===== -->
+  <div x-show="removeReplicaModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
+    <div class="w-full max-w-md card p-6 space-y-4">
+      <div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-red-400">Remove Replica</div><div class="text-xs text-[#888] mt-0.5">Irreversible</div></div><button @click="removeReplicaModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+      <div class="space-y-3 text-xs font-mono">
+        <div class="p-3 rounded border border-red-500/20 bg-red-500/5">
+          <div class="text-white mb-1">You are about to remove:</div>
+          <div class="text-red-300 font-bold" x-text="activeReplica.name"></div>
+          <div class="text-[#888] text-[11px] mt-1" x-text="activeReplica.ip + ' · ' + activeReplica.vcpu + ' vCPU · ' + activeReplica.memory_mb + ' MB'"></div>
+        </div>
+        <div class="text-[#888]">The replica will be drained and its MicroVM terminated. Any attached ephemeral storage is deleted.</div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button @click="removeReplicaModalOpen=false" class="btn-secondary">Cancel</button><button @click="handleRemoveReplica()" class="btn-danger">Remove Replica</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Command palette -->
+  <div x-show="commandPaletteOpen" @click="commandPaletteOpen=false" class="fixed inset-0 z-50 modal-backdrop flex items-start justify-center pt-24"><div @click.stop class="w-full max-w-lg card shadow-2xl"><div class="flex items-center gap-2 p-3 border-b border-[#1f1f1f]"><i data-lucide="search" class="w-4 h-4 text-[#666]"></i><input id="command-input" x-model="commandSearch" placeholder="Search projects, nodes, replicas..." class="flex-1 bg-transparent border-0 text-white text-sm focus:outline-none" /><kbd class="px-1.5 py-0.5 rounded bg-[#1a1a1a] text-[#888] text-[10px] font-mono">ESC</kbd></div><div class="max-h-96 overflow-y-auto p-2"><template x-for="(r,i) in commandResults" :key="i"><button @click="runCommand(r)" class="w-full flex items-center gap-3 p-2 rounded hover:bg-[#1a1a1a] text-left text-xs"><div class="w-7 h-7 rounded bg-[#111] border border-[#262626] flex items-center justify-center text-[#888]"><i :data-lucide="r.icon" class="w-3.5 h-3.5"></i></div><div class="flex-1"><div class="text-white" x-text="r.label"></div><template x-if="r.sub"><div class="text-[#666] text-[10px]" x-text="r.sub"></div></template></div><span class="badge" style="background:#171717;border-color:#262626;color:#888" x-text="r.type"></span></button></template><template x-if="commandResults.length===0"><div class="text-center py-6 text-xs text-[#888]">No results</div></template></div></div></div>
+
+  <!-- Deploy wizard -->
+  <div x-show="deployModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"><div class="w-full max-w-lg card p-6 space-y-4"><div class="flex justify-between items-start pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Deploy Service</div><div class="text-xs text-[#888] mt-0.5">Step <span x-text="deployStep"></span> of 3</div></div><button @click="deployModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+    <template x-if="deployStep===1"><div class="space-y-3"><div><label class="text-xs text-[#888] block mb-1">Service Name</label><input x-model="deployName" placeholder="my-api" class="input" /></div><div><label class="text-xs text-[#888] block mb-1">Repository</label><input x-model="deployRepo" class="input" /></div><div><label class="text-xs text-[#888] block mb-1">Branch</label><input x-model="deployBranch" class="input" /></div><div class="flex justify-end pt-3 border-t border-[#1a1a1a]"><button @click="deployStep=2" class="btn-primary">Next →</button></div></div></template>
+    <template x-if="deployStep===2"><div class="space-y-3"><div class="p-3 rounded bg-[#050505] border border-[#1a1a1a] text-xs font-mono space-y-1"><div class="text-emerald-400">✓ Repository detected</div><div class="text-white">Framework: <span class="text-amber-300">Node.js (Express)</span></div><div class="text-white">Dockerfile: <span class="text-emerald-400">found</span></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-[#888] block mb-1">Base</label><select x-model="deployImage" class="input"><option>base://alpine-3.19</option><option>base://debian-12</option></select></div><div><label class="text-xs text-[#888] block mb-1">Port</label><input type="number" x-model.number="deployPort" class="input" /></div></div><div class="grid grid-cols-2 gap-3"><div><label class="text-xs text-[#888] block mb-1">vCPUs</label><input type="number" x-model.number="deployVcpu" class="input" /></div><div><label class="text-xs text-[#888] block mb-1">Memory</label><input type="number" x-model.number="deployMem" class="input" /></div></div><div class="flex justify-between pt-3 border-t border-[#1a1a1a]"><button @click="deployStep=1" class="btn-secondary">← Back</button><button @click="deployStep=3" class="btn-primary">Next →</button></div></div></template>
+    <template x-if="deployStep===3"><div class="space-y-3"><div class="p-3 rounded bg-[#050505] border border-[#1a1a1a] text-xs font-mono space-y-1"><div class="flex justify-between"><span class="text-[#888]">Name:</span><span class="text-white" x-text="deployName||'new-service'"></span></div><div class="flex justify-between"><span class="text-[#888]">Image:</span><span class="text-white" x-text="deployImage"></span></div><div class="flex justify-between"><span class="text-[#888]">Specs:</span><span class="text-white" x-text="deployVcpu+' vCPU · '+deployMem+' MB'"></span></div></div><div class="flex justify-between pt-3 border-t border-[#1a1a1a]"><button @click="deployStep=2" class="btn-secondary">← Back</button><button @click="handleDeployService(event)" class="btn-primary">Deploy →</button></div></div></template>
+  </div></div>
+
+  <!-- Enroll -->
+  <div x-show="enrollModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"><div class="w-full max-w-lg card p-6 space-y-4"><div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Enroll Server</div></div><button @click="enrollModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div><form @submit.prevent="handleEnrollServer($event)" class="space-y-3 text-xs"><div><label class="text-[#888] block mb-1">Hostname</label><input x-model="enrollHostname" class="input" /></div><div class="grid grid-cols-2 gap-3"><div><label class="text-[#888] block mb-1">IP</label><input x-model="enrollIp" class="input" /></div><div><label class="text-[#888] block mb-1">Region</label><select x-model="enrollRegion" class="input"><option>us-east-1</option><option>eu-west-1</option></select></div></div><div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button type="button" @click="enrollModalOpen=false" class="btn-secondary">Cancel</button><button type="submit" class="btn-primary">Enroll</button></div></form></div></div>
+
+  <!-- Add Volume -->
+  <div x-show="volumeModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"><div class="w-full max-w-md card p-6 space-y-4"><div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Attach Volume</div></div><button @click="volumeModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div><form @submit.prevent="handleAddVolume($event)" class="space-y-3 text-xs"><div><label class="text-[#888] block mb-1">Name</label><input x-model="newVolName" class="input" required /></div><div><label class="text-[#888] block mb-1">Mount</label><input x-model="newVolPath" class="input" required /></div><div><label class="text-[#888] block mb-1">Size GB</label><input type="number" x-model.number="newVolSize" class="input" required /></div><div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button type="button" @click="volumeModalOpen=false" class="btn-secondary">Cancel</button><button type="submit" class="btn-primary">Attach</button></div></form></div></div>
+
+  <!-- Add Domain -->
+  <div x-show="addDomainModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"><div class="w-full max-w-md card p-6 space-y-4"><div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Add Domain</div></div><button @click="addDomainModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div><form @submit.prevent="handleAddDomain($event)" class="space-y-3 text-xs"><div><label class="text-[#888] block mb-1">Domain</label><input x-model="newDomain" placeholder="app.example.com" class="input" required /></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a] text-[11px]"><div class="text-white mb-1">Configure CNAME:</div><code class="text-amber-300">app.example.com → cname.porter.test</code></div><div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button type="button" @click="addDomainModalOpen=false" class="btn-secondary">Cancel</button><button type="submit" class="btn-primary">Add & Verify</button></div></form></div></div>
+
+  <!-- Shortcuts -->
+  <div x-show="shortcutsOpen" @click="shortcutsOpen=false" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4"><div @click.stop class="w-full max-w-md card p-6"><div class="flex justify-between pb-3 border-b border-[#1a1a1a] mb-3"><div class="text-base font-semibold text-white">Keyboard Shortcuts</div><button @click="shortcutsOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div><div class="space-y-2 text-xs font-mono"><template x-for="s in [{k:'⌘K',d:'Command palette'},{k:'r',d:'Refresh'},{k:'?',d:'This help'},{k:'Esc',d:'Close modal'},{k:'g p',d:'Go to Projects'},{k:'g f',d:'Go to Fleet'},{k:'g o',d:'Go to Observability'}]" :key="s.k"><div class="flex justify-between py-1"><span class="text-white" x-text="s.d"></span><kbd class="px-2 py-0.5 rounded bg-[#1a1a1a] text-[#888] text-[10px]" x-text="s.k"></kbd></div></template></div></div></div>
+
+  <!-- Vercel-style toolbar -->
+  <div x-show="toolbarVisible" x-cloak>
+    <div x-show="toolbarOpen" class="toolbar-panel">
+      <div class="p-3 border-b border-[#1f1f1f] flex items-center justify-between">
+        <div class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="wrench" class="w-4 h-4 text-[#888]"></i>Preview Toolbar</div>
+        <button @click="toolbarOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+      </div>
+      <div class="p-3 space-y-2">
+        <template x-for="t in toolbarTools" :key="t.id">
+          <button @click="toggleTool(t.id)" :class="activeTool===t.id?'bg-white text-black':'bg-[#111] text-white hover:bg-[#1a1a1a]'" class="w-full flex items-center gap-2 p-2 rounded text-xs font-medium transition">
+            <i :data-lucide="t.icon" class="w-3.5 h-3.5"></i>
+            <span x-text="t.label"></span>
+            <template x-if="activeTool===t.id"><span class="ml-auto text-[10px] font-mono">ON</span></template>
+          </button>
+        </template>
+      </div>
+      <div class="p-3 border-t border-[#1f1f1f]">
+        <div class="text-[11px] text-[#888] font-mono mb-2">Comments (<span x-text="comments.length"></span>)</div>
+        <div class="space-y-1 max-h-40 overflow-y-auto">
+          <template x-for="c in comments" :key="c.id">
+            <div class="p-2 rounded bg-[#050505] border border-[#1a1a1a] text-[11px] font-mono">
+              <div class="text-white" x-text="c.author"></div>
+              <div class="text-[#888]" x-text="c.text"></div>
+            </div>
+          </template>
+          <template x-if="comments.length===0">
+            <div class="text-[11px] text-[#666] text-center py-2">No comments. Click anywhere to add one.</div>
+          </template>
+        </div>
+      </div>
+      <div class="p-3 border-t border-[#1f1f1f] bg-[#050505]">
+        <div class="text-[10px] text-[#666] font-mono">Toolbar preview — available on preview deployments</div>
+      </div>
+    </div>
+    <div class="toolbar-fab" @click="toolbarOpen=!toolbarOpen">
+      <i data-lucide="wrench" class="w-5 h-5"></i>
+    </div>
+  </div>
+
+  <!-- Toasts -->
+  <div class="fixed bottom-6 right-6 z-50 space-y-2 pointer-events-none">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="pointer-events-auto px-4 py-2.5 rounded-lg border text-xs font-medium flex items-center gap-2 shadow-2xl max-w-sm" :class="t.type==='success'?'bg-[#0a1f0f] border-emerald-500/30 text-emerald-300':(t.type==='warning'?'bg-[#1f1505] border-amber-500/30 text-amber-300':(t.type==='error'?'bg-[#1f0505] border-red-500/30 text-red-300':'bg-[#0a0a0a] border-[#333] text-white'))"><i :data-lucide="t.type==='success'?'check-circle':(t.type==='warning'?'alert-triangle':'info')" class="w-3.5 h-3.5 shrink-0"></i><span x-text="t.msg"></span></div>
+    </template>
+  </div>
+</div>
+
+<script>
+function porter() {
+  return {
+    // ROUTING
+    route: 'projects',
+    projectSubTab: 'overview',
+    trafficScalingTab: 'canary',
+    configStorageTab: 'volumes',
+    fleetSubTab: 'nodes',
+    nodeSubTab: 'overview',
+    replicaSubTab: 'overview',
+    selectedProjectId: 'prj_edge_api',
+    selectedReplicaId: 'vm_edge_01',
+    selectedServerId: 'srv_metal_01',
+    runtimeMode: 'mock',
+
+    // UI
+    commandPaletteOpen: false, commandSearch: '',
+    deployModalOpen: false, enrollModalOpen: false, volumeModalOpen: false,
+    addDomainModalOpen: false, shortcutsOpen: false, eventsDropdownOpen: false,
+    addReplicaModalOpen: false, scaleDownModalOpen: false, removeReplicaModalOpen: false,
+    toolbarVisible: true, toolbarOpen: false, activeTool: null,
+
+    // Filters
+    searchQuery: '', nodeSearchQuery: '', nodeRegionFilter: 'all',
+    replicaLogFilter: 'all', replicaLogSearch: '',
+    projectLogSearch: '', nodeLogSearch: '', showSecrets: false,
+    obsLogFilter: '',
+
+    // Deploy
+    deployStep: 1, deployName: '', deployRepo: 'github.com/coffeeinit/porter-starter',
+    deployBranch: 'main', deployImage: 'base://alpine-3.19', deployVcpu: 2, deployMem: 1024, deployPort: 8080,
+
+    // Auto / Canary / AB
+    autoEnabled: true, autoMin: 2, autoMax: 8, autoCpuThreshold: 70,
+    canaryWeight: 10, canaryVersion: 'v2.5.0-rc1',
+    abEnabled: false, abVariantA: 'v2.4.0', abVariantB: 'v2.5.0-beta', abSplitB: 50,
+    lbAlgo: 'round_robin', lbHealthPath: '/health',
+
+    // Replica add/remove
+    addReplicaCount: 1, scaleDownCount: 1,
+
+    // Forms
+    newVolName: 'data-storage', newVolPath: '/data', newVolSize: 50,
+    enrollHostname: '', enrollIp: '', enrollRegion: 'us-east-1',
+    newDomain: '',
+
+    // AI / logs / ops
+    aiPrompt: '', aiPlan: null, aiResult: null,
+    logLines: [], obsLogs: [], toasts: [], operations: [], consoleLines: [],
+    expandedDeployments: [],
+
+    // Toolbar
+    toolbarTools: [
+      {id:'comments', icon:'message-square', label:'Comments'},
+      {id:'edit', icon:'pencil', label:'Edit Mode'},
+      {id:'draft', icon:'eye-off', label:'Draft Mode'},
+      {id:'flags', icon:'flag', label:'Feature Flags'},
+    ],
+    comments: [
+      {id:1, author:'sarah@team.com', text:'Can we bump the CTA contrast here?'},
+      {id:2, author:'dev-lead', text:'Nice work on the hero animation!'},
+    ],
+
+    // Data
+    projects: [
+      {id:'prj_edge_api', name:'edge-api-service', description:'Ultra-low latency HTTP API gateway compiled to guest rootfs', git_repo:'github.com/coffeeinit/edge-api', branch:'main', state:'running', vms:3, memory_mb:1024, vcpu:2, image:'base://alpine-3.19', port:8080, domain:'api.porter.test',
+        env:{PORT:'8080',LOG_LEVEL:'info',CACHE_TTL:'300',RATE_LIMIT:'1000'},
+        canary:{enabled:true, canary_weight_percent:10, canary_version:'v2.5.0-rc1', status:'active'},
+        created_at:new Date().toISOString(), updated_at:new Date().toISOString()},
+      {id:'prj_web_portal', name:'customer-portal', description:'Customer management UI and SSR frontend', git_repo:'github.com/coffeeinit/portal', branch:'production', state:'running', vms:3, memory_mb:2048, vcpu:2, image:'base://debian-12', port:3000, domain:'portal.porter.test', env:{NODE_ENV:'production'}, created_at:new Date().toISOString(), updated_at:new Date().toISOString()},
+      {id:'prj_worker_pool', name:'background-worker-pool', description:'Distributed background queue executor', git_repo:'github.com/coffeeinit/workers', branch:'main', state:'running', vms:3, memory_mb:4096, vcpu:4, image:'base://ubuntu-24.04', port:9090, domain:'worker.porter.test', env:{CONCURRENCY:'16'}, created_at:new Date().toISOString(), updated_at:new Date().toISOString()},
+      {id:'prj_telemetry', name:'telemetry-collector', description:'OTel trace & metrics ingestion', git_repo:'github.com/coffeeinit/telemetry', branch:'main', state:'running', vms:1, memory_mb:1024, vcpu:1, image:'base://alpine-3.19', port:4317, domain:'otel.porter.test', env:{RETENTION_DAYS:'30'}, created_at:new Date().toISOString(), updated_at:new Date().toISOString()},
+    ],
+    servers: [
+      {id:'srv_metal_01', hostname:'metal-node-01.us-east.metal', state:'online', role:'worker', ip:'192.168.1.101', region:'us-east-1', cpus:64, memory_mb:262144, memory_used_mb:65536, vms_count:5, kernel:'6.1.102-porter', firecracker_version:'v1.7.0', disk_gb:3840, disk_free_gb:2890, uptime_seconds:482100, cordoned:false},
+      {id:'srv_metal_02', hostname:'metal-node-02.us-east.metal', state:'online', role:'worker', ip:'192.168.1.102', region:'us-east-1', cpus:64, memory_mb:262144, memory_used_mb:49152, vms_count:4, kernel:'6.1.102-porter', firecracker_version:'v1.7.0', disk_gb:3840, disk_free_gb:3120, uptime_seconds:478000, cordoned:false},
+      {id:'srv_metal_03', hostname:'metal-node-03.eu-west.metal', state:'online', role:'worker', ip:'192.168.2.101', region:'eu-west-1', cpus:32, memory_mb:131072, memory_used_mb:16384, vms_count:1, kernel:'6.1.102-porter', firecracker_version:'v1.7.0', disk_gb:1920, disk_free_gb:1850, uptime_seconds:245000, cordoned:false},
+      {id:'srv_metal_04', hostname:'metal-node-04.us-east.metal', state:'online', role:'worker', ip:'192.168.1.104', region:'us-east-1', cpus:48, memory_mb:196608, memory_used_mb:147456, vms_count:3, kernel:'6.1.102-porter', firecracker_version:'v1.7.0', disk_gb:2048, disk_free_gb:154, uptime_seconds:320000, cordoned:false},
+    ],
+    vms: [
+      {id:'vm_edge_01', project_id:'prj_edge_api', server_id:'srv_metal_01', deployment_id:'dep_prod_01', version_tag:'v2.4.0', traffic_weight:45, name:'edge-api-service-replica-1', ip:'172.16.10.2', state:'running', vcpu:2, memory_mb:1024, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_edge_01.sock', uptime_seconds:245100, started_at:new Date(Date.now()-2451e5).toISOString(), volume_id:'vol_01', is_primary:true},
+      {id:'vm_edge_02', project_id:'prj_edge_api', server_id:'srv_metal_02', deployment_id:'dep_prod_01', version_tag:'v2.4.0', traffic_weight:45, name:'edge-api-service-replica-2', ip:'172.16.10.3', state:'running', vcpu:2, memory_mb:1024, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_edge_02.sock', uptime_seconds:245050, started_at:new Date(Date.now()-24505e4).toISOString(), is_primary:false},
+      {id:'vm_edge_03', project_id:'prj_edge_api', server_id:'srv_metal_01', deployment_id:'dep_edge_canary', version_tag:'v2.5.0-rc1 (Canary 10%)', traffic_weight:10, name:'edge-api-service-canary-1', ip:'172.16.10.4', state:'running', vcpu:2, memory_mb:1024, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_edge_03.sock', uptime_seconds:180000, started_at:new Date(Date.now()-18e7).toISOString(), volume_id:'vol_02', is_primary:true},
+      {id:'vm_portal_01', project_id:'prj_web_portal', server_id:'srv_metal_01', deployment_id:'dep_02_portal', name:'customer-portal-replica-1', ip:'172.16.10.10', state:'running', vcpu:2, memory_mb:2048, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_portal_01.sock', uptime_seconds:320000, started_at:new Date(Date.now()-32e7).toISOString(), is_primary:true},
+      {id:'vm_portal_02', project_id:'prj_web_portal', server_id:'srv_metal_02', deployment_id:'dep_02_portal', name:'customer-portal-replica-2', ip:'172.16.10.11', state:'running', vcpu:2, memory_mb:2048, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_portal_02.sock', uptime_seconds:320000, started_at:new Date(Date.now()-32e7).toISOString(), is_primary:false},
+      {id:'vm_portal_03', project_id:'prj_web_portal', server_id:'srv_metal_02', deployment_id:'dep_02_portal', name:'customer-portal-replica-3', ip:'172.16.10.12', state:'running', vcpu:2, memory_mb:2048, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_portal_03.sock', uptime_seconds:140000, started_at:new Date(Date.now()-14e7).toISOString(), is_primary:false},
+      {id:'vm_worker_01', project_id:'prj_worker_pool', server_id:'srv_metal_01', deployment_id:'dep_03_worker', name:'background-worker-replica-1', ip:'172.16.10.20', state:'running', vcpu:4, memory_mb:4096, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_worker_01.sock', uptime_seconds:180000, started_at:new Date(Date.now()-18e7).toISOString(), is_primary:true},
+      {id:'vm_worker_02', project_id:'prj_worker_pool', server_id:'srv_metal_02', deployment_id:'dep_03_worker', name:'background-worker-replica-2', ip:'172.16.10.21', state:'running', vcpu:4, memory_mb:4096, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_worker_02.sock', uptime_seconds:180000, started_at:new Date(Date.now()-18e7).toISOString(), is_primary:false},
+      {id:'vm_worker_03', project_id:'prj_worker_pool', server_id:'srv_metal_01', deployment_id:'dep_03_worker', name:'background-worker-replica-3', ip:'172.16.10.22', state:'running', vcpu:4, memory_mb:4096, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_worker_03.sock', uptime_seconds:80000, started_at:new Date(Date.now()-8e7).toISOString(), is_primary:false},
+      {id:'vm_telemetry_01', project_id:'prj_telemetry', server_id:'srv_metal_03', deployment_id:'dep_telemetry_01', name:'telemetry-collector-replica-1', ip:'172.16.20.2', state:'running', vcpu:1, memory_mb:1024, kernel:'vmlinux-6.1.102', socket:'/run/porter/firecracker/vm_telemetry_01.sock', uptime_seconds:98000, started_at:new Date(Date.now()-98e5).toISOString(), is_primary:true},
+    ],
+    deployments: [
+      {id:'dep_prod_01', project_id:'prj_edge_api', commit_hash:'9f2a4b8', commit_message:'feat: HTTP/2 multiplexing (v2.4.0)', author:'admin', state:'succeeded', created_at:new Date(Date.now()-36e5).toISOString(), duration_seconds:38},
+      {id:'dep_edge_canary', project_id:'prj_edge_api', commit_hash:'e410b2c', commit_message:'feat(canary): eBPF socket (v2.5.0-rc1)', author:'release-bot', state:'succeeded', created_at:new Date(Date.now()-12e5).toISOString(), duration_seconds:29},
+      {id:'dep_prev_00', project_id:'prj_edge_api', commit_hash:'8c13f9a', commit_message:'release v2.3.9', author:'admin', state:'succeeded', created_at:new Date(Date.now()-864e5).toISOString(), duration_seconds:42},
+      {id:'dep_02_portal', project_id:'prj_web_portal', commit_hash:'3d8c11e', commit_message:'fix: asset cache headers', author:'admin', state:'succeeded', created_at:new Date(Date.now()-144e5).toISOString(), duration_seconds:45},
+      {id:'dep_03_worker', project_id:'prj_worker_pool', commit_hash:'1a77e92', commit_message:'chore: kernel 6.1.102', author:'admin', state:'succeeded', created_at:new Date(Date.now()-864e5).toISOString(), duration_seconds:52},
+    ],
+    volumes: [
+      {id:'vol_01', project_id:'prj_edge_api', name:'edge-api-storage', size_gb:50, mount_path:'/var/lib/data', filesystem:'ext4', state:'attached', created_at:new Date().toISOString()},
+      {id:'vol_02', project_id:'prj_edge_api', name:'edge-api-cache', size_gb:20, mount_path:'/var/cache', filesystem:'ext4', state:'attached', created_at:new Date().toISOString()},
+    ],
+    secrets: [
+      {id:'sec_01', project_id:'prj_edge_api', key:'DATABASE_PASSWORD', value_masked:'••••••••••', version:2, environment:'production'},
+      {id:'sec_02', project_id:'prj_edge_api', key:'SIGNING_SECRET_KEY', value_masked:'••••••••••', version:1, environment:'production'},
+    ],
+    dnsRecords: [
+      {id:1, type:'A', name:'@', value:'192.168.1.101', ttl:300, status:'Active'},
+      {id:2, type:'CNAME', name:'api', value:'ingress.porter.test', ttl:300, status:'Active'},
+      {id:3, type:'CNAME', name:'edge.company.io', value:'cname.porter.test', ttl:300, status:'Verified'},
+    ],
+    previews: [
+      {pr:142, branch:'feat/new-header', url:'edge-api-pr142.porter.app', commit:'7f3c8b2', status:'Ready'},
+      {pr:141, branch:'fix/auth-bug', url:'edge-api-pr141.porter.app', commit:'5a1d9e4', status:'Ready'},
+      {pr:139, branch:'chore/deps', url:'edge-api-pr139.porter.app', commit:'3b8f2c1', status:'Ready'},
+    ],
+    snapshots: [
+      {id:'snp_001', size:'1.2 GB', age:'2h ago'},
+      {id:'snp_002', size:'1.1 GB', age:'1d ago'},
+    ],
+    webVitals: [
+      {name:'LCP', value:'1.8s', target:'< 2.5s', pct:72, status:'good'},
+      {name:'INP', value:'120ms', target:'< 200ms', pct:60, status:'good'},
+      {name:'CLS', value:'0.08', target:'< 0.1', pct:80, status:'good'},
+      {name:'FCP', value:'1.2s', target:'< 1.8s', pct:66, status:'good'},
+      {name:'TTFB', value:'420ms', target:'< 800ms', pct:52, status:'good'},
+    ],
+    topProjects: [
+      {name:'edge-api-service', reqs:'6.2M', pct:80},
+      {name:'customer-portal', reqs:'3.4M', pct:55},
+      {name:'background-worker-pool', reqs:'2.1M', pct:34},
+      {name:'telemetry-collector', reqs:'0.7M', pct:12},
+    ],
+    topEndpoints: [
+      {method:'GET', path:'/health', reqs:'2.1M', latency:'0.24ms'},
+      {method:'POST', path:'/v1/ingest', reqs:'840K', latency:'1.82ms'},
+      {method:'GET', path:'/api/v1/users', reqs:'520K', latency:'2.1ms'},
+      {method:'GET', path:'/dashboard', reqs:'340K', latency:'5.2ms'},
+      {method:'POST', path:'/api/v1/auth', reqs:'180K', latency:'3.4ms'},
+    ],
+    auditLogs: [
+      {id:'aud_01', actor_type:'user', actor_id:'admin', action:'project.create', resource:'prj_edge_api', outcome:'allowed', timestamp:new Date(Date.now()-36e5).toISOString(), detail:'Created edge API'},
+      {id:'aud_02', actor_type:'ai', actor_id:'ai-agent-001', action:'vm.restart', resource:'vm_portal_03', outcome:'allowed', timestamp:new Date(Date.now()-18e5).toISOString(), detail:'Autonomous remediation'},
+      {id:'aud_03', actor_type:'ai', actor_id:'ai-agent-001', action:'project.delete', resource:'prj_telemetry', outcome:'denied', timestamp:new Date(Date.now()-9e5).toISOString(), detail:'Policy gate blocked'},
+      {id:'aud_04', actor_type:'service-account', actor_id:'ci-bot', action:'deployment.create', resource:'dep_prod_01', outcome:'executed', timestamp:new Date(Date.now()-36e5).toISOString(), detail:'CI triggered deploy'},
+    ],
+    events: [
+      {id:'evt_01', type:'microvm.boot', detail:'Booted on metal-node-01 in 12ms', timestamp:new Date(Date.now()-18e7).toISOString()},
+      {id:'evt_02', type:'deployment.complete', detail:'Rollout 9f2a4b8 across 3 replicas', timestamp:new Date(Date.now()-36e5).toISOString()},
+      {id:'evt_03', type:'volume.mount', detail:'Attached virtio-blk to vm_edge_01', timestamp:new Date(Date.now()-864e5).toISOString()},
+    ],
+
+    // COMPUTED
+    get activeProject() { return this.projects.find(p => p.id === this.selectedProjectId) || this.projects[0]; },
+    get activeReplica() { return this.vms.find(v => v.id === this.selectedReplicaId) || this.vms[0]; },
+    get activeServer() { return this.servers.find(s => s.id === this.selectedServerId) || this.servers[0]; },
+    get activeServerVms() { return this.vms.filter(v => v.server_id === this.selectedServerId); },
+    get projectReplicas() { return this.activeProject ? this.vms.filter(v => v.project_id === this.activeProject.id) : []; },
+    get siblings() { return this.activeReplica ? this.vms.filter(v => v.deployment_id === this.activeReplica.deployment_id) : []; },
+    get replicasByDeployment() {
+      if (!this.activeProject) return [];
+      const groups = {};
+      for (const vm of this.projectReplicas) {
+        const depId = vm.deployment_id || 'no-deployment';
+        if (!groups[depId]) groups[depId] = [];
+        groups[depId].push(vm);
+      }
+      return Object.entries(groups).map(([depId, replicas]) => {
+        const dep = this.deployments.find(d => d.id === depId);
+        return {
+          depId,
+          version: replicas[0]?.version_tag?.split(' ')[0] || 'unknown',
+          commit: dep?.commit_hash || '—',
+          replicas,
+        };
+      }).sort((a,b) => {
+        const aP = a.replicas.some(r => r.is_primary), bP = b.replicas.some(r => r.is_primary);
+        if (aP !== bP) return aP ? -1 : 1;
+        return a.depId.localeCompare(b.depId);
+      });
+    },
+    get deploymentsWithReplicas() {
+      return this.deployments.filter(d => this.vms.some(v => v.deployment_id === d.id && v.project_id === this.activeProject?.id));
+    },
+    get filteredProjects() {
+      if (!this.searchQuery.trim()) return this.projects;
+      const q = this.searchQuery.toLowerCase();
+      return this.projects.filter(p => p.name.toLowerCase().includes(q) || p.domain.toLowerCase().includes(q));
+    },
+    get filteredServers() {
+      return this.servers.filter(s => {
+        const mq = !this.nodeSearchQuery.trim() || s.hostname.toLowerCase().includes(this.nodeSearchQuery.toLowerCase()) || s.ip.includes(this.nodeSearchQuery);
+        const mr = this.nodeRegionFilter === 'all' || s.region === this.nodeRegionFilter;
+        return mq && mr;
+      });
+    },
+    get totalReqs() { return 86400; },
+    get totalStorageGb() { return this.volumes.reduce((a,v) => a + v.size_gb, 0) + this.projectReplicas.length * 8; },
+    get filteredProjectLogs() {
+      if (!this.projectLogSearch.trim()) return this.logLines;
+      const q = this.projectLogSearch.toLowerCase();
+      return this.logLines.filter(l => l.toLowerCase().includes(q));
+    },
+    get filteredReplicaLogs() {
+      let lines = this.logLines;
+      if (this.replicaLogFilter === 'http') lines = lines.filter(l => l.includes('[http]'));
+      else if (this.replicaLogFilter === 'kernel') lines = lines.filter(l => l.includes('kernel') || l.includes('Linux'));
+      if (this.replicaLogSearch.trim()) {
+        const q = this.replicaLogSearch.toLowerCase();
+        lines = lines.filter(l => l.toLowerCase().includes(q));
+      }
+      return lines;
+    },
+    get filteredObsLogs() {
+      if (!this.obsLogFilter.trim()) return this.obsLogs.slice(0, 50);
+      const q = this.obsLogFilter.toLowerCase();
+      return this.obsLogs.filter(l => l.project.toLowerCase().includes(q) || l.path.toLowerCase().includes(q)).slice(0, 50);
+    },
+    get commandResults() {
+      if (!this.commandSearch.trim()) return [
+        { type:'action', label:'Deploy new service', icon:'plus', action:'open-deploy' },
+        { type:'action', label:'Enroll server', icon:'server', action:'open-enroll' },
+        { type:'nav', label:'Go to Projects', icon:'folder', action:'nav-projects' },
+        { type:'nav', label:'Go to Fleet', icon:'server', action:'nav-nodes' },
+        { type:'nav', label:'Go to Observability', icon:'activity', action:'nav-obs' },
+        { type:'nav', label:'Go to AI Operator', icon:'bot', action:'nav-ai' },
+      ];
+      const q = this.commandSearch.toLowerCase();
+      const results = [];
+      this.projects.forEach(p => { if (p.name.toLowerCase().includes(q)) results.push({ type:'project', label:p.name, sub:p.domain, icon:'folder', action:'project', id:p.id }); });
+      this.servers.forEach(s => { if (s.hostname.toLowerCase().includes(q)) results.push({ type:'node', label:s.hostname, sub:s.ip, icon:'server', action:'node', id:s.id }); });
+      this.vms.forEach(v => { if (v.name.toLowerCase().includes(q)) results.push({ type:'replica', label:v.name, sub:v.ip, icon:'box', action:'replica', id:v.id }); });
+      return results.slice(0, 10);
+    },
+
+    // INIT
+    init() {
+      this.logLines = [
+        '[0.000000] Linux version 6.1.102-porter',
+        '[0.000000] Command line: console=ttyS0 reboot=k',
+        '[0.004180] virtio-mmio: registered virtio_balloon',
+        '[0.006900] virtio-mmio: registered virtio_blk',
+        '[0.009120] virtio-net: attached tap0 (IP: 172.16.10.2/24)',
+        '[0.014800] Porter MicroVM Guest Agent initialized in 14.8ms',
+        '[0.018200] [app] Spawning on 0.0.0.0:8080',
+        '[0.021000] [app] Ready for HTTP/1.1 & HTTP/2',
+      ];
+      this.consoleLines = [
+        '[    0.000000] Linux version 6.1.102-porter (root@build-fc) #1 SMP PREEMPT',
+        '[    0.014800] Porter MicroVM Guest Agent ready',
+        '[    0.021000] [app] listening on 0.0.0.0:8080',
+        '[  120.425000] [http] GET /health 200 OK 0.24ms',
+        '[  121.108000] [http] POST /v1/ingest 201 Created 1.82ms',
+      ];
+      this.startLogStream();
+      this.startObservabilityStream();
+      this.setupKeyboard();
+      this.$nextTick(() => lucide.createIcons());
+    },
+
+    startLogStream() {
+      setInterval(() => {
+        const should = this.route === 'replica_detail' || (this.route === 'project_detail' && this.projectSubTab === 'logs');
+        if (should) {
+          const pool = [
+            `[${(Date.now()%1000).toFixed(3)}] [http] GET /health 200 OK (0.24ms)`,
+            `[${(Date.now()%1000).toFixed(3)}] [http] POST /api/v1/ingest 201 (1.82ms)`,
+            `[${(Date.now()%1000).toFixed(3)}] [gc] Heap 128MB pause 0.08ms`,
+            `[${(Date.now()%1000).toFixed(3)}] [db] Query 1.2ms`,
+            `[${(Date.now()%1000).toFixed(3)}] [http] GET /api/v1/users 200 (2.1ms)`,
+          ];
+          this.logLines.push(pool[Math.floor(Math.random() * pool.length)]);
+          if (this.logLines.length > 200) this.logLines = this.logLines.slice(-200);
+        }
+      }, 2200);
+    },
+
+    startObservabilityStream() {
+      const projects = ['edge-api-service','customer-portal','background-worker-pool','telemetry-collector'];
+      const paths = ['/health','/v1/ingest','/api/v1/users','/dashboard','/api/v1/auth','/api/v1/workload','/metrics'];
+      const methods = ['GET','GET','POST','GET','POST'];
+      setInterval(() => {
+        if (this.route === 'observability') {
+          const status = Math.random() > 0.04 ? 200 : 500;
+          const proj = projects[Math.floor(Math.random() * projects.length)];
+          const path = paths[Math.floor(Math.random() * paths.length)];
+          const method = methods[Math.floor(Math.random() * methods.length)];
+          const ms = (Math.random() * 5).toFixed(2) + 'ms';
+          const now = new Date();
+          this.obsLogs.unshift({
+            time: now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0') + ':' + now.getSeconds().toString().padStart(2,'0'),
+            project: proj, status, method, path, ms
+          });
+          if (this.obsLogs.length > 200) this.obsLogs = this.obsLogs.slice(0, 200);
+        }
+      }, 700);
+    },
+
+    setupKeyboard() {
+      window.addEventListener('keydown', (e) => {
+        if (['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) return;
+        if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); this.openCommandPalette(); }
+        if (e.key === 'Escape') { this.commandPaletteOpen=false; this.deployModalOpen=false; this.enrollModalOpen=false; this.volumeModalOpen=false; this.shortcutsOpen=false; this.eventsDropdownOpen=false; this.addReplicaModalOpen=false; this.scaleDownModalOpen=false; this.removeReplicaModalOpen=false; this.addDomainModalOpen=false; }
+        if (e.key === '?' ) { e.preventDefault(); this.shortcutsOpen = true; }
+        if (e.key === 'r') { this.refresh(); }
+      });
+    },
+
+    // NAV
+    navigate(route) { this.route = route; if (route === 'nodes') this.fleetSubTab = 'nodes'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
+    navigateToProject(id) { this.selectedProjectId = id; this.selectedReplicaId = null; this.route = 'project_detail'; this.projectSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
+    navigateToReplica(id) { const vm = this.vms.find(v => v.id === id); if (vm) { this.selectedReplicaId = id; this.selectedProjectId = vm.project_id; this.route = 'replica_detail'; this.replicaSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); } },
+    navigateToNode(id) { this.selectedServerId = id; this.route = 'node_detail'; this.nodeSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
+    setProjectSubTab(t) { this.projectSubTab = t; this.$nextTick(() => lucide.createIcons()); if (t === 'analytics') setTimeout(() => this.renderProjectChart(), 80); },
+
+    // TOAST
+    notify(msg, type = 'success') {
+      const id = Date.now() + Math.random();
+      this.toasts.push({ id, msg, type });
+      setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id); }, 4000);
+      this.$nextTick(() => lucide.createIcons());
+    },
+
+    // ACTIONS
+    refresh() { this.notify('State refreshed', 'info'); },
+    openCommandPalette() { this.commandPaletteOpen = true; this.commandSearch = ''; this.$nextTick(() => { document.getElementById('command-input')?.focus(); lucide.createIcons(); }); },
+    runCommand(r) {
+      this.commandPaletteOpen = false;
+      const map = {
+        'open-deploy': () => { this.deployStep = 1; this.deployModalOpen = true; },
+        'open-enroll': () => { this.enrollModalOpen = true; },
+        'nav-projects': () => this.navigate('projects'),
+        'nav-nodes': () => this.navigate('nodes'),
+        'nav-obs': () => this.navigate('observability'),
+        'nav-ai': () => this.navigate('ai_operator'),
+        'project': () => this.navigateToProject(r.id),
+        'node': () => this.navigateToNode(r.id),
+        'replica': () => this.navigateToReplica(r.id),
+      };
+      (map[r.action] || (() => {}))();
+    },
+    async handleRedeploy() {
+      const opId = 'op_' + Date.now().toString(36);
+      this.operations.unshift({ id:opId, type:'redeploy', status:'running', resource:this.activeProject.name, progress:0 });
+      this.notify(`Deployment started · ${opId}`, 'info');
+      for (let i = 20; i <= 100; i += 20) { await new Promise(r => setTimeout(r, 300)); const op = this.operations.find(o => o.id === opId); if (op) op.progress = i; }
+      const op = this.operations.find(o => o.id === opId); if (op) op.status = 'succeeded';
+      this.notify(`Deployment complete · ${opId}`, 'success');
+    },
+    handleRestart() { this.notify('ACPI restart sent to all replicas', 'success'); },
+    handleRestartReplica() { this.notify('ACPI restart · rebooting in 12ms', 'success'); },
+    handleApplyCanary() { this.notify(`Canary ${this.canaryWeight}% → ${this.canaryVersion}`, 'success'); },
+    handlePromoteCanary() { this.notify('Canary promoted to 100%', 'success'); },
+    handleAbortCanary() { this.notify('Canary aborted', 'warning'); },
+    handleApplyABTest() { this.abEnabled = true; this.notify(`A/B: ${100-this.abSplitB}/${this.abSplitB}`, 'success'); },
+    handleStopABTest() { this.abEnabled = false; this.notify('A/B concluded', 'info'); },
+    handleSaveAutoscaling() { this.notify(`Autoscaling saved: min=${this.autoMin}, max=${this.autoMax}`, 'success'); },
+    handleSaveLoadBalancer() { this.notify(`LB: ${this.lbAlgo}`, 'success'); },
+
+    async handleAddReplica() {
+      const count = this.addReplicaCount;
+      const opId = 'op_add_' + Date.now().toString(36);
+      this.operations.unshift({ id:opId, type:'replica.add', status:'running', resource:`+${count} replicas on ${this.activeProject.name}`, progress:0 });
+      this.notify(`Adding ${count} replicas · ${opId}`, 'info');
+      for (let i = 20; i <= 100; i += 20) { await new Promise(r => setTimeout(r, 200)); const op = this.operations.find(o => o.id === opId); if (op) op.progress = i; }
+      const currentMax = Math.max(...this.projectReplicas.map(v => parseInt(v.name.split('-').pop()) || 0), 0);
+      const baseWeight = Math.floor(100 / (this.projectReplicas.length + count));
+      for (let i = 0; i < count; i++) {
+        const newNum = currentMax + 1 + i;
+        this.vms.push({
+          id: 'vm_' + Date.now() + '_' + i,
+          project_id: this.activeProject.id,
+          server_id: 'srv_metal_01',
+          deployment_id: 'dep_prod_01',
+          version_tag: 'v2.4.0',
+          traffic_weight: baseWeight,
+          name: `${this.activeProject.name}-replica-${newNum}`,
+          ip: `172.16.10.${50 + i}`,
+          state: 'running',
+          vcpu: 2,
+          memory_mb: 1024,
+          kernel: 'vmlinux-6.1.102',
+          socket: '/run/porter/firecracker/vm_new.sock',
+          uptime_seconds: 1,
+          started_at: new Date().toISOString(),
+          is_primary: false,
+        });
+      }
+      const op = this.operations.find(o => o.id === opId); if (op) op.status = 'succeeded';
+      this.addReplicaModalOpen = false;
+      this.notify(`Added ${count} replica${count>1?'s':''}`, 'success');
+    },
+
+    async handleScaleDown() {
+      const count = Math.min(this.scaleDownCount, this.projectReplicas.length - 1);
+      if (count < 1) { this.notify('Cannot scale below 1 replica (primary)', 'warning'); return; }
+      const opId = 'op_down_' + Date.now().toString(36);
+      this.operations.unshift({ id:opId, type:'replica.drain', status:'running', resource:`-${count} replicas`, progress:0 });
+      for (let i = 20; i <= 100; i += 20) { await new Promise(r => setTimeout(r, 200)); const op = this.operations.find(o => o.id === opId); if (op) op.progress = i; }
+      // Remove non-primary replicas from tail
+      const nonPrimary = this.projectReplicas.filter(v => !v.is_primary).sort((a,b) => (b.name).localeCompare(a.name));
+      const toRemove = nonPrimary.slice(0, count);
+      this.vms = this.vms.filter(v => !toRemove.some(r => r.id === v.id));
+      const op = this.operations.find(o => o.id === opId); if (op) op.status = 'succeeded';
+      this.scaleDownModalOpen = false;
+      this.notify(`Scaled down ${count} replica${count>1?'s':''}`, 'success');
+    },
+
+    async handleRemoveReplica() {
+      if (this.activeReplica.is_primary) { this.notify('Cannot remove primary', 'error'); this.removeReplicaModalOpen = false; return; }
+      const opId = 'op_rm_' + Date.now().toString(36);
+      this.operations.unshift({ id:opId, type:'replica.remove', status:'running', resource:this.activeReplica.name, progress:0 });
+      for (let i = 20; i <= 100; i += 20) { await new Promise(r => setTimeout(r, 150)); const op = this.operations.find(o => o.id === opId); if (op) op.progress = i; }
+      const projId = this.activeReplica.project_id;
+      this.vms = this.vms.filter(v => v.id !== this.activeReplica.id);
+      const op = this.operations.find(o => o.id === opId); if (op) op.status = 'succeeded';
+      this.removeReplicaModalOpen = false;
+      this.notify('Replica removed', 'success');
+      this.navigateToProject(projId);
+    },
+
+    handleDetachVolume(id) { const vol = this.volumes.find(v => v.id === id); this.volumes = this.volumes.filter(v => v.id !== id); if (vol) this.notify(`Detached "${vol.name}"`, 'warning'); },
+    handleAddVolume(e) {
+      e.preventDefault();
+      this.volumes.push({ id:'vol_' + Date.now(), project_id:this.activeProject.id, name:this.newVolName, size_gb:this.newVolSize, mount_path:this.newVolPath, filesystem:'ext4', state:'attached', created_at:new Date().toISOString() });
+      this.volumeModalOpen = false;
+      this.notify(`Attached "${this.newVolName}" (${this.newVolSize} GB)`, 'success');
+    },
+    handleAddDomain(e) {
+      e.preventDefault();
+      this.dnsRecords.push({ id: Date.now(), type:'CNAME', name:this.newDomain, value:'cname.porter.test', ttl:300, status:'Pending' });
+      this.addDomainModalOpen = false;
+      this.notify(`Domain "${this.newDomain}" added · verification pending`, 'info');
+      this.newDomain = '';
+    },
+    handleEnrollServer(e) {
+      e.preventDefault();
+      this.servers.push({ id:'srv_'+Date.now(), hostname:this.enrollHostname||'metal-node-new.porter.net', state:'online', role:'worker', ip:this.enrollIp||'192.168.1.200', region:this.enrollRegion, cpus:64, memory_mb:262144, memory_used_mb:8192, vms_count:0, kernel:'6.1.102-porter', firecracker_version:'v1.7.0', disk_gb:3840, disk_free_gb:3800, uptime_seconds:120, cordoned:false });
+      this.enrollModalOpen = false;
+      this.notify(`Enrolled "${this.enrollHostname || 'metal-node-new'}"`, 'success');
+    },
+    handleDeployService(e) {
+      e.preventDefault();
+      const newId = 'prj_' + Date.now().toString(36);
+      this.projects.push({ id:newId, name:this.deployName||'new-service', description:'Deployed via wizard', git_repo:this.deployRepo, branch:this.deployBranch, state:'running', vms:1, memory_mb:this.deployMem, vcpu:this.deployVcpu, image:this.deployImage, port:this.deployPort, domain:(this.deployName||'app')+'.porter.test', env:{PORT:String(this.deployPort)}, created_at:new Date().toISOString(), updated_at:new Date().toISOString() });
+      this.deployModalOpen = false;
+      this.notify(`Service "${this.deployName||'new-service'}" deployed`, 'success');
+      this.navigateToProject(newId);
+    },
+    handleAiPrompt(prompt) {
+      if (!prompt.trim()) return;
+      this.aiPlan = { intent: prompt, current: '3 replicas · 70% CPU', proposed: '4 replicas · same target', risk: 'low', cost: '+$0.12/hr', approval: 'not required', steps: ['Inspect current replicas', 'Boot replica-4 on metal-node-01', 'Verify health (14.8ms)', 'Add to LB pool'] };
+      this.aiResult = null;
+    },
+    approveAiPlan() { this.notify('AI plan approved', 'info'); setTimeout(() => { this.aiResult = { outcome:'executed', action:'project.scale', message:'Scaled to 4 replicas. All healthy.' }; this.aiPlan = null; this.notify('AI action completed', 'success'); }, 900); },
+    rejectAiPlan() { this.aiPlan = null; this.aiResult = { outcome:'denied', action:'project.scale', message:'Rejected by operator.' }; this.notify('AI plan rejected', 'warning'); },
+    toggleCordon(node) { node.cordoned = !node.cordoned; this.notify(node.cordoned ? `${node.hostname} cordoned` : `${node.hostname} uncordoned`, node.cordoned?'warning':'success'); },
+    toggleDeploymentExpand(id) { if (this.expandedDeployments.includes(id)) this.expandedDeployments = this.expandedDeployments.filter(x => x !== id); else this.expandedDeployments.push(id); },
+    toggleTool(id) { this.activeTool = this.activeTool === id ? null : id; this.notify(`${this.activeTool ? 'Enabled' : 'Disabled'}: ${this.toolbarTools.find(t => t.id === id).label}`, 'info'); },
+
+    renderProjectChart() {
+      const canvas = document.getElementById('request-chart');
+      if (!canvas) return;
+      if (this._chart) { try { this._chart.destroy(); } catch(e) {} }
+      const data = [];
+      const now = Date.now();
+      for (let i = 59; i >= 0; i--) {
+        const t = new Date(now - i * 60000);
+        data.push({ label: t.getHours().toString().padStart(2,'0')+':'+t.getMinutes().toString().padStart(2,'0'), requests: Math.max(120, Math.round(1200 + Math.sin(i/6)*320 + (Math.random()*180-90))), errors: Math.max(0, Math.round(Math.random()*6)) });
+      }
+      this._chart = new Chart(canvas, {
+        type: 'line',
+        data: { labels: data.map(d => d.label), datasets: [
+          { label:'Requests/sec', data:data.map(d => d.requests), borderColor:'#38bdf8', backgroundColor:'rgba(56,189,248,0.08)', borderWidth:2, pointRadius:0, tension:0.4, fill:true },
+          { label:'Errors ×20', data:data.map(d => d.errors * 20), borderColor:'#fb7185', backgroundColor:'transparent', borderWidth:1.5, pointRadius:0, tension:0.4 }
+        ]},
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color:'#888', font:{size:10} } }, tooltip: { backgroundColor:'#0a0a0a', borderColor:'#262626', borderWidth:1 } }, scales: { x: { ticks:{ color:'#666', font:{size:9}, maxTicksLimit:8 }, grid:{ color:'#1a1a1a' } }, y: { ticks:{ color:'#666', font:{size:9} }, grid:{ color:'#1a1a1a' }, beginAtZero:true } } }
+      });
+    },
+
+    fmtDate(iso) { return new Date(iso).toLocaleString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }); },
+    diskWarning(node) { return (node.disk_free_gb / node.disk_gb) < 0.10; },
+  };
+}
+</script>
+</body>
+</html>

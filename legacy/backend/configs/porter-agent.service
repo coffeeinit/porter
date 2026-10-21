@@ -1,0 +1,25 @@
+# porter-agent systemd unit (FCM-26 packaging): the node agent runs as a
+# privileged service (TAP/bridge/firecracker need CAP_NET_ADMIN + CAP_SYS_ADMIN),
+# restarts on failure, and never takes the VMs down with it — VMs are owned
+# by porter-vm-*.service transient units (KillMode=process), so agent
+# restarts are non-destructive by construction.
+[Unit]
+Description=Porter node agent (Firecracker host executor)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/porter-agent --config /etc/porter/agent.env
+Restart=on-failure
+RestartSec=5
+# Privileges for TAP/bridge/iptables/jailer management:
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+# VMs live in their own transient units; never kill them with the agent:
+KillMode=process
+NoNewPrivileges=false
+
+[Install]
+WantedBy=multi-user.target

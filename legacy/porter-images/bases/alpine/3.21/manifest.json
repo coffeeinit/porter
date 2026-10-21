@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1",
+  "name": "alpine",
+  "tag": "3.21",
+  "base": null,
+  "type": "base",
+  "arch": "x86_64",
+  "resources": { "ramMb": 256, "diskGb": 1 },
+  "ports": [],
+  "volumes": [],
+  "kernel": {
+    "artifact": "out/vmlinux",
+    "sha256": "52ca758478551040756881e6fd6364531c848973b438d2fb42298b0f27dde322"
+  },
+  "artifacts": [
+    {
+      "kind": "rootfs",
+      "url": "file://bases/alpine/3.21/out/rootfs.ext4",
+      "sha256": "d4c7485942f079b221dd729307a2c75c2220368fa4623803d1ab9e318e0d291d",
+      "sizeBytes": 268435456
+    },
+    {
+      "kind": "kernel",
+      "url": "file://bases/alpine/3.21/out/vmlinux",
+      "sha256": "52ca758478551040756881e6fd6364531c848973b438d2fb42298b0f27dde322",
+      "sizeBytes": 27847120
+    }
+  ],
+  "build": {
+    "createdAt": "2026-10-07T00:00:00Z",
+    "builderVersion": "bases/alpine/3.21/build.sh v2",
+    "runId": "local-wsl-build-kvm-boot-verified"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1",
+  "name": "debian",
+  "title": "Debian",
+  "description": "Stable Debian base with glibc — predictable packages, wide library coverage.",
+  "type": "base",
+  "category": "base",
+  "official": true,
+  "arch": ["x86_64"],
+  "source": { "kind": "docker-hub", "reference": "docker.io/library/debian" },
+  "defaults": { "ramMb": 512, "diskGb": 2 },
+  "versions": [
+    { "tag": "12", "status": "stable" }
+  ]
+}

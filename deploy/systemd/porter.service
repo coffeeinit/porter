@@ -1,0 +1,22 @@
+[Unit]
+Description=Porter control plane
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=porter
+Group=porter
+EnvironmentFile=/etc/porter/porter.env
+ExecStart=/usr/local/bin/porter server
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/porter
+LimitNOFILE=1048576
+
+[Install]
+WantedBy=multi-user.target

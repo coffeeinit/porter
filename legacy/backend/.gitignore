@@ -1,0 +1,17 @@
+# Build artifacts (root-anchored: the compiled binary at the module root only —
+# a bare `porter` pattern would also ignore the cmd/porter source directory).
+/bin/
+/porter
+/porter.exe
+/porter.sha256
+
+# Local state — state is Postgres-backed; a local porter.db only appears if
+# someone runs with a SQLite-era config.
+porter.db
+porter.db-journal
+
+# Local config — dev.sh generates one; don't commit machine-specific secrets.
+porter.toml
+
+# Dev data (docker postgres volume if ever mounted locally)
+/.data/

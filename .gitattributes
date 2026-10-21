@@ -1,0 +1,30 @@
+# Porter line-ending policy.
+#
+# This project is developed and run on Linux (WSL) and built with the Go
+# toolchain there, so the repository stores LF and the working tree uses LF.
+# Without this, Windows git (core.autocrlf=true) normalises the index to LF
+# while leaving CRLF on disk, which makes every file look modified to any
+# git that runs with autocrlf unset.
+
+* text=auto eol=lf
+
+# Binary assets — never normalise.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ext4 binary
+*.img binary
+*.squashfs binary
+*.tar binary
+*.gz binary
+*.tgz binary
+*.zip binary
+*.db binary
+vmlinux binary
+vmlinux-* binary
+*.so binary

@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1",
+  "name": "alpine",
+  "title": "Alpine Linux",
+  "description": "Minimal musl-based Linux base for VMForge application images. Tiny footprint, fastest boot.",
+  "type": "base",
+  "category": "base",
+  "official": true,
+  "arch": ["x86_64"],
+  "source": { "kind": "docker-hub", "reference": "docker.io/library/alpine" },
+  "defaults": { "ramMb": 256, "diskGb": 1 },
+  "versions": [
+    { "tag": "3.20", "status": "stable" },
+    { "tag": "3.21", "status": "beta" }
+  ]
+}

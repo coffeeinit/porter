@@ -1,0 +1,23 @@
+{
+  "schemaVersion": "1",
+  "name": "caddy",
+  "title": "Caddy",
+  "description": "Web server with automatic HTTPS.",
+  "category": "web",
+  "type": "application",
+  "official": true,
+  "arch": ["x86_64"],
+  "source": { "kind": "docker-hub", "reference": "docker.io/library/caddy" },
+  "base": { "name": "alpine", "ref": "bases/alpine/3.20" },
+  "defaults": {
+    "cpu": 1,
+    "ramMb": 512,
+    "diskGb": 2,
+    "ports": [80, 443],
+    "volumes": ["/etc/caddy", "/data", "/config"],
+    "health": "wget -qO- http://localhost:2019/config/"
+  },
+  "versions": [
+    { "tag": "2-alpine", "status": "stable" }
+  ]
+}

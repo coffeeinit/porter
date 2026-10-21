@@ -1,0 +1,18 @@
+[Unit]
+Description=Porter host agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/porter-agent run --data-dir /var/lib/porter-agent
+Restart=always
+RestartSec=5
+KillMode=process
+LimitNOFILE=1048576
+AmbientCapabilities=CAP_NET_ADMIN CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN
+
+[Install]
+WantedBy=multi-user.target

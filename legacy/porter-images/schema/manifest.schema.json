@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vmforge/porter-images/schema/manifest.schema.json",
+  "title": "Porter Build Manifest",
+  "description": "Emitted by the converter for one concrete built image version. Consumers verify SHA256 and download artifacts; catalog.json is generated from these.",
+  "type": "object",
+  "required": ["schemaVersion", "name", "tag", "base", "arch", "artifacts"],
+  "properties": {
+    "schemaVersion": { "type": "string", "const": "1" },
+    "name": { "type": "string" },
+    "tag": { "type": "string", "description": "Common upstream-style version tag of this build." },
+    "source": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string" },
+        "reference": { "type": "string" },
+        "digest": { "type": "string", "description": "Pinned OCI digest of the source image." }
+      }
+    },
+    "base": { "type": "string" },
+    "arch": { "type": "string", "enum": ["x86_64", "aarch64"] },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "cpu": { "type": "integer" },
+        "ramMb": { "type": "integer" },
+        "diskGb": { "type": "integer" }
+      }
+    },
+    "ports": { "type": "array", "items": { "type": "integer" } },
+    "volumes": { "type": "array", "items": { "type": "string" } },
+    "health": { "type": "string" },
+    "kernel": {
+      "type": "object",
+      "description": "Kernel comes from the base, but is restated here so the VM boot needs only this manifest.",
+      "properties": {
+        "artifact": { "type": "string" },
+        "sha256": { "type": "string" }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind", "url", "sha256", "sizeBytes"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["rootfs", "kernel", "disk"] },
+          "url": { "type": "string", "format": "uri" },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "sizeBytes": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "properties": {
+        "createdAt": { "type": "string", "format": "date-time" },
+        "builderVersion": { "type": "string" },
+        "runId": { "type": "string", "description": "GitHub Actions run that produced this build." }
+      }
+    }
+  }
+}

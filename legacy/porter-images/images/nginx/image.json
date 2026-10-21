@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1",
+  "name": "nginx",
+  "title": "NGINX",
+  "description": "High-performance web server, reverse proxy, and load balancer.",
+  "category": "web",
+  "type": "application",
+  "official": true,
+  "arch": ["x86_64"],
+  "source": { "kind": "docker-hub", "reference": "docker.io/library/nginx" },
+  "base": { "name": "alpine", "ref": "bases/alpine/3.20" },
+  "defaults": {
+    "cpu": 1,
+    "ramMb": 512,
+    "diskGb": 2,
+    "ports": [80, 443],
+    "volumes": ["/etc/nginx/conf.d", "/usr/share/nginx/html"],
+    "health": "curl -sf http://localhost:80/ || wget -qO- http://localhost:80/"
+  },
+  "versions": [
+    { "tag": "1.29-alpine", "status": "stable" },
+    { "tag": "1.28-alpine", "status": "stable" }
+  ]
+}

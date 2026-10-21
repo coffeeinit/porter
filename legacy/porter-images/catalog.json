@@ -1,0 +1,318 @@
+{
+  "schemaVersion": 1,
+  "images": [
+    {
+      "name": "alpine",
+      "title": "Alpine Linux",
+      "description": "Minimal musl-based Linux base for VMForge application images. Tiny footprint, fastest boot.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "docker.io/library/alpine:{tag}",
+      "tag": "3.20",
+      "base": null,
+      "status": "stable",
+      "resources": {
+        "ramMb": 256,
+        "diskGb": 1
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install alpine:3.20"
+    },
+    {
+      "name": "alpine",
+      "title": "Alpine Linux",
+      "description": "Minimal musl-based Linux base for VMForge application images. Tiny footprint, fastest boot.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "docker.io/library/alpine:{tag}",
+      "tag": "3.21",
+      "base": null,
+      "status": "beta",
+      "resources": {
+        "ramMb": 256,
+        "diskGb": 1
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install alpine:3.21"
+    },
+    {
+      "name": "caddy",
+      "title": "Caddy",
+      "description": "Web server with automatic HTTPS.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "web",
+      "source": "docker.io/library/caddy:{tag}",
+      "tag": "2-alpine",
+      "base": "bases/alpine/3.20",
+      "status": "stable",
+      "resources": {
+        "cpu": 1,
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [
+        80,
+        443
+      ],
+      "volumes": [
+        "/etc/caddy",
+        "/data",
+        "/config"
+      ],
+      "health": "wget -qO- http://localhost:2019/config/",
+      "install": "porter image install caddy:2-alpine"
+    },
+    {
+      "name": "debian",
+      "title": "Debian",
+      "description": "Stable Debian base with glibc \u2014 predictable packages, wide library coverage.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "docker.io/library/debian:{tag}",
+      "tag": "12",
+      "base": null,
+      "status": "stable",
+      "resources": {
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install debian:12"
+    },
+    {
+      "name": "firecracker",
+      "title": "Firecracker Official",
+      "description": "Official Firecracker microvm image (kernel + rootfs from firecracker-microvm CI releases) \u2014 the reference base for bring-up and boot testing.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "github.com/firecracker-microvm/firecracker (release: {tag})",
+      "tag": "microvm",
+      "base": null,
+      "status": "stable",
+      "resources": {
+        "ramMb": 256,
+        "diskGb": 1
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install firecracker:microvm"
+    },
+    {
+      "name": "nginx",
+      "title": "NGINX",
+      "description": "High-performance web server, reverse proxy, and load balancer.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "web",
+      "source": "docker.io/library/nginx:{tag}",
+      "tag": "1.29-alpine",
+      "base": "bases/alpine/3.20",
+      "status": "stable",
+      "resources": {
+        "cpu": 1,
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [
+        80,
+        443
+      ],
+      "volumes": [
+        "/etc/nginx/conf.d",
+        "/usr/share/nginx/html"
+      ],
+      "health": "curl -sf http://localhost:80/ || wget -qO- http://localhost:80/",
+      "install": "porter image install nginx:1.29-alpine"
+    },
+    {
+      "name": "nginx",
+      "title": "NGINX",
+      "description": "High-performance web server, reverse proxy, and load balancer.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "web",
+      "source": "docker.io/library/nginx:{tag}",
+      "tag": "1.28-alpine",
+      "base": "bases/alpine/3.20",
+      "status": "stable",
+      "resources": {
+        "cpu": 1,
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [
+        80,
+        443
+      ],
+      "volumes": [
+        "/etc/nginx/conf.d",
+        "/usr/share/nginx/html"
+      ],
+      "health": "curl -sf http://localhost:80/ || wget -qO- http://localhost:80/",
+      "install": "porter image install nginx:1.28-alpine"
+    },
+    {
+      "name": "postgres",
+      "title": "PostgreSQL",
+      "description": "Advanced open-source relational database.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "database",
+      "source": "docker.io/library/postgres:{tag}",
+      "tag": "18",
+      "base": "bases/ubuntu/24.04",
+      "status": "beta",
+      "resources": {
+        "cpu": 2,
+        "ramMb": 2048,
+        "diskGb": 10
+      },
+      "ports": [
+        5432
+      ],
+      "volumes": [
+        "/var/lib/postgresql/data"
+      ],
+      "health": "pg_isready -U porter",
+      "install": "porter image install postgres:18"
+    },
+    {
+      "name": "postgres",
+      "title": "PostgreSQL",
+      "description": "Advanced open-source relational database.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "database",
+      "source": "docker.io/library/postgres:{tag}",
+      "tag": "17",
+      "base": "bases/ubuntu/24.04",
+      "status": "stable",
+      "resources": {
+        "cpu": 2,
+        "ramMb": 2048,
+        "diskGb": 10
+      },
+      "ports": [
+        5432
+      ],
+      "volumes": [
+        "/var/lib/postgresql/data"
+      ],
+      "health": "pg_isready -U porter",
+      "install": "porter image install postgres:17"
+    },
+    {
+      "name": "redis",
+      "title": "Redis",
+      "description": "In-memory data store used as cache, message broker, and queue.",
+      "type": "application",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "cache",
+      "source": "docker.io/library/redis:{tag}",
+      "tag": "8-alpine",
+      "base": "bases/alpine/3.20",
+      "status": "stable",
+      "resources": {
+        "cpu": 1,
+        "ramMb": 1024,
+        "diskGb": 2
+      },
+      "ports": [
+        6379
+      ],
+      "volumes": [
+        "/data"
+      ],
+      "health": "redis-cli ping | grep -q PONG",
+      "install": "porter image install redis:8-alpine"
+    },
+    {
+      "name": "ubuntu",
+      "title": "Ubuntu",
+      "description": "Full Ubuntu base with systemd and glibc \u2014 the compatibility choice for heavier workloads.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "docker.io/library/ubuntu:{tag}",
+      "tag": "24.04",
+      "base": null,
+      "status": "stable",
+      "resources": {
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install ubuntu:24.04"
+    },
+    {
+      "name": "ubuntu",
+      "title": "Ubuntu",
+      "description": "Full Ubuntu base with systemd and glibc \u2014 the compatibility choice for heavier workloads.",
+      "type": "base",
+      "official": true,
+      "arch": [
+        "x86_64"
+      ],
+      "category": "base",
+      "source": "docker.io/library/ubuntu:{tag}",
+      "tag": "22.04",
+      "base": null,
+      "status": "stable",
+      "resources": {
+        "ramMb": 512,
+        "diskGb": 2
+      },
+      "ports": [],
+      "volumes": [],
+      "health": null,
+      "install": "porter image install ubuntu:22.04"
+    }
+  ]
+}

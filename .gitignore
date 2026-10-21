@@ -1,0 +1,53 @@
+﻿# Go build outputs
+porter/porter
+porter/porter.exe
+porter-agent/porter-agent
+porter-agent/porter-agent.exe
+*.test
+data/
+*.db
+*.db-shm
+*.db-wal
+*.log
+*.pid
+.env
+*.env
+
+# Secrets and certificates
+*_rsa
+*_rsa.pub
+*.pem
+*.key
+*.crt
+
+# Frontend dependencies/build output
+node_modules/
+dist/
+.vite/
+
+# Legacy/reference binaries and runtime artifacts
+legacy/**/bin/
+legacy/**/data/
+legacy/**/node_modules/
+legacy/**/web/dist/assets/
+legacy/**/web/dist/*.html
+!legacy/**/web/dist/index.html
+vms/rootfs.ext4
+vms/vmlinux
+*.ext4
+vmlinux
+vmlinux-*
+
+# Firecracker/VM runtime artifacts
+*.img
+*.squashfs
+
+# Release archives
+porter.zip
+
+# OS/editor cruft
+.DS_Store
+*.swp
+
+
+/bin/
