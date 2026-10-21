@@ -1,8 +1,0 @@
-*.ext4
-*.img
-*.raw
-*.squashfs
-vmlinux
-out/
-dist/
-__pycache__/

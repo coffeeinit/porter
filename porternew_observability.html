@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Porter — MicroVM Control Plane</title>
+<meta name="description" content="Porter control plane preview for MicroVM deployments, fleet health, traffic, and operations.">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
 <script src="https://unpkg.com/lucide@0.451.0/dist/umd/lucide.min.js"></script>
@@ -66,41 +67,74 @@
   @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
   .accordion-row{cursor:pointer;transition:background .15s}
   .accordion-row:hover{background:#0f0f0f}
-  .section-rail{position:sticky;top:126px;align-self:flex-start}
-  .section-rail button{width:100%;text-align:left;padding:8px 10px;border-left:2px solid transparent;color:#777;font-size:11px;transition:.15s}
-  .section-rail button:hover{background:#111;color:#fff}
-  .section-rail button.active{border-left-color:#fff;background:#111;color:#fff}
-  .metric-spark{height:46px;display:flex;align-items:end;gap:3px}
-  .metric-spark i{display:block;flex:1;border-radius:2px 2px 0 0;background:linear-gradient(180deg,#60a5fa,#2563eb);opacity:.8}
-  .metric-spark.green i{background:linear-gradient(180deg,#34d399,#047857)}
-  .deployment-focus{border-color:#3b82f6!important;box-shadow:0 0 0 1px rgba(59,130,246,.18),0 12px 30px rgba(0,0,0,.16)}
-  .subnav-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:2px;padding:8px 0}
-  @media(max-width:900px){.subnav-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.section-rail{position:static}}
-  @media(max-width:620px){.subnav-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-  .mini-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#666}
-  .operator-sidebar{position:fixed;left:0;top:142px;bottom:0;width:224px;border-right:1px solid #1f1f1f;background:#050505;z-index:30;overflow-y:auto;border-top:1px solid #1f1f1f;padding:14px 10px}
-  .operator-sidebar .nav-group{margin:14px 8px 6px;font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#555}
-  .operator-sidebar button{width:100%;display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;color:#888;font-size:12px;text-align:left;transition:.15s}
-  .operator-sidebar button:hover{background:#111;color:#fff}
-  .operator-sidebar button.active{background:#171717;color:#fff;box-shadow:inset 2px 0 #fff}.operator-sidebar [x-show="route==='project_detail'"] button{font-size:11px;padding-top:7px;padding-bottom:7px}
-  .operator-sidebar .nav-meta{margin-left:auto;font-size:10px;color:#555;font-family:ui-monospace,monospace}
-  .operator-sidebar .status-card{margin:16px 2px 4px;padding:10px;border:1px solid #1f1f1f;border-radius:8px;background:#090909}
-  @media(min-width:1100px){main{margin-left:246px!important;max-width:calc(100% - 270px)!important}.operator-sidebar{display:block}}
-  @media(max-width:1099px){.operator-sidebar{display:none}}
-  .page-kicker{font-size:10px;text-transform:uppercase;letter-spacing:.14em;color:#666}
-  .flow-step{position:relative;padding:12px 14px;border:1px solid #222;background:#080808;border-radius:8px}
-  .flow-step:not(:last-child):after{content:'→';position:absolute;right:-16px;top:50%;color:#444;z-index:2}
-  @media(max-width:760px){.flow-step:not(:last-child):after{content:'↓';right:50%;top:auto;bottom:-19px}}
-  .table-row{transition:.15s}.table-row:hover{background:#0f0f0f}
-  .project-detail-layout{display:grid;grid-template-columns:196px minmax(0,1fr);gap:24px;align-items:start}
-  .project-local-sidebar{position:sticky;top:158px;border:1px solid #1f1f1f;background:#070707;border-radius:10px;padding:10px}
-  .project-local-sidebar button{width:100%;display:flex;align-items:center;gap:8px;padding:8px 9px;border-radius:6px;color:#777;font-size:11px;text-align:left;transition:.15s}
-  .project-local-sidebar button:hover{background:#111;color:#fff}
-  .project-local-sidebar button.active{background:#171717;color:#fff;box-shadow:inset 2px 0 #fff}
-  .project-local-sidebar .local-label{font-size:9px;text-transform:uppercase;letter-spacing:.12em;color:#555;padding:3px 9px 9px}
-  .project-detail-content{min-width:0}
-  @media(max-width:900px){.project-detail-layout{grid-template-columns:1fr}.project-local-sidebar{position:static;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2px}.project-local-sidebar .local-label{grid-column:1/-1}.project-local-sidebar .project-local-meta{grid-column:1/-1}}
-  @media(max-width:620px){.project-local-sidebar{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+  /* Porter refresh: premium control-plane visual system */
+  :root{--ink:#050607;--panel:rgba(13,16,20,.86);--line:rgba(255,255,255,.09);--muted:#8b949e;--cyan:#67e8f9;--violet:#a78bfa;--green:#34d399}
+  html{background:radial-gradient(1200px 520px at 50% -180px,rgba(56,189,248,.13),transparent 62%),#050607;scroll-behavior:smooth}
+  body{background:transparent;letter-spacing:-.01em}
+  body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.24;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:48px 48px;mask-image:linear-gradient(to bottom,black,transparent 70%);z-index:-1}
+  .card{background:linear-gradient(145deg,rgba(18,22,27,.94),rgba(8,10,12,.94));border-color:var(--line);box-shadow:0 14px 42px rgba(0,0,0,.16);backdrop-filter:blur(12px)}
+  .card-hover{position:relative;overflow:hidden}
+  .card-hover:after{content:"";position:absolute;inset:0;background:linear-gradient(115deg,rgba(103,232,249,.08),transparent 35%);opacity:0;transition:opacity .2s;pointer-events:none}
+  .card-hover:hover{background:linear-gradient(145deg,rgba(24,30,36,.96),rgba(8,10,12,.96));border-color:rgba(103,232,249,.35);transform:translateY(-2px);box-shadow:0 18px 48px rgba(0,0,0,.34)}
+  .card-hover:hover:after{opacity:1}
+  header{background:rgba(5,6,7,.82)!important;border-bottom-color:rgba(255,255,255,.10)!important}
+  header:after{content:"";position:absolute;left:0;right:0;bottom:-1px;height:1px;background:linear-gradient(90deg,transparent,#38bdf8,transparent);opacity:.5}
+  .btn-primary{background:linear-gradient(135deg,#fff,#c8f7ff);box-shadow:0 5px 18px rgba(103,232,249,.14)}
+  .btn-primary:hover{background:#fff;box-shadow:0 7px 24px rgba(103,232,249,.24)}
+  .btn-secondary{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.13)}
+  .input{background:rgba(0,0,0,.32);border-color:rgba(255,255,255,.13)}
+  .input:focus{border-color:rgba(103,232,249,.72);box-shadow:0 0 0 3px rgba(103,232,249,.08)}
+  .badge{letter-spacing:.03em;text-transform:uppercase}
+  main{animation:pageIn .24s ease-out}
+  @keyframes pageIn{from{opacity:.35;transform:translateY(5px)}to{opacity:1;transform:none}}
+  .section-kicker{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:#67e8f9;font-family:ui-monospace,monospace;font-weight:700}
+  .hero-panel{position:relative;overflow:hidden;border:1px solid rgba(103,232,249,.18);border-radius:14px;padding:24px;background:radial-gradient(600px 260px at 92% 0%,rgba(167,139,250,.18),transparent 58%),radial-gradient(500px 260px at 12% 10%,rgba(56,189,248,.13),transparent 60%),linear-gradient(135deg,rgba(17,24,31,.96),rgba(7,9,11,.96));box-shadow:0 24px 80px rgba(0,0,0,.22)}
+  .hero-panel:before{content:"";position:absolute;width:260px;height:260px;right:-80px;top:-150px;border:1px solid rgba(103,232,249,.22);border-radius:50%;box-shadow:0 0 0 18px rgba(103,232,249,.03),0 0 0 38px rgba(103,232,249,.025)}
+  .metric-tile{border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.035);padding:14px;transition:.18s}
+  .metric-tile:hover{border-color:rgba(103,232,249,.28);background:rgba(103,232,249,.055)}
+  .metric-value{font-size:25px;line-height:1;font-weight:750;color:#fff;letter-spacing:-.05em}
+  .mini-spark{height:28px;display:flex;align-items:end;gap:3px}
+  .mini-spark i{display:block;flex:1;border-radius:3px 3px 1px 1px;background:linear-gradient(to top,#38bdf8,#a78bfa);opacity:.8}
+  .live-dot{width:7px;height:7px;border-radius:50%;background:#34d399;box-shadow:0 0 0 4px rgba(52,211,153,.12),0 0 14px rgba(52,211,153,.7)}
+  table tr{transition:background .15s}
+  table tbody tr:hover{background:rgba(103,232,249,.045)}
+  .terminal{box-shadow:inset 0 0 40px rgba(56,189,248,.04)}
+  @media(max-width:640px){.hero-panel{padding:18px}.metric-value{font-size:21px}.toolbar-panel{right:12px;left:12px;width:auto}.toolbar-fab{right:14px;bottom:14px}}
+
+
+  /* v2 command-center components */
+  .dashboard-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(280px,.8fr);gap:14px}
+  .dashboard-card{border:1px solid rgba(255,255,255,.09);border-radius:12px;background:linear-gradient(145deg,rgba(16,21,27,.92),rgba(7,9,11,.94));overflow:hidden;box-shadow:0 16px 45px rgba(0,0,0,.18)}
+  .dashboard-card-head{display:flex;align-items:center;justify-content:space-between;padding:15px 16px;border-bottom:1px solid rgba(255,255,255,.08)}
+  .dashboard-card-title{font-size:13px;font-weight:650;color:#f5f7fa;display:flex;align-items:center;gap:8px}
+  .dashboard-card-sub{font-size:10px;color:#6b7280;font-family:ui-monospace,monospace;margin-top:3px}
+  .chart-wrap{height:235px;padding:12px 14px 14px}
+  .chart-wrap canvas{width:100%!important;height:100%!important}
+  .chart-legend{display:flex;align-items:center;gap:14px;color:#7b8794;font:10px ui-monospace,monospace}
+  .legend-item{display:flex;align-items:center;gap:5px}.legend-line{height:2px;width:15px;border-radius:2px}
+  .architecture{padding:18px 16px 20px;position:relative;min-height:235px;background:radial-gradient(400px 180px at 50% 40%,rgba(56,189,248,.08),transparent 70%)}
+  .arch-row{display:flex;align-items:center;justify-content:center;gap:10px;position:relative;z-index:2}.arch-row+.arch-row{margin-top:25px}
+  .arch-node{min-width:116px;padding:10px 11px;border:1px solid rgba(255,255,255,.11);border-radius:9px;background:rgba(10,13,16,.94);box-shadow:0 8px 20px rgba(0,0,0,.2)}
+  .arch-node.primary{border-color:rgba(103,232,249,.42);box-shadow:0 0 0 1px rgba(103,232,249,.06),0 8px 25px rgba(56,189,248,.08)}
+  .arch-node.good{border-color:rgba(52,211,153,.32)}
+  .arch-node .node-label{font-size:10px;color:#8b949e;font-family:ui-monospace,monospace}.arch-node .node-name{font-size:12px;color:#f5f7fa;font-weight:650;margin-top:3px;white-space:nowrap}.arch-node .node-meta{font-size:9px;color:#6b7280;font-family:ui-monospace,monospace;margin-top:6px}
+  .arch-arrow{color:#475569;font-size:18px}.arch-line{position:absolute;left:50%;top:61px;width:1px;height:33px;background:linear-gradient(#38bdf8,#475569);opacity:.7}.arch-line.two{top:152px;height:34px}
+  .activity-list{padding:4px 16px 10px}.activity-row{display:flex;gap:10px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.065)}.activity-row:last-child{border-bottom:0}.activity-icon{width:25px;height:25px;border-radius:7px;background:rgba(56,189,248,.1);color:#67e8f9;display:flex;align-items:center;justify-content:center;flex:none}.activity-copy{min-width:0}.activity-main{font-size:11px;color:#d8dee5}.activity-meta{font-size:10px;color:#6b7280;font-family:ui-monospace,monospace;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .signal-list{padding:12px 16px 14px;display:grid;gap:10px}.signal{display:flex;justify-content:space-between;align-items:center;font:11px ui-monospace,monospace}.signal-left{display:flex;align-items:center;gap:8px;color:#9ca3af}.signal-right{color:#f5f7fa}.signal-bar{height:4px;flex:1;max-width:105px;margin-left:10px;border-radius:5px;background:#1b232b;overflow:hidden}.signal-bar i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#38bdf8,#a78bfa)}
+  .quick-row{display:flex;gap:8px;flex-wrap:wrap}.quick-action{display:flex;align-items:center;gap:7px;padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.09);background:rgba(255,255,255,.025);color:#b9c2cc;font-size:11px;transition:.15s}.quick-action:hover{color:#fff;border-color:rgba(103,232,249,.35);background:rgba(103,232,249,.06)}
+  @media(max-width:900px){.dashboard-grid{grid-template-columns:1fr}.arch-node{min-width:105px}}
+  @media(max-width:560px){.architecture{padding-left:6px;padding-right:6px}.arch-row{gap:5px}.arch-node{min-width:92px;padding:8px 7px}.arch-node .node-name{font-size:10px}.arch-arrow{font-size:14px}.chart-wrap{height:205px}}
+
+
+  /* Observability workspace */
+  .obs-hero{border:1px solid rgba(103,232,249,.16);border-radius:14px;background:radial-gradient(600px 220px at 82% 0%,rgba(167,139,250,.15),transparent 65%),linear-gradient(135deg,rgba(16,23,30,.96),rgba(7,9,11,.96));padding:22px;position:relative;overflow:hidden}.obs-hero:after{content:"";position:absolute;right:-30px;top:-90px;width:260px;height:260px;border:1px solid rgba(103,232,249,.18);border-radius:50%;box-shadow:0 0 0 20px rgba(103,232,249,.03),0 0 0 44px rgba(103,232,249,.02);pointer-events:none}
+  .obs-kpi{border:1px solid rgba(255,255,255,.09);border-radius:10px;background:rgba(255,255,255,.035);padding:14px;min-height:105px}.obs-kpi-label{font:10px ui-monospace,monospace;color:#7b8794;text-transform:uppercase;letter-spacing:.08em}.obs-kpi-value{font-size:25px;font-weight:750;letter-spacing:-.05em;color:#fff;margin-top:10px}.obs-kpi-note{font:10px ui-monospace,monospace;margin-top:6px;color:#6b7280}
+  .obs-panel{border:1px solid rgba(255,255,255,.09);border-radius:12px;background:linear-gradient(145deg,rgba(16,21,27,.92),rgba(7,9,11,.94));overflow:hidden}.obs-panel-head{padding:14px 16px;border-bottom:1px solid rgba(255,255,255,.08);display:flex;justify-content:space-between;gap:12px;align-items:center}.obs-panel-title{font-size:13px;color:#f5f7fa;font-weight:650}.obs-panel-sub{font:10px ui-monospace,monospace;color:#6b7280;margin-top:3px}.obs-chart{height:235px;padding:12px 14px 14px}.obs-chart canvas{width:100%!important;height:100%!important}.obs-chip{border:1px solid rgba(255,255,255,.09);border-radius:999px;padding:4px 8px;font:10px ui-monospace,monospace;color:#94a3b8;background:rgba(255,255,255,.03)}
+  .service-health{padding:5px 16px 10px}.service-row{display:grid;grid-template-columns:minmax(145px,1.4fr) 70px 80px minmax(90px,1fr) 58px;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.06);font:11px ui-monospace,monospace}.service-row:last-child{border-bottom:0}.service-name{display:flex;align-items:center;gap:8px;color:#e5e7eb}.service-spark{height:22px;display:flex;align-items:end;gap:2px}.service-spark i{flex:1;background:#34d399;border-radius:2px 2px 0 0;opacity:.8}.health-meter{height:4px;background:#1d252d;border-radius:4px;overflow:hidden}.health-meter i{display:block;height:100%;background:linear-gradient(90deg,#34d399,#67e8f9);border-radius:4px}.obs-table{width:100%;border-collapse:collapse;font:11px ui-monospace,monospace}.obs-table th{color:#6b7280;font-weight:500;text-align:left;padding:9px 12px;background:rgba(255,255,255,.025);border-bottom:1px solid rgba(255,255,255,.08)}.obs-table td{padding:10px 12px;color:#9ca3af;border-bottom:1px solid rgba(255,255,255,.06)}.obs-table tr:hover td{background:rgba(103,232,249,.04)}.waterfall{padding:12px 16px 16px}.trace-row{display:grid;grid-template-columns:125px 1fr 55px;gap:10px;align-items:center;padding:7px 0;font:10px ui-monospace,monospace;color:#94a3b8}.trace-track{height:7px;border-radius:4px;background:#19222b;position:relative;overflow:hidden}.trace-track i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#38bdf8,#a78bfa)}.incident{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid rgba(255,255,255,.06)}.incident:last-child{border-bottom:0}.incident-icon{width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;flex:none}.incident-title{font-size:11px;color:#e5e7eb}.incident-meta{font:10px ui-monospace,monospace;color:#6b7280;margin-top:4px}.obs-toolbar{display:flex;flex-wrap:wrap;gap:7px;align-items:center}.obs-toolbar button.active{background:#fff;color:#000}.obs-toolbar button{font:10px ui-monospace,monospace;color:#8b949e;padding:6px 9px;border-radius:6px;border:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.03)}
+  @media(max-width:800px){.service-row{grid-template-columns:minmax(130px,1fr) 62px 68px}.service-row .service-spark{display:none}.service-row .health-meter{display:none}}
+  @media(max-width:560px){.obs-hero{padding:17px}.obs-chart{height:205px}.obs-table{font-size:10px}.obs-table th:nth-child(3),.obs-table td:nth-child(3){display:none}.trace-row{grid-template-columns:95px 1fr 45px}}
+
 </style>
 </head>
 <body>
@@ -110,7 +144,7 @@
   <!-- DEMO BANNER -->
   <div class="bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-[11px] text-center py-1.5 font-mono flex items-center justify-center gap-3 flex-wrap">
     <i data-lucide="alert-triangle" class="w-3 h-3"></i>
-    <span>DEMO PREVIEW · Mocked data · No backend</span>
+    <span class="font-semibold">PREVIEW ENVIRONMENT</span><span class="text-amber-200/70">Mock data · no backend · safe to explore</span>
     <span class="text-amber-500/50">·</span>
     <span>Runtime: <button @click="runtimeMode=runtimeMode==='mock'?'firecracker':'mock'" class="underline hover:text-white" x-text="runtimeMode"></button></span>
     <span class="text-amber-500/50">·</span>
@@ -169,7 +203,12 @@
         </div>
       </div>
 
-      <div class="flex-1"></div>
+      <nav class="hidden lg:flex items-center gap-5 text-xs font-medium shrink-0">
+        <button @click="navigate('projects')" :class="(route==='projects'||route==='project_detail'||route==='replica_detail')?'text-white':'text-[#888] hover:text-white'">Projects</button>
+        <button @click="navigate('nodes')" :class="(route==='nodes'||route==='node_detail')?'text-white':'text-[#888] hover:text-white'">Fleet</button>
+        <button @click="navigate('observability')" :class="route==='observability'?'text-white':'text-[#888] hover:text-white'">Observability</button>
+        <button @click="navigate('ai_operator')" :class="route==='ai_operator'?'text-white':'text-[#888] hover:text-white'">AI Operator</button>
+      </nav>
 
       <div class="flex items-center gap-2 shrink-0">
         <div class="relative">
@@ -184,10 +223,23 @@
           </div>
         </div>
         <button @click="openCommandPalette()" class="hidden md:flex items-center gap-2 px-2 py-1 rounded bg-[#0a0a0a] border border-[#262626] text-[11px] text-[#888] hover:text-white hover:border-[#404040]"><i data-lucide="search" class="w-3 h-3"></i><span>Search</span><kbd class="px-1 rounded bg-[#1a1a1a] text-[10px]">⌘K</kbd></button>
-        <button @click="refresh()" class="p-1.5 rounded hover:bg-[#111]"><i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#888]"></i></button>
+        <div class="hidden xl:flex items-center gap-1.5 text-[10px] font-mono text-[#6b7280] mr-1"><span class="live-dot"></span>LIVE SYNC</div><button @click="refresh()" class="p-1.5 rounded hover:bg-[#111]" title="Refresh state"><i data-lucide="refresh-cw" class="w-3.5 h-3.5 text-[#888]"></i></button>
         <button @click="enrollModalOpen=true" class="btn-secondary whitespace-nowrap hidden sm:block">+ Enroll</button>
         <button @click="deployStep=1; deployModalOpen=true" class="btn-primary whitespace-nowrap">Deploy</button>
       </div>
+    </div>
+
+    <!-- PROJECT SUB-TABS (10 tabs, 2 wrappers) -->
+    <div x-show="route==='project_detail'" class="max-w-7xl mx-auto flex items-center gap-5 text-xs font-medium border-t border-[#1a1a1a] overflow-x-auto no-scrollbar">
+      <template x-for="t in [
+        {id:'overview',l:'Overview'}, {id:'replicas',l:'Replicas'},
+        {id:'traffic_scaling',l:'Traffic & Scaling'}, {id:'previews',l:'Previews'},
+        {id:'deployments',l:'Deployments'}, {id:'config_storage',l:'Config & Storage'},
+        {id:'logs',l:'Logs'}, {id:'analytics',l:'Analytics'},
+        {id:'activity',l:'Activity'}, {id:'settings',l:'Settings'}
+      ]" :key="t.id">
+        <button @click="setProjectSubTab(t.id)" :class="projectSubTab===t.id?'text-white':'text-[#888] hover:text-white'" class="py-3 relative whitespace-nowrap"><span x-text="t.l"></span><span x-show="projectSubTab===t.id" class="ring-active"></span></button>
+      </template>
     </div>
 
     <!-- FLEET SUB-TABS -->
@@ -204,48 +256,71 @@
       </template>
     </div>
 
-    <!-- REPLICA SUB-TABS: operational surfaces only -->
-    <div x-show="route==='replica_detail'" class="max-w-7xl mx-auto border-t border-[#1a1a1a]">
-      <div class="subnav-grid text-xs font-medium" style="grid-template-columns:repeat(5,minmax(0,1fr))">
-        <template x-for="t in [
-          {id:'overview',l:'Overview & Health'}, {id:'traffic',l:'Traffic'}, {id:'metrics',l:'Metrics & Usage'},
-          {id:'logs',l:'Logs & Console'}, {id:'storage',l:'Config & Storage'}
-        ]" :key="t.id">
-          <button @click="replicaSubTab=t.id" :class="replicaSubTab===t.id?'text-white bg-[#111]':'text-[#888] hover:text-white'" class="px-2 py-2 rounded text-left whitespace-nowrap" x-text="t.l"></button>
-        </template>
-      </div>
+    <!-- REPLICA SUB-TABS (10 tabs) -->
+    <div x-show="route==='replica_detail'" class="max-w-7xl mx-auto flex items-center gap-5 text-xs font-medium border-t border-[#1a1a1a] overflow-x-auto no-scrollbar">
+      <template x-for="t in [
+        {id:'overview',l:'Overview'}, {id:'traffic',l:'Traffic'}, {id:'metrics',l:'Metrics & Usage'},
+        {id:'traces',l:'Traces'}, {id:'logs',l:'Logs'}, {id:'console',l:'Console',prev:true},
+        {id:'storage',l:'Storage'}, {id:'env',l:'Env'}, {id:'lifecycle',l:'Lifecycle'}, {id:'doctor',l:'Doctor'}
+      ]" :key="t.id">
+        <button @click="replicaSubTab=t.id" :class="replicaSubTab===t.id?'text-white':'text-[#888] hover:text-white'" class="py-3 relative whitespace-nowrap flex items-center gap-1">
+          <span x-text="t.l"></span>
+          <template x-if="t.prev"><span class="badge badge-p text-[9px] py-0">P</span></template>
+          <span x-show="replicaSubTab===t.id" class="ring-active"></span>
+        </button>
+      </template>
     </div>
   </header>
 
-  <!-- ===== OPERATOR SIDEBAR ===== -->
-  <aside class="operator-sidebar">
-    <div class="flex items-center justify-between px-2 mb-3"><div><div class="page-kicker">Workspace</div><div class="text-sm text-white font-semibold mt-1">porter-control-plane</div></div><span class="badge badge-v">LIVE</span></div>
-    <div class="space-y-0.5">
-      <button @click="navigate('admin')" :class="route==='admin'?'active':''"><i data-lucide="home" class="w-3.5 h-3.5"></i>Overview</button>
-      <button @click="navigate('projects')" :class="['projects','project_detail','replica_detail'].includes(route)?'active':''"><i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>Projects<span class="nav-meta">4</span></button>
-      <button @click="navigate('nodes')" :class="['nodes','node_detail'].includes(route)?'active':''"><i data-lucide="server" class="w-3.5 h-3.5"></i>Fleet<span class="nav-meta">4</span></button>
-      <button @click="navigate('observability')" :class="route==='observability'?'active':''"><i data-lucide="activity" class="w-3.5 h-3.5"></i>Observability</button>
-      <button @click="navigate('ai_operator')" :class="route==='ai_operator'?'active':''"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>AI Operator<span class="nav-meta">beta</span></button>
-    </div>
-    <div class="nav-group">Platform</div>
-    <div class="space-y-0.5">
-      <button @click="navigate('networks')" :class="route==='networks'?'active':''"><i data-lucide="network" class="w-3.5 h-3.5"></i>Networks & Gateway</button>
-      <button @click="navigate('storage')" :class="route==='storage'?'active':''"><i data-lucide="database" class="w-3.5 h-3.5"></i>Storage & Backups</button>
-      <button @click="navigate('security')" :class="route==='security'?'active':''"><i data-lucide="shield-check" class="w-3.5 h-3.5"></i>Security & IAM</button>
-      <button @click="navigate('automation')" :class="route==='automation'?'active':''"><i data-lucide="workflow" class="w-3.5 h-3.5"></i>Automation</button>
-      <button @click="navigate('doctor')" :class="route==='doctor'?'active':''"><i data-lucide="stethoscope" class="w-3.5 h-3.5"></i>Porter Doctor<span class="nav-meta text-emerald-400">pass</span></button>
-    </div>
-    <div class="nav-group">Business</div>
-    <div class="space-y-0.5">
-      <button @click="navigate('customers')" :class="route==='customers'?'active':''"><i data-lucide="users" class="w-3.5 h-3.5"></i>Customers & Teams</button>
-      <button @click="navigate('billing')" :class="route==='billing'?'active':''"><i data-lucide="receipt" class="w-3.5 h-3.5"></i>Usage & Billing<span class="nav-meta">$412</span></button>
-      <button @click="navigate('audit')" :class="route==='audit'?'active':''"><i data-lucide="file-clock" class="w-3.5 h-3.5"></i>Audit & Events</button>
-    </div>
-    <div class="status-card"><div class="flex items-center gap-2 text-xs text-white"><span class="dot dot-ok dot-pulse"></span>Control plane healthy</div><div class="text-[10px] text-[#666] font-mono mt-2">API 12ms · DB 4ms · scheduler synced</div><button @click="navigate('doctor')" class="text-[10px] text-[#aaa] underline mt-2">View diagnostics</button></div>
-  </aside>
-
   <!-- ===== PROJECTS LIST ===== -->
   <main x-show="route==='projects'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
+    <section class="hero-panel">
+      <div class="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-7">
+        <div class="max-w-2xl">
+          <div class="section-kicker flex items-center gap-2"><span class="live-dot"></span>Control plane / production</div>
+          <h1 class="mt-3 text-3xl sm:text-4xl font-semibold tracking-tight text-white">Operate every MicroVM<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-violet-300">from one calm surface.</span></h1>
+          <p class="mt-3 text-sm leading-6 text-[#9ca3af] max-w-xl">Deploy, observe, and scale lightweight workloads across your bare-metal fleet with fast rollouts, explicit safety rails, and an operator-first workflow.</p>
+          <div class="flex flex-wrap items-center gap-2 mt-5">
+            <button @click="deployStep=1; deployModalOpen=true" class="btn-primary flex items-center gap-2"><i data-lucide="rocket" class="w-3.5 h-3.5"></i>Deploy a service</button>
+            <button @click="navigate('observability')" class="btn-secondary flex items-center gap-2"><i data-lucide="activity" class="w-3.5 h-3.5"></i>Open observability</button>
+          </div>
+        </div>
+        <div class="relative z-10 w-full lg:w-80 rounded-xl border border-white/10 bg-black/20 p-4 font-mono text-xs">
+          <div class="flex items-center justify-between text-[#8b949e] mb-3"><span>platform health</span><span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>nominal</span></div>
+          <div class="flex items-end justify-between gap-4"><div><div class="text-4xl font-semibold text-white">99.98<span class="text-lg text-[#8b949e]">%</span></div><div class="text-[#6b7280] mt-1">30-day availability</div></div><div class="mini-spark w-32"><i style="height:34%"></i><i style="height:48%"></i><i style="height:42%"></i><i style="height:66%"></i><i style="height:55%"></i><i style="height:74%"></i><i style="height:61%"></i><i style="height:88%"></i><i style="height:72%"></i><i style="height:96%"></i><i style="height:81%"></i><i style="height:91%"></i></div></div>
+          <div class="mt-4 pt-3 border-t border-white/10 flex justify-between text-[11px]"><span class="text-[#6b7280]">last incident</span><span class="text-emerald-300">12d 04h ago</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div class="metric-tile"><div class="flex items-center justify-between text-[11px] text-[#8b949e] font-mono"><span>RUNNING VMS</span><i data-lucide="box" class="w-3.5 h-3.5 text-cyan-300"></i></div><div class="metric-value mt-3" x-text="vms.filter(v=>v.state==='running').length"></div><div class="text-[11px] text-emerald-300 mt-2">↑ 2.4% vs last week</div></div>
+      <div class="metric-tile"><div class="flex items-center justify-between text-[11px] text-[#8b949e] font-mono"><span>REQUEST RATE</span><i data-lucide="zap" class="w-3.5 h-3.5 text-amber-300"></i></div><div class="metric-value mt-3">1.44K<span class="text-sm text-[#8b949e]">/s</span></div><div class="text-[11px] text-emerald-300 mt-2">p99 latency 2.1ms</div></div>
+      <div class="metric-tile"><div class="flex items-center justify-between text-[11px] text-[#8b949e] font-mono"><span>FLEET CAPACITY</span><i data-lucide="server" class="w-3.5 h-3.5 text-violet-300"></i></div><div class="metric-value mt-3">42<span class="text-sm text-[#8b949e]">%</span></div><div class="text-[11px] text-[#9ca3af] mt-2">168 / 400 vCPUs allocated</div></div>
+      <div class="metric-tile"><div class="flex items-center justify-between text-[11px] text-[#8b949e] font-mono"><span>ACTIVE RELEASES</span><i data-lucide="git-branch" class="w-3.5 h-3.5 text-emerald-300"></i></div><div class="metric-value mt-3" x-text="deployments.filter(d=>d.state==='succeeded').length"></div><div class="text-[11px] text-[#9ca3af] mt-2">all rollout checks passing</div></div>
+    </section>
+
+    <section class="dashboard-grid">
+      <div class="dashboard-card">
+        <div class="dashboard-card-head"><div><div class="dashboard-card-title"><i data-lucide="activity" class="w-4 h-4 text-cyan-300"></i>Platform traffic</div><div class="dashboard-card-sub">aggregate requests · last 60 minutes</div></div><div class="chart-legend"><span class="legend-item"><i class="legend-line" style="background:#67e8f9"></i>requests</span><span class="legend-item"><i class="legend-line" style="background:#a78bfa"></i>errors</span><span class="badge badge-v">LIVE</span></div></div>
+        <div class="chart-wrap"><canvas id="overview-chart"></canvas></div>
+      </div>
+      <div class="dashboard-card">
+        <div class="dashboard-card-head"><div><div class="dashboard-card-title"><i data-lucide="network" class="w-4 h-4 text-violet-300"></i>Request path</div><div class="dashboard-card-sub">edge → scheduler → guests</div></div><span class="text-[10px] font-mono text-emerald-300">p99 2.1ms</span></div>
+        <div class="architecture">
+          <div class="arch-line"></div><div class="arch-line two"></div>
+          <div class="arch-row"><div class="arch-node primary"><div class="node-label">EDGE</div><div class="node-name">Ingress</div><div class="node-meta">TLS · WAF · DNS</div></div></div>
+          <div class="arch-row"><div class="arch-node"><div class="node-label">CONTROL</div><div class="node-name">Scheduler</div><div class="node-meta">round robin</div></div><span class="arch-arrow">↔</span><div class="arch-node"><div class="node-label">NETWORK</div><div class="node-name">eBPF mesh</div><div class="node-meta">0.28ms hop</div></div></div>
+          <div class="arch-row"><div class="arch-node good"><div class="node-label">GUEST POOL</div><div class="node-name">10 MicroVMs</div><div class="node-meta"><span class="text-emerald-300">●</span> all healthy</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <div class="dashboard-card lg:col-span-2"><div class="dashboard-card-head"><div><div class="dashboard-card-title"><i data-lucide="git-commit-horizontal" class="w-4 h-4 text-emerald-300"></i>Deployment activity</div><div class="dashboard-card-sub">latest events across production</div></div><button @click="navigate('observability')" class="text-[10px] text-[#8b949e] hover:text-white font-mono">View all →</button></div><div class="activity-list"><div class="activity-row"><div class="activity-icon"><i data-lucide="check-circle-2" class="w-3.5 h-3.5"></i></div><div class="activity-copy"><div class="activity-main"><span class="text-white font-medium">edge-api-service</span> deployed successfully</div><div class="activity-meta">v2.4.0 · 9f2a4b8 · 3 replicas · 38s</div></div><span class="badge badge-v ml-auto">READY</span></div><div class="activity-row"><div class="activity-icon" style="color:#fbbf24;background:rgba(251,191,36,.1)"><i data-lucide="split" class="w-3.5 h-3.5"></i></div><div class="activity-copy"><div class="activity-main"><span class="text-white font-medium">Canary rollout</span> is receiving 10% traffic</div><div class="activity-meta">edge-api-service · v2.5.0-rc1 · 12 minutes ago</div></div><span class="badge badge-p ml-auto">10%</span></div><div class="activity-row"><div class="activity-icon" style="color:#a78bfa;background:rgba(167,139,250,.1)"><i data-lucide="bot" class="w-3.5 h-3.5"></i></div><div class="activity-copy"><div class="activity-main">AI Operator completed autonomous remediation</div><div class="activity-meta">customer-portal · restarted replica-3 · 18 minutes ago</div></div><span class="badge badge-violet ml-auto">AI</span></div></div></div>
+      <div class="dashboard-card"><div class="dashboard-card-head"><div><div class="dashboard-card-title"><i data-lucide="shield-check" class="w-4 h-4 text-emerald-300"></i>Operational signals</div><div class="dashboard-card-sub">fleet-wide health snapshot</div></div></div><div class="signal-list"><div class="signal"><span class="signal-left"><span class="dot dot-ok"></span>Availability</span><span class="signal-right">99.98%</span></div><div class="signal"><span class="signal-left"><span class="dot dot-ok"></span>Healthy replicas</span><span class="signal-right">10 / 10</span></div><div class="signal"><span class="signal-left"><span class="dot dot-warn"></span>Disk headroom</span><span class="signal-right">78%<span class="signal-bar"><i style="width:78%"></i></span></span></div><div class="signal"><span class="signal-left"><span class="dot dot-ok"></span>Error budget</span><span class="signal-right">72%</span></div><div class="pt-2 border-t border-white/10"><div class="text-[10px] font-mono text-[#6b7280] mb-2">QUICK ACTIONS</div><div class="quick-row"><button @click="deployStep=1; deployModalOpen=true" class="quick-action"><i data-lucide="rocket" class="w-3.5 h-3.5"></i>Deploy</button><button @click="navigate('nodes')" class="quick-action"><i data-lucide="server" class="w-3.5 h-3.5"></i>Fleet</button><button @click="navigate('ai_operator')" class="quick-action"><i data-lucide="sparkles" class="w-3.5 h-3.5"></i>Ask AI</button></div></div></div></div>
+    </section>
+
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
       <div class="relative flex-1 max-w-sm"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666]"></i><input type="text" x-model="searchQuery" placeholder="Search projects..." class="input pl-8" /></div>
       <div class="text-xs font-mono text-[#888] flex items-center gap-3"><span><span class="text-white" x-text="vms.filter(v=>v.state==='running').length"></span> MicroVMs</span><span>·</span><span><span class="text-white" x-text="servers.reduce((a,s)=>a+s.cpus,0)"></span> vCPUs</span><span>·</span><span><span class="text-white" x-text="Math.round(servers.reduce((a,s)=>a+s.memory_mb,0)/1024)"></span> GB</span></div>
@@ -264,26 +339,7 @@
   </main>
 
   <!-- ===== PROJECT DETAIL ===== -->
-  <main x-show="route==='project_detail' && activeProject" class="max-w-7xl mx-auto px-4 py-6">
-    <div class="project-detail-layout">
-      <aside class="project-local-sidebar" aria-label="Current project navigation">
-        <div class="local-label">Current project</div>
-        <div class="project-local-meta px-2 pb-2"><div class="text-xs text-white font-semibold truncate" x-text="activeProject?.name"></div><div class="text-[10px] text-[#666] font-mono truncate mt-1" x-text="activeProject?.domain"></div></div>
-        <template x-for="t in [
-          {id:'overview',l:'Overview',icon:'layout-dashboard'},
-          {id:'replicas',l:'Replica groups',icon:'boxes'},
-          {id:'deployments',l:'Deployments',icon:'rocket'},
-          {id:'traffic_scaling',l:'Traffic & Scaling',icon:'split'},
-          {id:'config_storage',l:'Config & Storage',icon:'database'},
-          {id:'logs',l:'Logs',icon:'terminal'},
-          {id:'analytics',l:'Metrics & Usage',icon:'bar-chart-3'},
-          {id:'activity',l:'Activity',icon:'history'},
-          {id:'settings',l:'Settings',icon:'settings'}
-        ]" :key="t.id">
-          <button @click="setProjectSubTab(t.id)" :class="projectSubTab===t.id?'active':''"><i :data-lucide="t.icon" class="w-3.5 h-3.5"></i><span x-text="t.l"></span></button>
-        </template>
-      </aside>
-      <div class="project-detail-content space-y-6">
+  <main x-show="route==='project_detail' && activeProject" class="max-w-7xl mx-auto px-4 py-6 space-y-6">
     <button @click="navigate('projects')" class="text-xs text-[#888] hover:text-white flex items-center gap-1.5"><i data-lucide="arrow-left" class="w-3.5 h-3.5"></i>Back to Projects</button>
 
     <div class="card p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -312,10 +368,6 @@
           <button @click="handleRestart()" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left transition"><div class="flex items-center gap-2 text-white font-medium text-sm"><i data-lucide="power" class="w-4 h-4 text-[#888]"></i>Restart ACPI</div><div class="text-[11px] text-[#888] mt-1 font-mono">Graceful reboot</div></button>
           <button @click="setProjectSubTab('traffic_scaling'); trafficScalingTab='autoscaling'" class="p-4 bg-[#050505] hover:bg-[#0f0f0f] border border-[#262626] hover:border-[#404040] rounded-lg text-left transition"><div class="flex items-center gap-2 text-white font-medium text-sm"><i data-lucide="trending-up" class="w-4 h-4 text-[#888]"></i>Configure Scaling</div><div class="text-[11px] text-[#888] mt-1 font-mono">Min/max & CPU trigger</div></button>
         </div>
-      </div>
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <div class="card p-4 lg:col-span-2"><div class="flex items-center justify-between mb-3"><div><div class="text-sm font-semibold text-white">Release flow</div><div class="text-xs text-[#888] mt-0.5">Preview first, promote second, scale last.</div></div><span class="badge badge-v">SAFE ROLLOUT</span></div><div class="flex items-center gap-2 text-[11px] font-mono text-[#888] flex-wrap"><span class="px-2 py-1 rounded bg-[#111] text-white">1 · PR preview MicroVM</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">2 · Deployment</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">3 · Replica group</span><span class="text-[#444]">→</span><span class="px-2 py-1 rounded bg-[#111] text-white">4 · Autoscale policy</span></div></div>
-        <div class="card p-4 border-blue-500/20 bg-blue-500/[.03]"><div class="mini-label">What does Add Replica do?</div><div class="text-sm font-semibold text-white mt-1">Immediate capacity</div><p class="text-[11px] text-[#888] mt-1 leading-relaxed">Adds MicroVMs to this deployment now. Autoscaling is the reusable min/max policy that decides when to do that automatically.</p></div>
       </div>
       <div class="card p-5">
         <h3 class="text-sm font-semibold text-white mb-3">Project → Deployment → Replica</h3>
@@ -465,9 +517,18 @@
       </div>
     </div>
 
-    <!-- ==== PREVIEWS: intentionally deployment-scoped ==== -->
+    <!-- ==== PREVIEWS ==== -->
     <div x-show="projectSubTab==='previews'" class="space-y-4">
-      <div class="card p-5 border-violet-500/25 bg-violet-500/[.03]"><div class="flex items-start gap-3"><i data-lucide="git-pull-request" class="w-5 h-5 text-violet-300 mt-0.5"></i><div><h2 class="text-sm font-semibold text-white">Previews live inside Deployments</h2><p class="text-xs text-[#888] mt-1 leading-relaxed">A preview is an ephemeral MicroVM created from a pull request and attached to the deployment it validates. It is not a second production control plane. Open <button @click="setProjectSubTab('deployments')" class="text-white underline">Deployments</button> and expand a deployment to see its preview URL, VM, comments, and toolbar.</p></div></div></div>
+      <div><h2 class="text-sm font-semibold text-white flex items-center gap-2"><i data-lucide="git-pull-request" class="w-4 h-4"></i>Preview Deployments</h2><p class="text-xs text-[#888] mt-0.5">Every PR gets a preview environment with its own URL, comments, and toolbar.</p></div>
+      <div class="card overflow-hidden">
+        <table class="w-full text-left text-xs font-mono">
+          <thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">PR</th><th class="py-2 px-3">Branch</th><th class="py-2 px-3">Preview URL</th><th class="py-2 px-3">Commit</th><th class="py-2 px-3">Status</th><th class="py-2 px-3 text-right">Action</th></tr></thead>
+          <tbody class="divide-y divide-[#1a1a1a]">
+            <template x-for="p in previews" :key="p.pr"><tr><td class="py-2 px-3 text-white">#<span x-text="p.pr"></span></td><td class="py-2 px-3 text-[#888]" x-text="p.branch"></td><td class="py-2 px-3"><a :href="'https://'+p.url" class="text-[#38bdf8] hover:underline" target="_blank" x-text="p.url"></a></td><td class="py-2 px-3 text-[#888]" x-text="p.commit"></td><td class="py-2 px-3"><span class="badge badge-v" x-text="p.status"></span></td><td class="py-2 px-3 text-right"><button @click="notify('Preview redeployed','success')" class="text-[#888] hover:text-white underline">Redeploy</button></td></tr></template>
+          </tbody>
+        </table>
+      </div>
+      <div class="p-3 bg-[#050505] rounded border border-[#1a1a1a] text-[11px] font-mono text-[#888] flex items-center gap-2"><i data-lucide="info" class="w-3 h-3"></i>Preview deployments auto-delete 7 days after PR merge. Use the toolbar (bottom-right) on any preview to leave comments.</div>
     </div>
 
     <!-- ==== DEPLOYMENTS (with expandable rows) ==== -->
@@ -494,8 +555,7 @@
                     <td></td>
                     <td colspan="6" class="p-0">
                       <div class="p-3 bg-[#050505] border-l-2 border-[#38bdf8]/50">
-                        <div class="flex items-center justify-between gap-3 mb-3"><div><div class="text-[11px] text-[#888] font-mono">Runtime attached to this immutable deployment</div><div class="text-white text-xs mt-0.5">Replicas serving this deployment</div></div><button @click.stop="notify('Preview MicroVM created for '+d.id,'success')" class="btn-secondary text-[11px] flex items-center gap-1"><i data-lucide="git-pull-request" class="w-3 h-3"></i>Create preview VM</button></div>
-                        <div x-show="d.id==='dep_prod_01'" class="mb-3 p-3 rounded border border-violet-500/25 bg-violet-500/[.04]"><div class="flex items-center justify-between gap-2"><div><div class="text-white text-xs font-semibold">Preview environment · PR #142</div><div class="text-[11px] text-[#888] mt-0.5 font-mono">edge-api-pr142.porter.app · commit 7f3c8b2</div></div><span class="badge badge-violet">READY</span></div><div class="flex items-center gap-3 mt-2 text-[10px] font-mono text-[#888]"><span>1 preview MicroVM</span><span>·</span><span>comments + toolbar enabled</span><button @click.stop="toolbarVisible=true; toolbarOpen=true; notify('Preview toolbar opened','info')" class="ml-auto text-white underline">Open preview</button></div></div>
+                        <div class="text-[11px] text-[#888] font-mono mb-2">Replicas serving this deployment:</div>
                         <template x-if="vms.filter(v=>v.deployment_id===d.id).length===0">
                           <div class="text-xs text-[#666] font-mono py-2">No active replicas — deployment archived.</div>
                         </template>
@@ -585,8 +645,6 @@
       </div>
       <div class="card p-4 space-y-3 text-xs font-mono"><div class="text-white font-semibold">Build & Deploy</div><div class="grid grid-cols-2 gap-3"><div><label class="block text-[#888] mb-1">Framework</label><select class="input"><option>Node.js (Express)</option><option>Go</option><option>Python</option></select></div><div><label class="block text-[#888] mb-1">Node Version</label><select class="input"><option>20.x</option><option>22.x</option></select></div></div></div>
     </div>
-      </div>
-    </div>
   </main>
 
   <!-- ===== REPLICA DETAIL ===== -->
@@ -622,7 +680,7 @@
           <template x-if="activeReplica.is_primary"><span class="badge badge-p">⭐ PRIMARY</span></template>
           <template x-if="activeReplica.version_tag"><span class="badge badge-b" x-text="activeReplica.version_tag"></span></template>
         </div>
-        <div class="text-xs text-[#888] font-mono">Replica action surface · <span class="text-[#38bdf8]" x-text="activeReplica.deployment_id"></span></div>
+        <div class="text-xs text-[#888] font-mono">Project: <span class="text-white" x-text="activeProject.name"></span> · Deployment: <span class="text-[#38bdf8]" x-text="activeReplica.deployment_id"></span> · Host: <button @click="navigateToNode(activeReplica.server_id)" class="text-[#38bdf8] hover:underline" x-text="activeReplica.server_id"></button> · IP: <span class="text-white font-bold" x-text="activeReplica.ip"></span></div>
       </div>
       <!-- Action bar - conditional on primary vs secondary -->
       <div class="flex flex-wrap gap-2">
@@ -630,7 +688,7 @@
           <div class="flex flex-wrap gap-2">
             <button @click="addReplicaModalOpen=true" class="btn-primary flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i>Add Replica</button>
             <button @click="scaleDownModalOpen=true" class="btn-secondary">Scale Down</button>
-            <button @click="replicaSubTab='overview'" class="btn-secondary">Lifecycle & Doctor</button>
+            <button @click="replicaSubTab='lifecycle'" class="btn-secondary">More Actions</button>
           </div>
         </template>
         <template x-if="!activeReplica.is_primary">
@@ -644,8 +702,6 @@
 
     <!-- OVERVIEW -->
     <div x-show="replicaSubTab==='overview'" class="space-y-4">
-      <!-- VM identity and runtime context: intentionally below the action header -->
-      <div class="card p-5 border-[#2a2a2a] bg-[#090909]"><div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4"><div><div class="mini-label">MicroVM identity</div><div class="flex items-center gap-2 flex-wrap mt-1"><h2 class="text-base font-semibold text-white font-mono" x-text="activeReplica.name"></h2><span class="badge badge-v">RUNNING</span><template x-if="activeReplica.is_primary"><span class="badge badge-p">⭐ PRIMARY</span></template></div><div class="text-xs text-[#888] mt-2">This card is the runtime object behind the deployment. Changes to the replica group are controlled from the action bar above.</div></div><div class="text-right"><div class="mini-label">Boot readiness</div><div class="text-emerald-400 text-sm font-semibold mt-1">Healthy · 14.8ms</div><div class="text-[11px] text-[#666] font-mono mt-1">observedGeneration = 3</div></div></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 pt-4 border-t border-[#1a1a1a] text-xs font-mono"><div><div class="text-[#666]">Project</div><div class="text-white mt-1" x-text="activeProject.name"></div></div><div><div class="text-[#666]">Deployment</div><button @click="navigateToProject(activeProject.id); projectSubTab='deployments'" class="text-[#38bdf8] hover:underline mt-1" x-text="activeReplica.deployment_id"></button></div><div><div class="text-[#666]">Host</div><button @click="navigateToNode(activeReplica.server_id)" class="text-[#38bdf8] hover:underline mt-1" x-text="servers.find(s=>s.id===activeReplica.server_id)?.hostname || activeReplica.server_id"></button></div><div><div class="text-[#666]">Private IP</div><div class="text-white font-bold mt-1" x-text="activeReplica.ip"></div></div></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-xs font-mono"><div><div class="text-[#666]">Kernel</div><div class="text-white mt-1" x-text="activeReplica.kernel"></div></div><div><div class="text-[#666]">Firecracker socket</div><div class="text-white mt-1 truncate" x-text="activeReplica.socket"></div></div><div><div class="text-[#666]">Version</div><div class="text-white mt-1" x-text="activeReplica.version_tag || '—'"></div></div><div><div class="text-[#666]">Placement</div><div class="text-white mt-1">Spread across fleet</div></div></div></div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">State</div><div class="text-xl font-bold text-emerald-400 mt-1">Running</div><div class="text-[#666] text-[11px]">gen 3 = observed 3</div></div>
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Uptime</div><div class="text-xl font-bold text-white mt-1" x-text="Math.floor(activeReplica.uptime_seconds/3600)+'h'"></div><div class="text-[#666] text-[11px]">started <span x-text="fmtDate(activeReplica.started_at)"></span></div></div>
@@ -664,7 +720,6 @@
           </template>
         </div>
       </div>
-      <div class="card p-5 border-emerald-500/20"><div class="flex items-center justify-between mb-3"><div><h3 class="text-sm font-semibold text-white">Lifecycle & Doctor</h3><p class="text-xs text-[#888] mt-0.5">Health is verified before traffic is activated.</p></div><span class="badge badge-v">10 / 10 PASSING</span></div><div class="grid grid-cols-2 md:grid-cols-5 gap-2 text-[10px] font-mono"><template x-for="c in ['Guest agent','Health check','Network','Storage','Gateway']" :key="c"><div class="p-2 bg-[#050505] rounded border border-[#1a1a1a] flex items-center gap-1.5"><span class="dot dot-ok"></span><span class="text-[#aaa]" x-text="c"></span></div></template></div></div>
       <div class="card p-5">
         <h3 class="text-sm font-semibold text-white mb-2">Recent Activity</h3>
         <div class="space-y-1 text-xs font-mono">
@@ -692,7 +747,6 @@
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Memory</div><div class="text-2xl font-bold text-white mt-1">384/1024 MB</div><div class="text-emerald-400 text-[11px]">ballooning</div></div>
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Block I/O</div><div class="text-2xl font-bold text-white mt-1">1.7 MB/s</div><div class="text-[#666] text-[11px]">R:480 W:1200</div></div>
       </div>
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3"><div class="card p-4"><div class="flex justify-between text-xs font-mono"><span class="text-white">CPU over last 15m</span><span class="text-emerald-400">stable · 14.2%</span></div><div class="metric-spark mt-3 green"><template x-for="v in [18,24,20,28,26,31,23,25,29,22,24,27]"><i :style="'height:'+v+'%'"></i></template></div></div><div class="card p-4"><div class="flex justify-between text-xs font-mono"><span class="text-white">Request latency</span><span class="text-emerald-400">p99 · 2.34ms</span></div><div class="metric-spark mt-3"><template x-for="v in [30,38,34,44,36,52,40,42,48,39,45,41]"><i :style="'height:'+v+'%'"></i></template></div></div></div>
       <div class="card p-4 space-y-2">
         <div class="text-sm font-semibold text-white mb-2">Cost Estimate (current usage)</div>
         <div class="grid grid-cols-3 gap-3 text-xs font-mono"><div><div class="text-[#888]">Hourly</div><div class="text-xl font-bold text-white">$0.042</div></div><div><div class="text-[#888]">Monthly (30d)</div><div class="text-xl font-bold text-white">$30.24</div></div><div><div class="text-[#888]">Uptime this month</div><div class="text-xl font-bold text-emerald-400">99.98%</div></div></div>
@@ -720,7 +774,7 @@
     </div>
 
     <!-- CONSOLE (Preview) -->
-    <div x-show="replicaSubTab==='logs'" class="space-y-3">
+    <div x-show="replicaSubTab==='console'" class="space-y-3">
       <div class="flex justify-between items-center"><h2 class="text-sm font-semibold text-white">Interactive Console (ttyS0)</h2><span class="badge badge-p">PREVIEW · read-only stream</span></div>
       <div class="p-3 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs font-mono flex items-start gap-2"><i data-lucide="alert-triangle" class="w-4 h-4 text-amber-400 shrink-0 mt-0.5"></i><div><span class="text-white font-semibold">Honest Preview</span><span class="text-[#888]"> — guest-vsock agent not enabled, so this terminal is read-only. Interactive exec will be available once the guest agent is wired.</span></div></div>
       <div class="terminal h-80 overflow-y-auto" id="replica-console">
@@ -747,7 +801,7 @@
     </div>
 
     <!-- ENV -->
-    <div x-show="replicaSubTab==='storage'" class="space-y-3">
+    <div x-show="replicaSubTab==='env'" class="space-y-3">
       <h2 class="text-sm font-semibold text-white">Environment Variables for this Replica</h2>
       <div class="card overflow-hidden">
         <table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888] border-b border-[#1f1f1f]"><tr><th class="py-2 px-3">Key</th><th class="py-2 px-3">Value</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]">
@@ -863,7 +917,7 @@
     <div x-show="nodeSubTab==='overview'" class="space-y-4">
       <!-- Node Info card (specs moved here) -->
       <div class="card p-5">
-        <h2 class="text-sm font-semibold text-white mb-3 flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>Node information & capacity</h2>
+        <h2 class="text-sm font-semibold text-white mb-3 flex items-center gap-2"><i data-lucide="info" class="w-4 h-4"></i>Node Information</h2>
         <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-mono">
           <div><div class="text-[#666]">IP</div><div class="text-white font-bold" x-text="activeServer.ip"></div></div>
           <div><div class="text-[#666]">Region</div><div class="text-white" x-text="activeServer.region"></div></div>
@@ -891,8 +945,6 @@
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Disk</div><div class="text-xl font-bold" :class="diskWarning(activeServer)?'text-red-400':'text-white'" x-text="activeServer.disk_free_gb+' GB free'"></div></div>
         <div class="card p-4 text-xs font-mono"><div class="text-[#888]">MicroVMs</div><div class="text-xl font-bold text-white mt-1" x-text="activeServerVms.length"></div></div>
       </div>
-      <!-- Fleet connectivity -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3"><div class="card p-4 text-xs font-mono"><div class="mini-label">Network interfaces</div><div class="text-white font-semibold mt-1">porter0 · bridge</div><div class="text-[#888] mt-1">172.16.0.0/16 · MTU 1500</div><div class="text-emerald-400 mt-1">carrier UP</div></div><div class="card p-4 text-xs font-mono"><div class="mini-label">Egress</div><div class="text-white font-semibold mt-1">NAT MASQ</div><div class="text-[#888] mt-1">eBPF isolation enabled</div><div class="text-emerald-400 mt-1">0.82ms RTT</div></div><div class="card p-4 text-xs font-mono"><div class="mini-label">Scheduling</div><div class="text-white font-semibold mt-1" x-text="activeServer.cordoned?'Cordoned':'Spread enabled'"></div><div class="text-[#888] mt-1">Placement respects project replica groups</div><div class="text-amber-300 mt-1">2.4 TB free</div></div></div>
       <!-- Hardware specs -->
       <div class="card p-5">
         <h2 class="text-sm font-semibold text-white mb-3">Hardware & Jailer Capabilities</h2>
@@ -962,88 +1014,41 @@ subnet = &quot;172.16.0.0/16&quot;`"></pre>
     </div>
   </main>
 
-  <!-- ===== PLATFORM ADMIN PAGES ===== -->
-  <main x-show="route==='admin'" class="max-w-7xl mx-auto px-4 py-8 space-y-6">
-    <div><div class="page-kicker">Porter Admin</div><h1 class="text-2xl font-bold text-white mt-1">Control plane overview</h1><p class="text-sm text-[#888] mt-1">One place for workloads, infrastructure, policy, usage, and operations.</p></div>
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Healthy workloads</div><div class="text-2xl font-bold text-white mt-2">10 / 10</div><div class="text-emerald-400 text-[11px] mt-1">No active incidents</div></div><div class="card p-4"><div class="mini-label">Fleet capacity</div><div class="text-2xl font-bold text-white mt-2">208 vCPU</div><div class="text-[#888] text-[11px] mt-1">64% available</div></div><div class="card p-4"><div class="mini-label">Requests / hour</div><div class="text-2xl font-bold text-white mt-2">12.4M</div><div class="text-emerald-400 text-[11px] mt-1">+8.2% vs previous</div></div><div class="card p-4"><div class="mini-label">Current MRR</div><div class="text-2xl font-bold text-white mt-2">$8,412</div><div class="text-[#888] text-[11px] mt-1">24 active customers</div></div></div>
-    <div class="card p-5"><div class="flex items-center justify-between mb-4"><div><h2 class="text-sm font-semibold text-white">Intent to healthy application</h2><p class="text-xs text-[#888] mt-1">The default Porter path stays simple; infrastructure detail remains one click away.</p></div><button @click="deployStep=1; deployModalOpen=true" class="btn-primary">Create application</button></div><div class="grid grid-cols-2 md:grid-cols-4 gap-3"><div class="flow-step"><div class="mini-label">01 · Source</div><div class="text-white text-xs font-semibold mt-2">Connect GitHub</div><div class="text-[11px] text-[#777] mt-1">Repo + branch</div></div><div class="flow-step"><div class="mini-label">02 · Build</div><div class="text-white text-xs font-semibold mt-2">Detect & build</div><div class="text-[11px] text-[#777] mt-1">BuildKit artifact</div></div><div class="flow-step"><div class="mini-label">03 · Runtime</div><div class="text-white text-xs font-semibold mt-2">Boot MicroVM</div><div class="text-[11px] text-[#777] mt-1">Network + storage</div></div><div class="flow-step"><div class="mini-label">04 · Operate</div><div class="text-white text-xs font-semibold mt-2">Route traffic</div><div class="text-[11px] text-[#777] mt-1">Health + reconcile</div></div></div></div>
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4"><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Recent operations</h2><button @click="navigate('audit')" class="text-xs text-[#888] underline">View audit</button></div><div class="space-y-2 text-xs font-mono"><div class="flex items-center gap-2"><span class="dot dot-ok"></span><span class="text-white">dep_prod_01</span><span class="text-[#777]">rolled out to 3 replicas</span><span class="ml-auto text-[#666]">38s</span></div><div class="flex items-center gap-2"><span class="dot dot-ok"></span><span class="text-white">vol_01</span><span class="text-[#777]">snapshot completed</span><span class="ml-auto text-[#666]">4m</span></div><div class="flex items-center gap-2"><span class="dot dot-warn"></span><span class="text-white">metal-node-04</span><span class="text-[#777]">low disk capacity</span><span class="ml-auto text-amber-300">review</span></div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Policy posture</h2><span class="badge badge-v">ENFORCED</span></div><div class="grid grid-cols-2 gap-3 text-xs font-mono"><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Production changes</div><div class="text-white mt-1">Approval required</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Destructive actions</div><div class="text-white mt-1">Explicit approval</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">AI operations</div><div class="text-white mt-1">Same IAM as humans</div></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-[#777]">Audit coverage</div><div class="text-emerald-400 mt-1">100%</div></div></div></div></div>
-  </main>
-
-  <main x-show="route==='networks'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Network</div><h1 class="text-xl font-bold text-white mt-1">Networks & Gateway</h1><p class="text-xs text-[#888] mt-1">Ingress, egress, IPAM, routing, TLS, and private service connectivity.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4 text-xs font-mono"><div class="text-[#888]">Gateway status</div><div class="text-xl font-bold text-emerald-400 mt-1">Healthy</div><div class="text-[#666] mt-1">12 routes · 0 errors</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">IPAM</div><div class="text-xl font-bold text-white mt-1">68%</div><div class="text-[#666] mt-1">172.16.0.0/16 used</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">TLS certificates</div><div class="text-xl font-bold text-white mt-1">8</div><div class="text-emerald-400 mt-1">All valid</div></div><div class="card p-4 text-xs font-mono"><div class="text-[#888]">Egress</div><div class="text-xl font-bold text-white mt-1">MASQ</div><div class="text-[#666] mt-1">eBPF isolation on</div></div></div><div class="card overflow-hidden"><div class="p-4 border-b border-[#1f1f1f] flex justify-between"><div><h2 class="text-sm font-semibold text-white">Gateway routes</h2><p class="text-xs text-[#888] mt-1">Every route resolves to a deployment, not directly to a node.</p></div><button @click="notify('Route wizard opened','info')" class="btn-primary">Add route</button></div><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Hostname</th><th class="p-3">Target</th><th class="p-3">Protocol</th><th class="p-3">TLS</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">api.porter.test</td><td class="p-3 text-[#888]">edge-api-service / prod</td><td class="p-3 text-[#888]">HTTPS · HTTP/2</td><td class="p-3 text-emerald-400">Valid 41d</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">portal.porter.test</td><td class="p-3 text-[#888]">customer-portal / prod</td><td class="p-3 text-[#888]">HTTPS</td><td class="p-3 text-emerald-400">Valid 19d</td><td class="p-3 text-emerald-400">Active</td></tr></tbody></table></div></main>
-
-  <main x-show="route==='storage'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Storage</div><h1 class="text-xl font-bold text-white mt-1">Storage & Backups</h1><p class="text-xs text-[#888] mt-1">Separate ephemeral runtime disks, persistent block volumes, object storage, and recovery copies.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Persistent block</div><div class="text-2xl font-bold text-white mt-2">70 GB</div><div class="text-[#888] text-[11px] mt-1">2 attached volumes</div></div><div class="card p-4"><div class="mini-label">Object storage</div><div class="text-2xl font-bold text-white mt-2">1.8 TB</div><div class="text-[#888] text-[11px] mt-1">S3-compatible</div></div><div class="card p-4"><div class="mini-label">Latest backup</div><div class="text-2xl font-bold text-emerald-400 mt-2">Passed</div><div class="text-[#888] text-[11px] mt-1">12 minutes ago</div></div><div class="card p-4"><div class="mini-label">Recovery point</div><div class="text-2xl font-bold text-white mt-2">2h</div><div class="text-[#888] text-[11px] mt-1">RPO target</div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Storage classes</h2><button @click="volumeModalOpen=true" class="btn-primary">Attach volume</button></div><div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs"><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Ephemeral</div><div class="text-[#777] mt-1">VM rootfs / scratch</div><span class="badge badge-p mt-3">PER VM</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Persistent block</div><div class="text-[#777] mt-1">Application data</div><span class="badge badge-v mt-3">ATTACHED</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Object store</div><div class="text-[#777] mt-1">Artifacts / uploads</div><span class="badge badge-b mt-3">S3 API</span></div><div class="p-3 bg-[#050505] rounded border border-[#1a1a1a]"><div class="text-white font-semibold">Backup</div><div class="text-[#777] mt-1">Disaster recovery</div><span class="badge badge-v mt-3">DAILY</span></div></div></div></main>
-
-  <main x-show="route==='security'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Security</div><h1 class="text-xl font-bold text-white mt-1">Security & IAM</h1><p class="text-xs text-[#888] mt-1">Roles, policy gates, secrets, trusted access, and deployment protection.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Policy checks</div><div class="text-2xl font-bold text-emerald-400 mt-2">24 / 24</div><div class="text-[#888] text-[11px] mt-1">Passing</div></div><div class="card p-4"><div class="mini-label">Team members</div><div class="text-2xl font-bold text-white mt-2">18</div><div class="text-[#888] text-[11px] mt-1">3 roles</div></div><div class="card p-4"><div class="mini-label">Secrets</div><div class="text-2xl font-bold text-white mt-2">42</div><div class="text-[#888] text-[11px] mt-1">Encrypted at rest</div></div><div class="card p-4"><div class="mini-label">Last review</div><div class="text-2xl font-bold text-white mt-2">2d</div><div class="text-[#888] text-[11px] mt-1">No findings</div></div></div><div class="grid grid-cols-1 lg:grid-cols-2 gap-4"><div class="card p-5"><h2 class="text-sm font-semibold text-white mb-3">Action classes</h2><div class="space-y-2 text-xs font-mono"><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Read</span><span class="text-emerald-400">Automatic</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Low-risk change</span><span class="text-amber-300">Policy controlled</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Production change</span><span class="text-amber-300">Approval required</span></div><div class="flex justify-between p-2 bg-[#050505] rounded"><span class="text-white">Destructive action</span><span class="text-red-400">Explicit approval</span></div></div></div><div class="card p-5"><h2 class="text-sm font-semibold text-white mb-3">Access controls</h2><div class="space-y-2 text-xs font-mono"><div class="flex justify-between"><span class="text-[#888]">SSO / SAML</span><span class="text-emerald-400">Enabled</span></div><div class="flex justify-between"><span class="text-[#888]">MFA enforcement</span><span class="text-emerald-400">All admins</span></div><div class="flex justify-between"><span class="text-[#888]">Production deploy protection</span><span class="text-emerald-400">Enabled</span></div><div class="flex justify-between"><span class="text-[#888]">AI uses human IAM</span><span class="text-emerald-400">Enforced</span></div></div></div></div></main>
-
-  <main x-show="route==='automation'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Platform / Automation</div><h1 class="text-xl font-bold text-white mt-1">Automation & Workflows</h1><p class="text-xs text-[#888] mt-1">Event-driven operations with visible plans, approvals, execution, and audit.</p></div><div class="flex justify-between items-center card p-4"><div><div class="text-sm font-semibold text-white">Active workflows</div><div class="text-xs text-[#888] mt-1">Webhooks, scheduled jobs, and deployment policies</div></div><button @click="notify('Workflow builder opened','info')" class="btn-primary">Create workflow</button></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Workflow</th><th class="p-3">Trigger</th><th class="p-3">Last run</th><th class="p-3">Policy</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">Deploy on main</td><td class="p-3 text-[#888]">GitHub push</td><td class="p-3 text-[#888]">38s ago</td><td class="p-3 text-amber-300">Production approval</td><td class="p-3 text-emerald-400">Healthy</td></tr><tr class="table-row"><td class="p-3 text-white">Nightly snapshots</td><td class="p-3 text-[#888]">02:00 UTC</td><td class="p-3 text-[#888]">12m ago</td><td class="p-3 text-emerald-400">Automatic</td><td class="p-3 text-emerald-400">Healthy</td></tr><tr class="table-row"><td class="p-3 text-white">Node disk alert</td><td class="p-3 text-[#888]">Capacity &lt; 15%</td><td class="p-3 text-[#888]">Never</td><td class="p-3 text-amber-300">Notify operator</td><td class="p-3 text-emerald-400">Armed</td></tr></tbody></table></div></main>
-
-  <main x-show="route==='doctor'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div class="flex justify-between items-start"><div><div class="page-kicker">Porter Doctor</div><h1 class="text-xl font-bold text-white mt-1">Deterministic diagnostics</h1><p class="text-xs text-[#888] mt-1">Useful without AI. Every check maps to a control-plane dependency.</p></div><button @click="notify('Doctor checks rerun','success')" class="btn-secondary">Run all checks</button></div><div class="card p-4 flex items-center justify-between"><div><div class="text-sm font-semibold text-white">Platform readiness</div><div class="text-xs text-[#888] mt-1">Last run just now · 14 checks</div></div><span class="badge badge-v">14 / 14 PASSING</span></div><div class="grid grid-cols-1 md:grid-cols-2 gap-3"><template x-for="c in ['Control Plane','PostgreSQL','Scheduler','KVM','Firecracker','BuildKit','Kernel','Networking','Storage','DNS','TLS','Gateway','Capacity','Agent']" :key="c"><div class="card p-4 flex items-center gap-3 text-xs font-mono"><span class="dot dot-ok"></span><div class="flex-1"><div class="text-white" x-text="c"></div><div class="text-[#666] mt-0.5">healthy · observed state matches desired state</div></div><span class="text-emerald-400">PASS</span></div></template></div></main>
-
-  <main x-show="route==='customers'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div class="flex justify-between items-start"><div><div class="page-kicker">Business / Customers</div><h1 class="text-xl font-bold text-white mt-1">Customers & Teams</h1><p class="text-xs text-[#888] mt-1">Organizations, roles, entitlements, and workload ownership.</p></div><button @click="notify('Customer creation opened','info')" class="btn-primary">Add customer</button></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Organization</th><th class="p-3">Plan</th><th class="p-3">Projects</th><th class="p-3">Usage</th><th class="p-3">Status</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><tr class="table-row"><td class="p-3 text-white">Coffeeinit Labs</td><td class="p-3 text-[#888]">Pro</td><td class="p-3 text-[#888]">4</td><td class="p-3 text-[#888]">$412.60 / mo</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">Acme Systems</td><td class="p-3 text-[#888]">Business</td><td class="p-3 text-[#888]">12</td><td class="p-3 text-[#888]">$1,842.20 / mo</td><td class="p-3 text-emerald-400">Active</td></tr><tr class="table-row"><td class="p-3 text-white">Northstar</td><td class="p-3 text-[#888]">Starter</td><td class="p-3 text-[#888]">2</td><td class="p-3 text-[#888]">$98.40 / mo</td><td class="p-3 text-amber-300">Trial</td></tr></tbody></table></div></main>
-
-  <main x-show="route==='billing'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Business / Commerce</div><h1 class="text-xl font-bold text-white mt-1">Usage & Billing</h1><p class="text-xs text-[#888] mt-1">Trace usage from invoice line to workload and infrastructure.</p></div><div class="grid grid-cols-2 lg:grid-cols-4 gap-3"><div class="card p-4"><div class="mini-label">Current MRR</div><div class="text-2xl font-bold text-white mt-2">$8,412</div><div class="text-emerald-400 text-[11px] mt-1">+12.4%</div></div><div class="card p-4"><div class="mini-label">Usage this month</div><div class="text-2xl font-bold text-white mt-2">$4,982</div><div class="text-[#888] text-[11px] mt-1">VM + network + storage</div></div><div class="card p-4"><div class="mini-label">Open invoices</div><div class="text-2xl font-bold text-white mt-2">3</div><div class="text-amber-300 text-[11px] mt-1">$1,240 due</div></div><div class="card p-4"><div class="mini-label">Collection health</div><div class="text-2xl font-bold text-emerald-400 mt-2">99.2%</div><div class="text-[#888] text-[11px] mt-1">30-day success</div></div></div><div class="card p-5"><div class="flex justify-between mb-3"><h2 class="text-sm font-semibold text-white">Metered usage</h2><button @click="notify('Invoice export prepared','success')" class="btn-secondary">Export CSV</button></div><div class="space-y-3 text-xs font-mono"><div><div class="flex justify-between mb-1"><span class="text-[#888]">MicroVM runtime</span><span class="text-white">$3,842</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-blue-400 rounded" style="width:78%"></div></div></div><div><div class="flex justify-between mb-1"><span class="text-[#888]">Network egress</span><span class="text-white">$742</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-violet-400 rounded" style="width:34%"></div></div></div><div><div class="flex justify-between mb-1"><span class="text-[#888]">Persistent storage</span><span class="text-white">$398</span></div><div class="w-full h-2 bg-[#1a1a1a] rounded"><div class="h-full bg-emerald-400 rounded" style="width:18%"></div></div></div></div></div></main>
-
-  <main x-show="route==='audit'" class="max-w-7xl mx-auto px-4 py-8 space-y-5"><div><div class="page-kicker">Operations / Governance</div><h1 class="text-xl font-bold text-white mt-1">Audit & Events</h1><p class="text-xs text-[#888] mt-1">Human, service-account, and AI actions across the control plane.</p></div><div class="card overflow-hidden"><table class="w-full text-left text-xs font-mono"><thead class="bg-[#0f0f0f] text-[#888]"><tr><th class="p-3">Actor</th><th class="p-3">Action</th><th class="p-3">Resource</th><th class="p-3">Policy</th><th class="p-3">Outcome</th></tr></thead><tbody class="divide-y divide-[#1a1a1a]"><template x-for="a in auditLogs" :key="a.id"><tr class="table-row"><td class="p-3 text-white" x-text="a.actor_id"></td><td class="p-3 text-[#888]" x-text="a.action"></td><td class="p-3 text-[#888]" x-text="a.resource"></td><td class="p-3 text-amber-300">recorded</td><td class="p-3" :class="a.outcome==='denied'?'text-red-400':'text-emerald-400'" x-text="a.outcome"></td></tr></template></tbody></table></div></main>
-
-  <!-- ===== OBSERVABILITY (NEW) ===== -->
+  <!-- ===== OBSERVABILITY ===== -->
   <main x-show="route==='observability'" class="max-w-7xl mx-auto px-4 py-8 space-y-5">
-    <div class="flex justify-between items-center flex-wrap gap-3">
-      <div><h1 class="text-lg font-bold text-white flex items-center gap-2"><i data-lucide="activity" class="w-5 h-5"></i>Platform Observability</h1><p class="text-xs text-[#888] mt-0.5">Platform-wide traffic, logs, and metrics across all projects and nodes.</p></div>
-      <div class="flex gap-2">
-        <select class="input" style="width:auto"><option>Last 1h</option><option>Last 6h</option><option>Last 24h</option></select>
-        <button @click="notify('Observability refreshed','info')" class="btn-secondary flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i>Refresh</button>
+    <section class="obs-hero">
+      <div class="relative z-10 flex flex-col lg:flex-row lg:items-end justify-between gap-5">
+        <div><div class="section-kicker flex items-center gap-2"><span class="live-dot"></span>Telemetry / platform-wide</div><h1 class="text-3xl font-semibold text-white mt-2 tracking-tight">See every request<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-violet-300">before users feel it.</span></h1><p class="text-sm text-[#9ca3af] max-w-xl mt-3 leading-6">A unified view of traffic, latency, errors, traces, and service health across your MicroVM fleet.</p></div>
+        <div class="relative z-10 flex items-center gap-2"><span class="obs-chip"><span class="live-dot inline-block mr-1"></span>Streaming</span><select class="input" style="width:auto"><option>Last 1 hour</option><option>Last 6 hours</option><option>Last 24 hours</option><option>Last 7 days</option></select><button @click="notify('Observability refreshed','info'); renderObservabilityCharts()" class="btn-secondary flex items-center gap-1"><i data-lucide="refresh-cw" class="w-3 h-3"></i>Refresh</button></div>
       </div>
-    </div>
+    </section>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Total Requests (1h)</div><div class="text-2xl font-bold text-white mt-1">12.4M</div><div class="text-emerald-400 text-[11px]">+8.2% vs prev</div></div>
-      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">p99 Latency</div><div class="text-2xl font-bold text-emerald-400 mt-1">2.1ms</div><div class="text-[#666] text-[11px]">p50: 0.42ms</div></div>
-      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Error Rate</div><div class="text-2xl font-bold text-white mt-1">0.04%</div><div class="text-emerald-400 text-[11px]">Under SLO</div></div>
-      <div class="card p-4 text-xs font-mono"><div class="text-[#888]">Active Projects</div><div class="text-2xl font-bold text-white mt-1" x-text="projects.length"></div><div class="text-[#666] text-[11px]"><span x-text="vms.length"></span> MicroVMs</div></div>
-    </div>
+    <section class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div class="obs-kpi"><div class="obs-kpi-label">Requests / hour</div><div class="obs-kpi-value">12.4M</div><div class="obs-kpi-note text-emerald-300">↑ 8.2% vs previous</div></div>
+      <div class="obs-kpi"><div class="obs-kpi-label">p99 latency</div><div class="obs-kpi-value text-emerald-300">2.1ms</div><div class="obs-kpi-note">p50 0.42ms · target &lt; 5ms</div></div>
+      <div class="obs-kpi"><div class="obs-kpi-label">error rate</div><div class="obs-kpi-value">0.04%</div><div class="obs-kpi-note text-emerald-300">within SLO budget</div></div>
+      <div class="obs-kpi"><div class="obs-kpi-label">apdex score</div><div class="obs-kpi-value text-emerald-300">0.98</div><div class="obs-kpi-note">excellent user experience</div></div>
+      <div class="obs-kpi col-span-2 lg:col-span-1"><div class="obs-kpi-label">active services</div><div class="obs-kpi-value" x-text="projects.length"></div><div class="obs-kpi-note"><span x-text="vms.length"></span> MicroVMs · 4 nodes</div></div>
+    </section>
 
-    <div class="card p-4">
-      <div class="flex justify-between items-center mb-3"><div class="text-sm font-semibold text-white">Platform Request Throughput (24h)</div></div>
-      <div style="height:200px"><canvas id="platform-chart"></canvas></div>
-    </div>
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div class="obs-panel xl:col-span-2"><div class="obs-panel-head"><div><div class="obs-panel-title">Request volume & error rate</div><div class="obs-panel-sub">requests per second · sampled every minute</div></div><div class="obs-toolbar"><button class="active">Traffic</button><button>Errors</button><button>Latency</button></div></div><div class="obs-chart"><canvas id="platform-chart"></canvas></div></div>
+      <div class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title">SLO health</div><div class="obs-panel-sub">burn rate and remaining budget</div></div><span class="badge badge-v">HEALTHY</span></div><div class="p-4 space-y-4 text-xs font-mono"><div><div class="flex justify-between mb-1.5"><span class="text-[#8b949e]">Availability</span><span class="text-emerald-300">99.98%</span></div><div class="health-meter"><i style="width:99.98%"></i></div><div class="flex justify-between mt-1 text-[10px] text-[#59636e]"><span>target 99.90%</span><span>budget 72%</span></div></div><div><div class="flex justify-between mb-1.5"><span class="text-[#8b949e]">Latency objective</span><span class="text-emerald-300">99.94%</span></div><div class="health-meter"><i style="width:99.94%"></i></div><div class="flex justify-between mt-1 text-[10px] text-[#59636e]"><span>p99 &lt; 5ms</span><span>burn 0.3x</span></div></div><div class="p-3 rounded-lg border border-emerald-400/15 bg-emerald-400/5"><div class="flex items-center gap-2 text-emerald-300"><span class="dot dot-ok"></span><span class="font-semibold">No action required</span></div><div class="text-[#8b949e] mt-1">All production objectives are currently within policy.</div></div></div></div>
+    </section>
 
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">Top Projects by Traffic</div>
-        <div class="space-y-2 text-xs font-mono">
-          <template x-for="p in topProjects" :key="p.name">
-            <div class="flex items-center gap-2"><span class="text-white w-40 truncate" x-text="p.name"></span><div class="flex-1 h-2 bg-[#1a1a1a] rounded-full overflow-hidden"><div class="h-full bg-[#38bdf8] rounded-full" :style="'width:'+p.pct+'%'"></div></div><span class="text-[#888] w-16 text-right" x-text="p.reqs"></span></div>
-          </template>
-        </div>
-      </div>
-      <div class="card p-4">
-        <div class="text-sm font-semibold text-white mb-3">Top Endpoints</div>
-        <div class="space-y-2 text-xs font-mono">
-          <template x-for="e in topEndpoints" :key="e.path">
-            <div class="flex justify-between items-center py-1 border-b border-[#1a1a1a] last:border-0"><div class="flex items-center gap-2"><span class="badge" :class="e.method==='GET'?'badge-v':(e.method==='POST'?'badge-b':'badge-p')" x-text="e.method"></span><span class="text-white" x-text="e.path"></span></div><div class="flex gap-3"><span class="text-[#888]" x-text="e.reqs"></span><span class="text-amber-400" x-text="e.latency"></span></div></div>
-          </template>
-        </div>
-      </div>
-    </div>
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title">Service health</div><div class="obs-panel-sub">availability, latency, and saturation</div></div><button @click="navigate('projects')" class="text-[10px] font-mono text-[#8b949e] hover:text-white">Manage services →</button></div><div class="service-health"><div class="service-row text-[10px] text-[#59636e] uppercase"><span>Service</span><span>p99</span><span>errors</span><span>traffic</span><span class="text-right">state</span></div><template x-for="p in projects" :key="p.id"><div class="service-row"><span class="service-name"><span class="dot dot-ok"></span><span class="truncate" x-text="p.name"></span></span><span class="text-emerald-300">2.1ms</span><span class="text-[#9ca3af]">0.02%</span><span class="flex items-center gap-2"><span class="health-meter flex-1"><i :style="'width:'+(p.vms*20+20)+'%' "></i></span><span class="text-[#8b949e]" x-text="p.vms+' VM'"></span></span><span class="text-right text-emerald-300">OK</span></div></template></div></div>
+      <div class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title">Latency by endpoint</div><div class="obs-panel-sub">p50 / p95 / p99 distribution</div></div><span class="obs-chip">HTTP</span></div><div class="obs-chart" style="height:250px"><canvas id="latency-chart"></canvas></div></div>
+    </section>
 
-    <!-- Live request log -->
-    <div class="card overflow-hidden">
-      <div class="p-3 border-b border-[#1f1f1f] flex justify-between items-center"><div class="flex items-center gap-2"><div class="text-sm font-semibold text-white">Live Request Log</div><span class="badge badge-v"><span class="dot dot-ok dot-pulse"></span>LIVE</span></div><div class="flex items-center gap-2"><input x-model="obsLogFilter" placeholder="Filter path or project..." class="input" style="width:200px" /><button @click="obsLogs=[]" class="btn-ghost text-[11px]">Clear</button></div></div>
-      <div class="p-2 font-mono text-xs overflow-y-auto" style="max-height:400px">
-        <template x-for="(l,i) in obsLogs" :key="i">
-          <div class="flex items-center gap-3 py-1 px-2 hover:bg-[#111] rounded text-[#abb2bf]">
-            <span class="text-[#666] w-20 shrink-0" x-text="l.time"></span>
-            <span class="text-white w-32 truncate shrink-0" x-text="l.project"></span>
-            <span class="w-8 shrink-0" :class="l.status<400?'text-emerald-400':'text-red-400'" x-text="l.status"></span>
-            <span class="text-[#888] w-12 shrink-0" x-text="l.method"></span>
-            <span class="flex-1 truncate" x-text="l.path"></span>
-            <span class="w-16 text-right shrink-0" :class="parseFloat(l.ms)<5?'text-emerald-400':'text-amber-400'" x-text="l.ms"></span>
-          </div>
-        </template>
-        <template x-if="filteredObsLogs.length===0"><div class="text-center text-[#666] py-6">Waiting for requests...</div></template>
-      </div>
-    </div>
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div class="obs-panel xl:col-span-2"><div class="obs-panel-head"><div><div class="obs-panel-title">Top endpoints</div><div class="obs-panel-sub">ranked by request volume and response time</div></div><span class="obs-chip">24h</span></div><div class="overflow-x-auto"><table class="obs-table"><thead><tr><th>Method</th><th>Endpoint</th><th>Requests</th><th>p99</th><th>Success</th></tr></thead><tbody><template x-for="e in topEndpoints" :key="e.path"><tr><td><span class="badge" :class="e.method==='GET'?'badge-v':(e.method==='POST'?'badge-b':'badge-p')" x-text="e.method"></span></td><td class="text-white" x-text="e.path"></td><td x-text="e.reqs"></td><td class="text-amber-300" x-text="e.latency"></td><td class="text-emerald-300">99.98%</td></tr></template></tbody></table></div></div>
+      <div class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title">Active incidents</div><div class="obs-panel-sub">operator attention queue</div></div><span class="badge badge-v">0 OPEN</span></div><div><div class="incident"><div class="incident-icon text-emerald-300 bg-emerald-300/10"><i data-lucide="check" class="w-3.5 h-3.5"></i></div><div><div class="incident-title">No active incidents</div><div class="incident-meta">Last resolved 12 days ago · 14m duration</div></div></div><div class="incident"><div class="incident-icon text-cyan-300 bg-cyan-300/10"><i data-lucide="bell" class="w-3.5 h-3.5"></i></div><div><div class="incident-title">Canary watch enabled</div><div class="incident-meta">edge-api-service · 10% traffic</div></div></div></div></div>
+    </section>
+
+    <section class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title flex items-center gap-2"><span class="live-dot"></span>Live request stream</div><div class="obs-panel-sub">edge access logs · newest first</div></div><div class="flex items-center gap-2"><input x-model="obsLogFilter" placeholder="Filter project or path..." class="input" style="width:210px" /><button @click="obsLogs=[]" class="btn-ghost text-[11px]">Clear</button></div></div><div class="overflow-x-auto"><div class="min-w-[620px]"><div class="grid grid-cols-[80px_150px_55px_55px_1fr_70px] gap-3 px-4 py-2 bg-white/[.025] text-[10px] uppercase tracking-wider text-[#59636e] font-mono"><span>Time</span><span>Service</span><span>Status</span><span>Verb</span><span>Path</span><span class="text-right">Latency</span></div><div class="p-2 font-mono text-xs overflow-y-auto" style="max-height:330px"><template x-for="(l,i) in filteredObsLogs" :key="i"><div class="grid grid-cols-[80px_150px_55px_55px_1fr_70px] gap-3 items-center py-1.5 px-2 hover:bg-white/[.035] rounded text-[#abb2bf]"><span class="text-[#66717d]" x-text="l.time"></span><span class="text-white truncate" x-text="l.project"></span><span :class="l.status<400?'text-emerald-300':'text-red-400'" x-text="l.status"></span><span class="text-[#8b949e]" x-text="l.method"></span><span class="truncate" x-text="l.path"></span><span class="text-right" :class="parseFloat(l.ms)<5?'text-emerald-300':'text-amber-300'" x-text="l.ms"></span></div></template><template x-if="filteredObsLogs.length===0"><div class="text-center text-[#666] py-8">Waiting for requests...</div></template></div></div></div></section>
+
+    <section class="obs-panel"><div class="obs-panel-head"><div><div class="obs-panel-title">Trace waterfall</div><div class="obs-panel-sub">sample request · GET /api/v1/users · trace_8f2a</div></div><span class="badge badge-v">2.34ms TOTAL</span></div><div class="waterfall"><div class="trace-row"><span>edge gateway</span><div class="trace-track"><i style="width:22%;margin-left:2%"></i></div><span class="text-right text-emerald-300">0.12ms</span></div><div class="trace-row"><span>load balancer</span><div class="trace-track"><i style="width:38%;margin-left:11%"></i></div><span class="text-right text-emerald-300">0.28ms</span></div><div class="trace-row"><span>microvm / app</span><div class="trace-track"><i style="width:58%;margin-left:28%"></i></div><span class="text-right text-emerald-300">1.42ms</span></div><div class="trace-row"><span>database pool</span><div class="trace-track"><i style="width:19%;margin-left:67%"></i></div><span class="text-right text-emerald-300">0.44ms</span></div></div></section>
   </main>
 
   <!-- ===== AI OPERATOR ===== -->
@@ -1067,13 +1072,13 @@ subnet = &quot;172.16.0.0/16&quot;`"></pre>
   <!-- ===== ADD REPLICA MODAL ===== -->
   <div x-show="addReplicaModalOpen" class="fixed inset-0 z-50 modal-backdrop flex items-center justify-center p-4">
     <div class="w-full max-w-md card p-6 space-y-4">
-      <div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Add Replicas</div><div class="text-xs text-[#888] mt-0.5">Immediate capacity for the selected deployment</div></div><button @click="addReplicaModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
+      <div class="flex justify-between pb-3 border-b border-[#1a1a1a]"><div><div class="text-base font-semibold text-white">Add Replicas</div><div class="text-xs text-[#888] mt-0.5">Scale up the replica group</div></div><button @click="addReplicaModalOpen=false" class="text-[#888] hover:text-white"><i data-lucide="x" class="w-4 h-4"></i></button></div>
       <div class="space-y-3 text-xs font-mono">
         <div><label class="block text-[#888] mb-1">Quantity (1-5)</label><input type="number" min="1" max="5" x-model.number="addReplicaCount" class="input" /></div>
         <div class="p-3 rounded bg-[#050505] border border-[#1a1a1a] space-y-1">
           <div class="flex justify-between"><span class="text-[#888]">Current:</span><span class="text-white" x-text="projectReplicas.length+' replicas'"></span></div>
           <div class="flex justify-between"><span class="text-[#888]">After:</span><span class="text-emerald-400" x-text="(projectReplicas.length+addReplicaCount)+' replicas'"></span></div>
-          <div class="flex justify-between"><span class="text-[#888]">Target:</span><span class="text-white" x-text="activeProject.name+' · current deployment'"></span></div><div class="flex justify-between"><span class="text-[#888]">Placement:</span><span class="text-white">Spread across fleet</span></div><div class="text-[11px] text-[#666] pt-1">Autoscaling policy is not changed by this action.</div>
+          <div class="flex justify-between"><span class="text-[#888]">Placement:</span><span class="text-white">Spread across fleet</span></div>
           <div class="flex justify-between"><span class="text-[#888]">Cost increase:</span><span class="text-amber-300" x-text="'+$'+(addReplicaCount*0.042*730).toFixed(2)+'/mo'"></span></div>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t border-[#1a1a1a]"><button @click="addReplicaModalOpen=false" class="btn-secondary">Cancel</button><button @click="handleAddReplica()" class="btn-primary">Add Replicas</button></div>
@@ -1439,6 +1444,8 @@ function porter() {
       ];
       this.startLogStream();
       this.startObservabilityStream();
+      setTimeout(() => this.renderOverviewChart(), 120);
+      setTimeout(() => this.renderObservabilityCharts(), 160);
       this.setupKeyboard();
       this.$nextTick(() => lucide.createIcons());
     },
@@ -1492,7 +1499,7 @@ function porter() {
     },
 
     // NAV
-    navigate(route) { this.route = route; if (route === 'nodes') this.fleetSubTab = 'nodes'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
+    navigate(route) { this.route = route; if (route === 'nodes') this.fleetSubTab = 'nodes'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => { lucide.createIcons(); if (route === 'projects') setTimeout(() => this.renderOverviewChart(), 100); if (route === 'observability') setTimeout(() => this.renderObservabilityCharts(), 120); }); },
     navigateToProject(id) { this.selectedProjectId = id; this.selectedReplicaId = null; this.route = 'project_detail'; this.projectSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
     navigateToReplica(id) { const vm = this.vms.find(v => v.id === id); if (vm) { this.selectedReplicaId = id; this.selectedProjectId = vm.project_id; this.route = 'replica_detail'; this.replicaSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); } },
     navigateToNode(id) { this.selectedServerId = id; this.route = 'node_detail'; this.nodeSubTab = 'overview'; window.scrollTo({top:0,behavior:'smooth'}); this.$nextTick(() => lucide.createIcons()); },
@@ -1642,6 +1649,24 @@ function porter() {
     toggleCordon(node) { node.cordoned = !node.cordoned; this.notify(node.cordoned ? `${node.hostname} cordoned` : `${node.hostname} uncordoned`, node.cordoned?'warning':'success'); },
     toggleDeploymentExpand(id) { if (this.expandedDeployments.includes(id)) this.expandedDeployments = this.expandedDeployments.filter(x => x !== id); else this.expandedDeployments.push(id); },
     toggleTool(id) { this.activeTool = this.activeTool === id ? null : id; this.notify(`${this.activeTool ? 'Enabled' : 'Disabled'}: ${this.toolbarTools.find(t => t.id === id).label}`, 'info'); },
+
+    renderObservabilityCharts() {
+      if (typeof Chart === 'undefined') return;
+      const makeData=(n,base,amp)=>Array.from({length:n},(_,i)=>Math.round(base+Math.sin(i/4)*amp+Math.random()*amp*.55));
+      const platform=document.getElementById('platform-chart');
+      if(platform){if(this._platformChart){try{this._platformChart.destroy()}catch(e){}} const labels=Array.from({length:48},(_,i)=>{const d=new Date(Date.now()-(47-i)*30*60000);return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')}); this._platformChart=new Chart(platform,{type:'line',data:{labels,datasets:[{label:'Requests/sec',data:makeData(48,1200,260),borderColor:'#67e8f9',backgroundColor:'rgba(103,232,249,.11)',borderWidth:2,pointRadius:0,tension:.4,fill:true},{label:'Errors/min',data:makeData(48,12,5),borderColor:'#a78bfa',backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,tension:.4}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0b0f13',borderColor:'rgba(255,255,255,.14)',borderWidth:1}},scales:{x:{ticks:{color:'#66717d',font:{size:9},maxTicksLimit:8},grid:{color:'rgba(255,255,255,.045)'}},y:{ticks:{color:'#66717d',font:{size:9}},grid:{color:'rgba(255,255,255,.045)'},beginAtZero:false}}}})}
+      const latency=document.getElementById('latency-chart');
+      if(latency){if(this._latencyChart){try{this._latencyChart.destroy()}catch(e){}} this._latencyChart=new Chart(latency,{type:'bar',data:{labels:['/health','/v1/ingest','/users','/dashboard','/auth'],datasets:[{label:'p50',data:[.24,1.1,1.4,3.2,1.7],backgroundColor:'rgba(103,232,249,.85)',borderRadius:3},{label:'p95',data:[.42,1.52,2.8,4.4,2.6],backgroundColor:'rgba(167,139,250,.70)',borderRadius:3},{label:'p99',data:[.62,1.82,3.4,5.2,3.4],backgroundColor:'rgba(251,191,36,.72)',borderRadius:3}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#8b949e',font:{size:9},boxWidth:10}},tooltip:{backgroundColor:'#0b0f13',borderColor:'rgba(255,255,255,.14)',borderWidth:1}},scales:{x:{ticks:{color:'#66717d',font:{size:9}},grid:{display:false}},y:{ticks:{color:'#66717d',font:{size:9}},grid:{color:'rgba(255,255,255,.045)'},beginAtZero:true}}}})}
+    },
+
+    renderOverviewChart() {
+      const canvas = document.getElementById('overview-chart');
+      if (!canvas || typeof Chart === 'undefined') return;
+      if (this._overviewChart) { try { this._overviewChart.destroy(); } catch(e) {} }
+      const labels=[]; const requests=[]; const errors=[];
+      for (let i=59;i>=0;i--) { const d=new Date(Date.now()-i*60000); labels.push(d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0')); requests.push(Math.round(1150+Math.sin(i/5)*210+Math.random()*130)); errors.push(Math.round(8+Math.random()*12)); }
+      this._overviewChart=new Chart(canvas,{type:'line',data:{labels,datasets:[{label:'Requests/sec',data:requests,borderColor:'#67e8f9',backgroundColor:'rgba(103,232,249,.10)',borderWidth:2,pointRadius:0,tension:.38,fill:true},{label:'Errors',data:errors,borderColor:'#a78bfa',backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,tension:.38}]},options:{responsive:true,maintainAspectRatio:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false},tooltip:{backgroundColor:'#0b0f13',borderColor:'rgba(255,255,255,.14)',borderWidth:1,titleColor:'#fff',bodyColor:'#cbd5e1',padding:10}},scales:{x:{ticks:{color:'#66717d',font:{size:9},maxTicksLimit:7},grid:{color:'rgba(255,255,255,.045)'}},y:{ticks:{color:'#66717d',font:{size:9}},grid:{color:'rgba(255,255,255,.045)'},beginAtZero:false}}}});
+    },
 
     renderProjectChart() {
       const canvas = document.getElementById('request-chart');
