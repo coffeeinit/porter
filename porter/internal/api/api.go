@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -78,8 +79,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/system/backup/verify", s.admin(s.verifyBackup))
 	mux.HandleFunc("GET /v1/operations", s.admin(s.listOperations))
 	mux.HandleFunc("GET /v1/events", s.admin(s.listEvents))
-	mux.HandleFunc("POST /mcp", s.admin(s.handleMCP))
-	mux.HandleFunc("GET /mcp", s.admin(s.mcpInfo))
+	mux.HandleFunc("GET /v1/mcp/tokens", s.admin(s.listMCPTokens))
+	mux.HandleFunc("POST /v1/mcp/tokens", s.admin(s.createMCPToken))
+	mux.HandleFunc("DELETE /v1/mcp/tokens/{id}", s.admin(s.revokeMCPToken))
+	mux.HandleFunc("POST /mcp", s.mcpAuth(s.handleMCP))
+	mux.HandleFunc("GET /mcp", s.mcpAuth(s.mcpInfo))
 	mux.HandleFunc("GET /v1/health", s.health)
 	mux.HandleFunc("GET /v1/projects/{id}/volumes", s.admin(s.listVolumes))
 	mux.HandleFunc("POST /v1/projects/{id}/volumes", s.admin(s.createVolume))
@@ -201,12 +205,25 @@ func (s *Server) result(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "invalid JSON")
 		return
 	}
-	if res.NodeID != r.Context().Value(nodeIDKey).(string) {
+	nodeID := r.Context().Value(nodeIDKey).(string)
+	if res.CommandID == "" || res.OperationID == "" {
+		writeError(w, http.StatusBadRequest, "command_id and operation_id are required")
+		return
+	}
+	if res.NodeID != nodeID {
 		writeError(w, 403, "node id mismatch")
 		return
 	}
+	res.NodeID = nodeID
 	if err := s.Store.CompleteCommand(r.Context(), res); err != nil {
-		writeError(w, 500, err.Error())
+		status := http.StatusInternalServerError
+		switch {
+		case errors.Is(err, store.ErrCommandNotFound), errors.Is(err, store.ErrCommandNodeMismatch):
+			status = http.StatusNotFound
+		case errors.Is(err, store.ErrCommandOperationMismatch), errors.Is(err, store.ErrCommandStateConflict), errors.Is(err, store.ErrCommandAttemptMismatch):
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 	writeJSON(w, 200, map[string]string{"status": "ok"})
@@ -289,7 +306,7 @@ func (s *Server) createApp(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.BaseDomain != "" {
 		host := slug(a.Name) + "." + s.BaseDomain
-		_, _ = s.Store.CreateDomain(r.Context(), a.ProjectID, a.ID, host, "production")
+		_, _ = s.Store.CreateManagedDomain(r.Context(), a.ProjectID, a.ID, host, "production")
 	}
 	writeJSON(w, 201, a)
 }

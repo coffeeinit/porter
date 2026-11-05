@@ -37,6 +37,10 @@ func (s *Server) buildImage(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 400, "source_type required")
 		return
 	}
+	if !unisolatedBuildsEnabled() {
+		writeError(w, http.StatusServiceUnavailable, "image builds are disabled until an isolated builder is configured; temporary operator override: set PORTER_ENABLE_UNISOLATED_BUILDS=true only for trusted sources")
+		return
+	}
 	img, err := s.Store.CreateImage(r.Context(), store.ImageRecord{Name: req.Name, SourceType: req.SourceType, SourceRef: req.SourceRef, Status: "building"})
 	if err != nil {
 		writeError(w, 500, err.Error())

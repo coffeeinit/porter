@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -25,6 +26,10 @@ type Store struct {
 	db   *sql.DB
 	path string
 }
+
+// Node heartbeats arrive every two seconds; tolerate several missed reports
+// while preventing new work from being placed on a disconnected agent.
+const nodeHeartbeatFreshness = 15 * time.Second
 
 type Node struct {
 	ID           string    `json:"id"`
@@ -133,6 +138,10 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := s.migrateMCP(); err != nil {
+		db.Close()
+		return nil, err
+	}
 	s.ensureAutoscaleColumns()
 	return s, nil
 }
@@ -170,6 +179,8 @@ CREATE TABLE IF NOT EXISTS replicas(
 CREATE TABLE IF NOT EXISTS commands(
  id TEXT PRIMARY KEY, node_id TEXT NOT NULL, operation_id TEXT NOT NULL,
  kind TEXT NOT NULL, payload TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'queued',
+ attempt INTEGER NOT NULL DEFAULT 0,
+ claimed_at INTEGER NOT NULL DEFAULT 0,
  created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS operations(
  id TEXT PRIMARY KEY, kind TEXT NOT NULL, resource_id TEXT NOT NULL,
@@ -182,6 +193,49 @@ CREATE TABLE IF NOT EXISTS events(
 CREATE INDEX IF NOT EXISTS idx_commands_node ON commands(node_id, state);
 CREATE INDEX IF NOT EXISTS idx_replicas_app ON replicas(app_id);
 `)
+	if err != nil {
+		return err
+	}
+	return s.ensureNodeMaintenanceColumn()
+}
+
+func (s *Store) ensureNodeMaintenanceColumn() error {
+	rows, err := s.db.Query(`PRAGMA table_info(nodes)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, typ string
+		var def sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &def, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "maintenance_state" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !found {
+		if _, err := s.db.Exec(`ALTER TABLE nodes ADD COLUMN maintenance_state TEXT NOT NULL DEFAULT 'active'`); err != nil {
+			return err
+		}
+	}
+	_, err = s.db.Exec(`UPDATE nodes SET maintenance_state=state WHERE state IN ('cordoned','draining') AND maintenance_state='active'`)
+	return err
+}
+
+// backfillActiveDeployment makes legacy deployments routable only after their desired healthy replica set is present.
+func (s *Store) backfillActiveDeployment() error {
+	_, err := s.db.Exec(`UPDATE deployments SET status='active' WHERE id IN (SELECT d.id FROM deployments d JOIN apps a ON a.id=d.app_id WHERE NOT EXISTS (SELECT 1 FROM deployments x WHERE x.app_id=d.app_id AND x.status='active') AND (SELECT COUNT(*) FROM replicas r WHERE r.deployment_id=d.id AND r.state='running' AND r.health_status='healthy') >= MAX(1,a.replicas_desired) AND d.id=(SELECT d2.id FROM deployments d2 JOIN apps a2 ON a2.id=d2.app_id WHERE d2.app_id=d.app_id AND (SELECT COUNT(*) FROM replicas r2 WHERE r2.deployment_id=d2.id AND r2.state='running' AND r2.health_status='healthy') >= MAX(1,a2.replicas_desired) ORDER BY d2.created_at DESC LIMIT 1))`)
 	return err
 }
 
@@ -278,15 +332,32 @@ func (s *Store) AuthNode(ctx context.Context, nodeID, token string) bool {
 
 func (s *Store) Heartbeat(ctx context.Context, hb protocol.Heartbeat) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE nodes SET cpus_free=?, memory_free_mb=?, disk_free_mb=?, vm_count=?, last_seen=?, state='ready' WHERE id=?`,
-		hb.CPUsFree, hb.MemoryFreeMB, hb.DiskFreeMB, hb.VMCount, time.Now().UTC(), hb.NodeID)
+		`UPDATE nodes SET
+	cpus_free=CASE WHEN cpus>0 THEN MAX(0,MIN(?,cpus-COALESCE((SELECT SUM(a.vcpus) FROM replicas r JOIN apps a ON a.id=r.app_id WHERE r.node_id=nodes.id AND r.state IN ('provisioning','running','deleting')),0))) ELSE MAX(0,?) END,
+	memory_free_mb=CASE WHEN memory_mb>0 THEN MAX(0,MIN(?,memory_mb-COALESCE((SELECT SUM(a.memory_mb) FROM replicas r JOIN apps a ON a.id=r.app_id WHERE r.node_id=nodes.id AND r.state IN ('provisioning','running','deleting')),0))) ELSE MAX(0,?) END,
+	disk_free_mb=?,vm_count=?,
+	last_seen=?,state=CASE WHEN maintenance_state IN ('cordoned','draining') THEN maintenance_state WHEN state IN ('cordoned','draining') THEN state ELSE 'ready' END WHERE id=?`,
+		hb.CPUsFree, hb.CPUsFree, hb.MemoryFreeMB, hb.MemoryFreeMB, hb.DiskFreeMB, hb.VMCount, time.Now().UTC(), hb.NodeID)
 	if err == nil {
-		_, _ = s.db.ExecContext(ctx, `INSERT INTO metrics(id,node_id,cpus_free,memory_free_mb,disk_free_mb,vm_count,created_at) VALUES(?,?,?,?,?,?,?)`,
-			NewID("met"), hb.NodeID, hb.CPUsFree, hb.MemoryFreeMB, hb.DiskFreeMB, hb.VMCount, time.Now().UTC())
+		var cpusFree, memoryFreeMB, vmCount int
+		if scanErr := s.db.QueryRowContext(ctx, `SELECT cpus_free,memory_free_mb,vm_count FROM nodes WHERE id=?`, hb.NodeID).Scan(&cpusFree, &memoryFreeMB, &vmCount); scanErr == nil {
+			_, _ = s.db.ExecContext(ctx, `INSERT INTO metrics(id,node_id,cpus_free,memory_free_mb,disk_free_mb,vm_count,created_at) VALUES(?,?,?,?,?,?,?)`,
+				NewID("met"), hb.NodeID, cpusFree, memoryFreeMB, hb.DiskFreeMB, vmCount, time.Now().UTC())
+		}
 	}
 	return err
 }
 
+// MarkHeartbeatExpiredNodesUnavailable marks nodes offline after the existing freshness window.
+// It does not modify replicas, volumes, reservations, or maintenance intent.
+func (s *Store) MarkHeartbeatExpiredNodesUnavailable(ctx context.Context, now time.Time) (int64, error) {
+	cutoff := now.UTC().Add(-nodeHeartbeatFreshness)
+	res, err := s.db.ExecContext(ctx, `UPDATE nodes SET state='offline' WHERE last_seen < ? AND state <> 'offline'`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
 func (s *Store) ListNodes(ctx context.Context) ([]Node, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id,name,os,arch,cpus,memory_mb,disk_mb,cpus_free,memory_free_mb,disk_free_mb,vm_count,state,last_seen,created_at FROM nodes ORDER BY created_at`)
@@ -384,6 +455,20 @@ func (s *Store) CreateDeployment(ctx context.Context, appID, image string, repli
 		return d, err
 	}
 	defer tx.Rollback()
+	var appExists int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM apps WHERE id=?`, appID).Scan(&appExists); err != nil {
+		return d, err
+	}
+	if appExists == 0 {
+		return d, errors.New("app not found")
+	}
+	var inProgress int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM deployments WHERE app_id=? AND status='deploying'`, appID).Scan(&inProgress); err != nil {
+		return d, err
+	}
+	if inProgress != 0 {
+		return d, errors.New("deployment already in progress")
+	}
 	if image == "" {
 		_ = tx.QueryRowContext(ctx, `SELECT image FROM apps WHERE id=?`, appID).Scan(&image)
 	}
@@ -392,7 +477,7 @@ func (s *Store) CreateDeployment(ctx context.Context, appID, image string, repli
 		d.ID, d.AppID, d.Image, d.Status, d.CreatedAt); err != nil {
 		return d, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE apps SET image=?, replicas_desired=? WHERE id=?`, image, replicas, appID); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE apps SET replicas_desired=? WHERE id=?`, replicas, appID); err != nil {
 		return d, err
 	}
 	var persistence string
@@ -445,11 +530,11 @@ func (s *Store) ensureReplicasTx(ctx context.Context, tx *sql.Tx, appID, depID s
 	var projectID string
 	var image string
 	var vcpus, mem int
-	if err := tx.QueryRowContext(ctx, `SELECT project_id,image,vcpus,memory_mb FROM apps WHERE id=?`, appID).Scan(&projectID, &image, &vcpus, &mem); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT a.project_id,d.image,a.vcpus,a.memory_mb FROM apps a JOIN deployments d ON d.id=? WHERE a.id=?`, depID, appID).Scan(&projectID, &image, &vcpus, &mem); err != nil {
 		return err
 	}
 	var have int
-	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM replicas WHERE app_id=? AND state NOT IN ('deleted')`, appID).Scan(&have); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM replicas WHERE deployment_id=? AND state NOT IN ('deleted')`, depID).Scan(&have); err != nil {
 		return err
 	}
 	for i := have; i < desired; i++ {
@@ -464,7 +549,7 @@ func (s *Store) ensureReplicasTx(ctx context.Context, tx *sql.Tx, appID, depID s
 		}
 	}
 	if have > desired {
-		rows, err := tx.QueryContext(ctx, `SELECT id,node_id,vm_id FROM replicas WHERE app_id=? AND state NOT IN ('deleted') ORDER BY created_at DESC LIMIT ?`, appID, have-desired)
+		rows, err := tx.QueryContext(ctx, `SELECT id,node_id,vm_id FROM replicas WHERE deployment_id=? AND state NOT IN ('deleted') ORDER BY created_at DESC LIMIT ?`, depID, have-desired)
 		if err != nil {
 			return err
 		}
@@ -493,10 +578,11 @@ func (s *Store) ensureReplicasTx(ctx context.Context, tx *sql.Tx, appID, depID s
 func (s *Store) scheduleReplicaTx(ctx context.Context, tx *sql.Tx, rep Replica, image string, vcpus, mem int) error {
 	var nodeID string
 	var cpusFree, memFree int
-	err := tx.QueryRowContext(ctx, `SELECT id,cpus_free,memory_free_mb FROM nodes WHERE state='ready' AND cpus_free>=? AND memory_free_mb>=? ORDER BY memory_free_mb DESC LIMIT 1`, vcpus, mem).Scan(&nodeID, &cpusFree, &memFree)
+	cutoff := time.Now().UTC().Add(-nodeHeartbeatFreshness)
+	err := tx.QueryRowContext(ctx, `SELECT id,cpus_free,memory_free_mb FROM nodes WHERE state='ready' AND last_seen>=? AND cpus_free>=? AND memory_free_mb>=? ORDER BY memory_free_mb DESC LIMIT 1`, cutoff, vcpus, mem).Scan(&nodeID, &cpusFree, &memFree)
 	if errors.Is(err, sql.ErrNoRows) {
 		_, _ = tx.ExecContext(ctx, `INSERT INTO events(id,kind,resource_id,detail,created_at) VALUES(?,?,?,?,?)`,
-			NewID("evt"), "replica.unscheduled", rep.ID, "no ready node with capacity", time.Now().UTC())
+			NewID("evt"), "replica.unscheduled", rep.ID, "no fresh ready node with capacity", time.Now().UTC())
 		return nil
 	}
 	if err != nil {
@@ -513,7 +599,18 @@ func (s *Store) scheduleReplicaTx(ctx context.Context, tx *sql.Tx, rep Replica, 
 	var appPort int
 	_ = tx.QueryRowContext(ctx, `SELECT port FROM apps WHERE id=?`, rep.AppID).Scan(&appPort)
 	var rootfsRef, kernelRef string
-	_ = tx.QueryRowContext(ctx, `SELECT rootfs_ref,kernel_ref FROM app_sources WHERE app_id=?`, rep.AppID).Scan(&rootfsRef, &kernelRef)
+	if strings.HasPrefix(image, "image://") {
+		imageID := strings.TrimPrefix(image, "image://")
+		var imageStatus string
+		if err := tx.QueryRowContext(ctx, `SELECT rootfs_ref,kernel_ref,status FROM images WHERE id=?`, imageID).Scan(&rootfsRef, &kernelRef, &imageStatus); err != nil {
+			return fmt.Errorf("load deployment image %s: %w", imageID, err)
+		}
+		if imageStatus != "ready" || rootfsRef == "" || kernelRef == "" {
+			return fmt.Errorf("deployment image %s is not ready with kernel and rootfs references", imageID)
+		}
+	} else {
+		_ = tx.QueryRowContext(ctx, `SELECT rootfs_ref,kernel_ref FROM app_sources WHERE app_id=?`, rep.AppID).Scan(&rootfsRef, &kernelRef)
+	}
 	spec := protocol.VMApplySpec{VMID: vmID, ReplicaID: rep.ID, ProjectID: rep.ProjectID, DeploymentID: rep.DeploymentID,
 		Image: image, KernelPath: kernelRef, RootfsPath: rootfsRef, VCPUs: vcpus, MemoryMB: mem, DiskMB: 1024, Port: appPort,
 		Bridge: "porter0", BridgeCIDR: "10.42.0.0/16", GatewayIP: "10.42.0.1",
@@ -553,54 +650,160 @@ func (s *Store) scheduleReplicaTx(ctx context.Context, tx *sql.Tx, rep Replica, 
 }
 
 func (s *Store) ClaimCommands(ctx context.Context, nodeID string) ([]protocol.Command, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,node_id,operation_id,kind,payload,state,created_at FROM commands WHERE node_id=? AND state='queued' ORDER BY created_at`, nodeID)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []protocol.Command
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id,node_id,operation_id,kind,payload,state,created_at,attempt FROM commands WHERE node_id=? AND state='queued' ORDER BY created_at,id`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	var queued []protocol.Command
 	for rows.Next() {
 		var c protocol.Command
 		var payload string
-		if err := rows.Scan(&c.ID, &c.NodeID, &c.OperationID, &c.Kind, &payload, &c.State, &c.CreatedAt); err != nil {
+		if err := rows.Scan(&c.ID, &c.NodeID, &c.OperationID, &c.Kind, &payload, &c.State, &c.CreatedAt, &c.Attempt); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(payload), &c.Payload)
-		out = append(out, c)
+		queued = append(queued, c)
 	}
-	for _, c := range out {
-		_, _ = s.db.ExecContext(ctx, `UPDATE commands SET state='sent' WHERE id=?`, c.ID)
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
 	}
-	return out, rows.Err()
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	var claimed []protocol.Command
+	claimedAt := time.Now().UTC().UnixNano()
+	for _, c := range queued {
+		result, err := tx.ExecContext(ctx, `UPDATE commands SET state='sent',attempt=attempt+1,claimed_at=? WHERE id=? AND node_id=? AND state='queued'`, claimedAt, c.ID, nodeID)
+		if err != nil {
+			return nil, err
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if affected == 1 {
+			c.State = "sent"
+			c.Attempt++
+			claimed = append(claimed, c)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return claimed, nil
 }
 
+var (
+	ErrCommandNotFound          = errors.New("command not found")
+	ErrCommandNodeMismatch      = errors.New("command belongs to another node")
+	ErrCommandOperationMismatch = errors.New("operation id does not match command")
+	ErrCommandStateConflict     = errors.New("command is not in a completable state")
+	ErrCommandAttemptMismatch   = errors.New("command attempt does not match active attempt")
+)
+
 func (s *Store) CompleteCommand(ctx context.Context, r protocol.CommandResult) error {
+	if r.CommandID == "" || r.OperationID == "" || r.NodeID == "" {
+		return fmt.Errorf("command id, operation id, and node id are required")
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	var kind string
-	_ = tx.QueryRowContext(ctx, `SELECT kind FROM commands WHERE id=?`, r.CommandID).Scan(&kind)
+	var commandNodeID, operationID, kind, commandState string
+	var commandAttempt int
+	if err := tx.QueryRowContext(ctx, `SELECT node_id,operation_id,kind,state,attempt FROM commands WHERE id=?`, r.CommandID).
+		Scan(&commandNodeID, &operationID, &kind, &commandState, &commandAttempt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrCommandNotFound
+		}
+		return err
+	}
+	if commandNodeID != r.NodeID {
+		return ErrCommandNodeMismatch
+	}
+	if operationID != r.OperationID {
+		return ErrCommandOperationMismatch
+	}
+	if commandAttempt != r.Attempt {
+		return ErrCommandAttemptMismatch
+	}
+	var resourceID, operationState, operationError string
+	if err := tx.QueryRowContext(ctx, `SELECT resource_id,state,error FROM operations WHERE id=?`, operationID).
+		Scan(&resourceID, &operationState, &operationError); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("command %s references missing operation %s", r.CommandID, operationID)
+		}
+		return err
+	}
 	state := "succeeded"
 	if !r.Success {
 		state = "failed"
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE commands SET state=? WHERE id=?`, state, r.CommandID); err != nil {
+	if commandState == state && operationState == state && operationError == r.Error {
+		return nil // Identical retries are harmless and do not emit duplicate events.
+	}
+	if commandState != "sent" {
+		return fmt.Errorf("%w: %s", ErrCommandStateConflict, commandState)
+	}
+	if operationState != "queued" && operationState != "running" {
+		return fmt.Errorf("%w: operation is %s", ErrCommandStateConflict, operationState)
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE commands SET state=? WHERE id=? AND node_id=? AND operation_id=? AND attempt=? AND state='sent'`, state, r.CommandID, r.NodeID, r.OperationID, r.Attempt)
+	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE operations SET state=?,error=?,updated_at=? WHERE id=?`, state, r.Error, time.Now().UTC(), r.OperationID); err != nil {
+	if affected, err := result.RowsAffected(); err != nil {
 		return err
+	} else if affected != 1 {
+		return fmt.Errorf("%w: command changed while completing", ErrCommandStateConflict)
+	}
+	now := time.Now().UTC()
+	result, err = tx.ExecContext(ctx, `UPDATE operations SET state=?,error=?,updated_at=? WHERE id=? AND state IN ('queued','running')`, state, r.Error, now, operationID)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected != 1 {
+		return fmt.Errorf("%w: operation changed while completing", ErrCommandStateConflict)
 	}
 	if kind == "vm.apply" {
 		repState := "running"
 		if !r.Success {
 			repState = "failed"
 		}
-		_, _ = tx.ExecContext(ctx, `UPDATE replicas SET state=?,error=?,updated_at=? WHERE id=(SELECT resource_id FROM operations WHERE id=?)`, repState, r.Error, time.Now().UTC(), r.OperationID)
+		result, err = tx.ExecContext(ctx, `UPDATE replicas SET state=?,error=?,updated_at=? WHERE id=?`, repState, r.Error, now, resourceID)
+		if err != nil {
+			return err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return err
+		} else if affected != 1 {
+			return fmt.Errorf("operation %s references missing replica %s", operationID, resourceID)
+		}
+	} else if kind == "vm.delete" && r.Success {
+		result, err = tx.ExecContext(ctx, `UPDATE replicas SET state='deleted',error='',updated_at=? WHERE id=? AND state='deleting'`, now, resourceID)
+		if err != nil {
+			return err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return err
+		} else if affected != 1 {
+			return fmt.Errorf("operation %s references a replica that is not deleting: %s", operationID, resourceID)
+		}
 	}
-	_, _ = tx.ExecContext(ctx, `INSERT INTO events(id,kind,resource_id,detail,created_at) VALUES(?,?,?,?,?)`,
-		NewID("evt"), "operation."+state, r.OperationID, r.Error, time.Now().UTC())
+	if _, err := tx.ExecContext(ctx, `INSERT INTO events(id,kind,resource_id,detail,created_at) VALUES(?,?,?,?,?)`,
+		NewID("evt"), "operation."+state, operationID, r.Error, now); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -664,12 +867,14 @@ type Volume struct {
 }
 
 type SnapshotRecord struct {
-	ID        string    `json:"id"`
-	VMID      string    `json:"vm_id"`
-	StatePath string    `json:"state_path"`
-	MemPath   string    `json:"mem_path"`
-	SizeBytes int64     `json:"size_bytes"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	VMID        string    `json:"vm_id"`
+	StatePath   string    `json:"state_path"`
+	MemPath     string    `json:"mem_path"`
+	StateSHA256 string    `json:"state_sha256"`
+	MemSHA256   string    `json:"mem_sha256"`
+	SizeBytes   int64     `json:"size_bytes"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 type LogLine struct {
@@ -698,7 +903,8 @@ CREATE TABLE IF NOT EXISTS volumes(
  attached_app_id TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS snapshots(
  id TEXT PRIMARY KEY, vm_id TEXT NOT NULL, state_path TEXT NOT NULL,
- mem_path TEXT NOT NULL, size_bytes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL);
+ mem_path TEXT NOT NULL, state_sha256 TEXT NOT NULL DEFAULT '', mem_sha256 TEXT NOT NULL DEFAULT '',
+ size_bytes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS logs(
  id TEXT PRIMARY KEY, node_id TEXT NOT NULL, vm_id TEXT NOT NULL,
  line TEXT NOT NULL, created_at TIMESTAMP NOT NULL);
@@ -711,7 +917,7 @@ CREATE INDEX IF NOT EXISTS idx_metrics_created ON metrics(created_at DESC);
 CREATE TABLE IF NOT EXISTS routes(id TEXT PRIMARY KEY, host TEXT NOT NULL, app_id TEXT NOT NULL, path_prefix TEXT NOT NULL DEFAULT '/', created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS request_logs(id TEXT PRIMARY KEY, host TEXT NOT NULL, path TEXT NOT NULL, method TEXT NOT NULL, status INTEGER NOT NULL, duration_ms INTEGER NOT NULL, bytes INTEGER NOT NULL, replica_id TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_request_logs_created ON request_logs(created_at DESC);
-CREATE TABLE IF NOT EXISTS domains(id TEXT PRIMARY KEY, project_id TEXT NOT NULL, app_id TEXT NOT NULL, hostname TEXT NOT NULL UNIQUE, kind TEXT NOT NULL DEFAULT 'production', status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMP NOT NULL);
+CREATE TABLE IF NOT EXISTS domains(id TEXT PRIMARY KEY, project_id TEXT NOT NULL, app_id TEXT NOT NULL, hostname TEXT NOT NULL UNIQUE, kind TEXT NOT NULL DEFAULT 'production', status TEXT NOT NULL DEFAULT 'active', verification_token TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_domains_project ON domains(project_id);
 CREATE TABLE IF NOT EXISTS images(id TEXT PRIMARY KEY, name TEXT NOT NULL, source_type TEXT NOT NULL, source_ref TEXT NOT NULL, digest TEXT NOT NULL DEFAULT '', kernel_ref TEXT NOT NULL DEFAULT '', rootfs_ref TEXT NOT NULL DEFAULT '', arch TEXT NOT NULL DEFAULT 'amd64', status TEXT NOT NULL DEFAULT 'pending', error TEXT NOT NULL DEFAULT '', size_bytes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS image_logs(id TEXT PRIMARY KEY, image_id TEXT NOT NULL, line TEXT NOT NULL, created_at TIMESTAMP NOT NULL);
@@ -719,7 +925,121 @@ CREATE INDEX IF NOT EXISTS idx_image_logs ON image_logs(image_id, created_at);
 CREATE TABLE IF NOT EXISTS app_sources(app_id TEXT PRIMARY KEY, repo TEXT NOT NULL DEFAULT '', branch TEXT NOT NULL DEFAULT 'main', rootfs_ref TEXT NOT NULL DEFAULT '', kernel_ref TEXT NOT NULL DEFAULT '');
 CREATE TABLE IF NOT EXISTS app_env(id TEXT PRIMARY KEY, app_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, secret INTEGER NOT NULL DEFAULT 0, UNIQUE(app_id,key));
 `)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureCommandColumns(); err != nil {
+		return err
+	}
+	if err := s.ensureDomainColumns(); err != nil {
+		return err
+	}
+	return s.ensureSnapshotColumns()
+}
+
+func (s *Store) ensureCommandColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(commands)`)
+	if err != nil {
+		return err
+	}
+	found := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, definition string }{
+		{name: "attempt", definition: "INTEGER NOT NULL DEFAULT 0"},
+		{name: "claimed_at", definition: "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		if found[column.name] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE commands ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) ensureDomainColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(domains)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if name == "verification_token" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !found {
+		_, err = s.db.Exec(`ALTER TABLE domains ADD COLUMN verification_token TEXT NOT NULL DEFAULT ''`)
+	}
 	return err
+}
+
+func (s *Store) ensureSnapshotColumns() error {
+	rows, err := s.db.Query(`PRAGMA table_info(snapshots)`)
+	if err != nil {
+		return err
+	}
+	found := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		found[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, column := range []struct{ name, definition string }{
+		{name: "state_sha256", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "mem_sha256", definition: "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if found[column.name] {
+			continue
+		}
+		if _, err := s.db.Exec(`ALTER TABLE snapshots ADD COLUMN ` + column.name + ` ` + column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) CreateVolume(ctx context.Context, projectID, name string, sizeMB int) (Volume, error) {
@@ -755,13 +1075,24 @@ func (s *Store) AttachVolume(ctx context.Context, volumeID, appID string) error 
 }
 
 func (s *Store) RecordSnapshot(ctx context.Context, snap SnapshotRecord) error {
-	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots(id,vm_id,state_path,mem_path,size_bytes,created_at) VALUES(?,?,?,?,?,?)`,
-		snap.ID, snap.VMID, snap.StatePath, snap.MemPath, snap.SizeBytes, time.Now().UTC())
+	if !validSnapshotDigest(snap.StateSHA256) || !validSnapshotDigest(snap.MemSHA256) {
+		return errors.New("snapshot state and memory SHA-256 digests are required")
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots(id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at) VALUES(?,?,?,?,?,?,?,?)`,
+		snap.ID, snap.VMID, snap.StatePath, snap.MemPath, snap.StateSHA256, snap.MemSHA256, snap.SizeBytes, time.Now().UTC())
 	return err
 }
 
+func validSnapshotDigest(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
+
 func (s *Store) ListSnapshots(ctx context.Context, vmID string) ([]SnapshotRecord, error) {
-	q := `SELECT id,vm_id,state_path,mem_path,size_bytes,created_at FROM snapshots`
+	q := `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at FROM snapshots`
 	args := []interface{}{}
 	if vmID != "" {
 		q += ` WHERE vm_id=?`
@@ -776,7 +1107,7 @@ func (s *Store) ListSnapshots(ctx context.Context, vmID string) ([]SnapshotRecor
 	var out []SnapshotRecord
 	for rows.Next() {
 		var x SnapshotRecord
-		if err := rows.Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.SizeBytes, &x.CreatedAt); err != nil {
+		if err := rows.Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &x.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, x)
@@ -972,7 +1303,7 @@ func (s *Store) ReconcileAutoscale(ctx context.Context) error {
 }
 
 func (s *Store) RequeueStaleCommands(ctx context.Context, olderThan time.Time) int {
-	res, err := s.db.ExecContext(ctx, `UPDATE commands SET state='queued' WHERE state='sent' AND created_at < ?`, olderThan)
+	res, err := s.db.ExecContext(ctx, `UPDATE commands SET state='queued' WHERE state='sent' AND ((claimed_at = 0 AND created_at < ?) OR (claimed_at > 0 AND claimed_at < ?))`, olderThan, olderThan.UTC().UnixNano())
 	if err != nil {
 		return 0
 	}
@@ -1012,11 +1343,23 @@ type Route struct {
 }
 
 func (s *Store) CreateRoute(ctx context.Context, host, appID, pathPrefix string) (Route, error) {
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
+	var domainApp, domainStatus string
+	err := s.db.QueryRowContext(ctx, `SELECT app_id,status FROM domains WHERE hostname=?`, host).Scan(&domainApp, &domainStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Route{}, errors.New("route host requires an active verified domain")
+	}
+	if err != nil {
+		return Route{}, err
+	}
+	if domainStatus != "active" || domainApp != appID {
+		return Route{}, errors.New("route host is not an active domain for this app")
+	}
 	if pathPrefix == "" {
 		pathPrefix = "/"
 	}
 	r := Route{ID: NewID("rt"), Host: host, AppID: appID, PathPrefix: pathPrefix, CreatedAt: time.Now().UTC()}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO routes(id,host,app_id,path_prefix,created_at) VALUES(?,?,?,?,?)`, r.ID, r.Host, r.AppID, r.PathPrefix, r.CreatedAt)
+	_, err = s.db.ExecContext(ctx, `INSERT INTO routes(id,host,app_id,path_prefix,created_at) VALUES(?,?,?,?,?)`, r.ID, r.Host, r.AppID, r.PathPrefix, r.CreatedAt)
 	return r, err
 }
 
@@ -1039,6 +1382,7 @@ func (s *Store) ListRoutes(ctx context.Context) ([]Route, error) {
 
 func (s *Store) RouteForHost(ctx context.Context, host string) (Route, bool) {
 	var r Route
+	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 	err := s.db.QueryRowContext(ctx, `SELECT id,host,app_id,path_prefix,created_at FROM routes WHERE host=? ORDER BY created_at DESC LIMIT 1`, host).Scan(&r.ID, &r.Host, &r.AppID, &r.PathPrefix, &r.CreatedAt)
 	return r, err == nil
 }
@@ -1050,7 +1394,7 @@ type ReplicaEndpoint struct {
 }
 
 func (s *Store) HealthyReplicasForApp(ctx context.Context, appID string) []ReplicaEndpoint {
-	rows, err := s.db.QueryContext(ctx, `SELECT id,guest_ip,traffic_weight FROM replicas WHERE app_id=? AND state='running' AND health_status IN ('healthy','checking') AND guest_ip<>''`, appID)
+	rows, err := s.db.QueryContext(ctx, `SELECT r.id,r.guest_ip,r.traffic_weight FROM replicas r JOIN deployments d ON d.id=r.deployment_id WHERE r.app_id=? AND d.status='active' AND r.state='running' AND r.health_status='healthy' AND r.guest_ip<>''`, appID)
 	if err != nil {
 		return nil
 	}
@@ -1078,13 +1422,15 @@ func (s *Store) SetAppPersistence(ctx context.Context, appID, mode string, sizeM
 }
 
 type Domain struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	AppID     string    `json:"app_id"`
-	Hostname  string    `json:"hostname"`
-	Kind      string    `json:"kind"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                 string    `json:"id"`
+	ProjectID          string    `json:"project_id"`
+	AppID              string    `json:"app_id"`
+	Hostname           string    `json:"hostname"`
+	Kind               string    `json:"kind"`
+	Status             string    `json:"status"`
+	VerificationRecord string    `json:"verification_record,omitempty"`
+	VerificationToken  string    `json:"verification_token,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
 }
 
 type RequestLog struct {
@@ -1100,20 +1446,84 @@ type RequestLog struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
+var (
+	ErrDomainNotFound     = errors.New("domain not found")
+	ErrDomainProofMissing = errors.New("domain DNS proof is missing")
+)
+
 func (s *Store) CreateDomain(ctx context.Context, projectID, appID, hostname, kind string) (Domain, error) {
+	return s.createDomain(ctx, projectID, appID, hostname, kind, false)
+}
+
+func (s *Store) CreateManagedDomain(ctx context.Context, projectID, appID, hostname, kind string) (Domain, error) {
+	return s.createDomain(ctx, projectID, appID, hostname, kind, true)
+}
+
+func (s *Store) createDomain(ctx context.Context, projectID, appID, hostname, kind string, managed bool) (Domain, error) {
 	if kind == "" {
 		kind = "production"
 	}
-	d := Domain{ID: NewID("dom"), ProjectID: projectID, AppID: appID, Hostname: hostname, Kind: kind, Status: "active", CreatedAt: time.Now().UTC()}
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO domains(id,project_id,app_id,hostname,kind,status,created_at) VALUES(?,?,?,?,?,?,?)`, d.ID, d.ProjectID, d.AppID, d.Hostname, d.Kind, d.Status, d.CreatedAt); err != nil {
+	hostname, err := normalizeDomainHostname(hostname)
+	if err != nil {
+		return Domain{}, err
+	}
+	var appExists int
+	if err := s.db.QueryRowContext(ctx, `SELECT 1 FROM apps WHERE id=? AND project_id=?`, appID, projectID).Scan(&appExists); err != nil {
+		return Domain{}, fmt.Errorf("app does not belong to project: %w", err)
+	}
+	status, verificationToken := "pending", ""
+	if managed {
+		status = "active"
+	} else {
+		verificationToken, err = randomToken("ptr_verify_")
+		if err != nil {
+			return Domain{}, err
+		}
+	}
+	d := Domain{ID: NewID("dom"), ProjectID: projectID, AppID: appID, Hostname: hostname, Kind: kind, Status: status, CreatedAt: time.Now().UTC()}
+	if !managed {
+		d.VerificationRecord = "_porter-verify." + hostname
+		d.VerificationToken = verificationToken
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Domain{}, err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO domains(id,project_id,app_id,hostname,kind,status,verification_token,created_at) VALUES(?,?,?,?,?,?,?,?)`, d.ID, d.ProjectID, d.AppID, d.Hostname, d.Kind, d.Status, verificationToken, d.CreatedAt); err != nil {
 		return d, err
 	}
-	_, err := s.CreateRoute(ctx, hostname, appID, "/")
-	return d, err
+	if managed {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO routes(id,host,app_id,path_prefix,created_at) VALUES(?,?,?,?,?)`, NewID("rt"), hostname, appID, "/", d.CreatedAt); err != nil {
+			return d, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return d, err
+	}
+	return d, nil
+}
+
+func normalizeDomainHostname(hostname string) (string, error) {
+	hostname = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hostname)), ".")
+	if hostname == "" || len(hostname) > 253 || net.ParseIP(hostname) != nil {
+		return "", errors.New("hostname must be a valid DNS name")
+	}
+	for _, label := range strings.Split(hostname, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", errors.New("hostname must be a valid DNS name")
+		}
+		for _, ch := range label {
+			if !(ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '-') {
+				return "", errors.New("hostname must use ASCII letters, digits, and hyphens")
+			}
+		}
+	}
+	return hostname, nil
 }
 
 func (s *Store) ListDomains(ctx context.Context, projectID string) ([]Domain, error) {
-	q := `SELECT id,project_id,app_id,hostname,kind,status,created_at FROM domains`
+	q := `SELECT id,project_id,app_id,hostname,kind,status,verification_token,created_at FROM domains`
 	args := []interface{}{}
 	if projectID != "" {
 		q += ` WHERE project_id=?`
@@ -1128,8 +1538,11 @@ func (s *Store) ListDomains(ctx context.Context, projectID string) ([]Domain, er
 	var out []Domain
 	for rows.Next() {
 		var d Domain
-		if err := rows.Scan(&d.ID, &d.ProjectID, &d.AppID, &d.Hostname, &d.Kind, &d.Status, &d.CreatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.ProjectID, &d.AppID, &d.Hostname, &d.Kind, &d.Status, &d.VerificationToken, &d.CreatedAt); err != nil {
 			return nil, err
+		}
+		if d.VerificationToken != "" {
+			d.VerificationRecord = "_porter-verify." + d.Hostname
 		}
 		out = append(out, d)
 	}
@@ -1137,8 +1550,67 @@ func (s *Store) ListDomains(ctx context.Context, projectID string) ([]Domain, er
 }
 
 func (s *Store) VerifyDomain(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE domains SET status='active' WHERE id=?`, id)
-	return err
+	return s.verifyDomainWithLookup(ctx, id, func(ctx context.Context, name string) ([]string, error) {
+		return net.DefaultResolver.LookupTXT(ctx, name)
+	})
+}
+
+func (s *Store) verifyDomainWithLookup(ctx context.Context, id string, lookup func(context.Context, string) ([]string, error)) error {
+	var hostname, appID, token, status string
+	err := s.db.QueryRowContext(ctx, `SELECT hostname,app_id,verification_token,status FROM domains WHERE id=?`, id).Scan(&hostname, &appID, &token, &status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrDomainNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status == "active" {
+		return nil
+	}
+	if token == "" {
+		return ErrDomainProofMissing
+	}
+	values, err := lookup(ctx, "_porter-verify."+hostname)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrDomainProofMissing, err)
+	}
+	matched := false
+	for _, value := range values {
+		if strings.TrimSpace(value) == token {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return ErrDomainProofMissing
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE domains SET status='active',verification_token='' WHERE id=? AND status='pending' AND verification_token=?`, id, token)
+	if err != nil {
+		return err
+	}
+	if affected, err := result.RowsAffected(); err != nil {
+		return err
+	} else if affected != 1 {
+		return ErrDomainProofMissing
+	}
+	var existingApp string
+	err = tx.QueryRowContext(ctx, `SELECT app_id FROM routes WHERE host=? ORDER BY created_at DESC LIMIT 1`, hostname).Scan(&existingApp)
+	if err == nil && existingApp != appID {
+		return errors.New("hostname already routes to another app")
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO routes(id,host,app_id,path_prefix,created_at) VALUES(?,?,?,?,?)`, NewID("rt"), hostname, appID, "/", time.Now().UTC()); err != nil {
+			return err
+		}
+	} else if err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) ListRequestLogs(ctx context.Context, limit int) ([]RequestLog, error) {
@@ -1233,8 +1705,28 @@ func (s *Store) ListNodeLogs(ctx context.Context, nodeID string, limit int) ([]L
 }
 
 func (s *Store) SetNodeState(ctx context.Context, nodeID, state string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE nodes SET state=? WHERE id=?`, state, nodeID)
-	return err
+	var query string
+	var args []interface{}
+	switch state {
+	case "cordoned", "draining":
+		query = `UPDATE nodes SET maintenance_state=?,state=CASE WHEN state='offline' OR last_seen<? THEN 'offline' ELSE ? END WHERE id=?`
+		args = []interface{}{state, time.Now().UTC().Add(-nodeHeartbeatFreshness), state, nodeID}
+	case "ready":
+		query = `UPDATE nodes SET maintenance_state='active',state=CASE WHEN last_seen<? THEN 'offline' ELSE 'ready' END WHERE id=?`
+		args = []interface{}{time.Now().UTC().Add(-nodeHeartbeatFreshness), nodeID}
+	default:
+		return fmt.Errorf("unsupported node state %q", state)
+	}
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if changed, err := res.RowsAffected(); err != nil {
+		return err
+	} else if changed != 1 {
+		return errors.New("node not found")
+	}
+	return nil
 }
 
 func (s *Store) CreatePreviewDomain(ctx context.Context, appID string, pr int, baseDomain string) (Domain, error) {
@@ -1243,7 +1735,7 @@ func (s *Store) CreatePreviewDomain(ctx context.Context, appID string, pr int, b
 		return Domain{}, err
 	}
 	host := "pr-" + strconv.Itoa(pr) + "-" + slug(name) + "." + baseDomain
-	return s.CreateDomain(ctx, projectID, appID, host, "preview")
+	return s.CreateManagedDomain(ctx, projectID, appID, host, "preview")
 }
 
 func slug(s string) string {
@@ -1330,7 +1822,7 @@ func (s *Store) SetReplicaWeight(ctx context.Context, replicaID string, weight i
 
 func (s *Store) GetSnapshot(ctx context.Context, id string) (SnapshotRecord, bool) {
 	var x SnapshotRecord
-	err := s.db.QueryRowContext(ctx, `SELECT id,vm_id,state_path,mem_path,size_bytes,created_at FROM snapshots WHERE id=?`, id).Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.SizeBytes, &x.CreatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at FROM snapshots WHERE id=?`, id).Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &x.CreatedAt)
 	return x, err == nil
 }
 
@@ -1341,8 +1833,74 @@ func (s *Store) SetReplicaHealthByVM(ctx context.Context, vmID, state, health, e
 			health = "healthy"
 		}
 	}
-	_, err := s.db.ExecContext(ctx, `UPDATE replicas SET state=?,health_status=?,error=?,updated_at=? WHERE vm_id=?`, state, health, errText, time.Now().UTC(), vmID)
-	return err
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var appID, depID string
+	if err := tx.QueryRowContext(ctx, `SELECT app_id,deployment_id FROM replicas WHERE vm_id=?`, vmID).Scan(&appID, &depID); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE replicas SET state=?,health_status=?,error=?,updated_at=? WHERE vm_id=?`, state, health, errText, time.Now().UTC(), vmID); err != nil {
+		return err
+	}
+	if state != "running" || health != "healthy" {
+		if state == "failed" || health == "unhealthy" {
+			_, _ = tx.ExecContext(ctx, `UPDATE deployments SET status='failed' WHERE id=? AND status='deploying'`, depID)
+		}
+		return tx.Commit()
+	}
+	var desired, healthy int
+	if err := tx.QueryRowContext(ctx, `SELECT a.replicas_desired,(SELECT COUNT(*) FROM replicas WHERE deployment_id=? AND state='running' AND health_status='healthy') FROM apps a WHERE a.id=?`, depID, appID).Scan(&desired, &healthy); err != nil {
+		return err
+	}
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM deployments WHERE id=?`, depID).Scan(&status); err != nil {
+		return err
+	}
+	if status == "deploying" && healthy >= desired && desired > 0 {
+		if _, err := tx.ExecContext(ctx, `UPDATE deployments SET status='superseded' WHERE app_id=? AND status='active'`, appID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE deployments SET status='active' WHERE id=? AND status='deploying'`, depID); err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT id,node_id,vm_id FROM replicas WHERE app_id=? AND deployment_id<>? AND state NOT IN ('deleted','deleting')`, appID, depID)
+		if err != nil {
+			return err
+		}
+		type oldReplica struct{ id, node, vm string }
+		var old []oldReplica
+		for rows.Next() {
+			var x oldReplica
+			if err := rows.Scan(&x.id, &x.node, &x.vm); err != nil {
+				rows.Close()
+				return err
+			}
+			old = append(old, x)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		rows.Close()
+		for _, x := range old {
+			now := time.Now().UTC()
+			op := NewID("op")
+			if _, err := tx.ExecContext(ctx, `UPDATE replicas SET state='deleting',updated_at=? WHERE id=?`, now, x.id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO operations(id,kind,resource_id,state,created_at,updated_at) VALUES(?,?,?,?,?,?)`, op, "vm.delete", x.id, "queued", now, now); err != nil {
+				return err
+			}
+			payload, _ := json.Marshal(protocol.VMApplySpec{VMID: x.vm})
+			if _, err := tx.ExecContext(ctx, `INSERT INTO commands(id,node_id,operation_id,kind,payload,state,created_at) VALUES(?,?,?,?,?,?,?)`, NewID("cmd"), x.node, op, "vm.delete", string(payload), "queued", now); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) AppPort(ctx context.Context, appID string) (int, bool) {

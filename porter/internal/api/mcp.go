@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"time"
@@ -30,7 +31,7 @@ type mcpResponse struct {
 func (s *Server) mcpInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"name": "porter", "version": "v1", "transport": "http-jsonrpc",
-		"endpoint": "/mcp", "auth": "Bearer admin token",
+		"endpoint": "/mcp", "auth": "Bearer admin token or scoped MCP token",
 	})
 }
 
@@ -51,14 +52,32 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 	case "notifications/initialized":
 		resp.Result = map[string]string{"status": "ok"}
 	case "tools/list":
-		resp.Result = map[string]interface{}{"tools": porterMCPTools()}
+		resp.Result = map[string]interface{}{"tools": visibleMCPTools(principalFromContext(r.Context()))}
 	case "tools/call":
 		var params struct {
 			Name      string          `json:"name"`
 			Arguments json.RawMessage `json:"arguments"`
 		}
 		_ = json.Unmarshal(req.Params, &params)
+		principal := principalFromContext(r.Context())
+		if principal.ID == "" {
+			principal = mcpPrincipal{ID: "unknown"}
+		}
+		if auditErr := s.Store.RecordMCPToolCall(r.Context(), principal.ID, params.Name, "started"); auditErr != nil {
+			err := errors.New("MCP audit storage unavailable; tool was not executed")
+			resp.Result = map[string]interface{}{"isError": true, "content": []map[string]string{{"type": "text", "text": err.Error()}}}
+			break
+		}
 		out, err := s.callMCPTool(r, params.Name, params.Arguments)
+		outcome := "succeeded"
+		if err != nil {
+			outcome = "failed"
+			var denied *mcpAuthorizationError
+			if errors.As(err, &denied) {
+				outcome = "denied"
+			}
+		}
+		_ = s.Store.RecordMCPToolCall(r.Context(), principal.ID, params.Name, outcome)
 		if err != nil {
 			resp.Result = map[string]interface{}{"isError": true, "content": []map[string]string{{"type": "text", "text": err.Error()}}}
 		} else {
@@ -83,19 +102,19 @@ func porterMCPTools() []map[string]interface{} {
 		{"name": "porter_list_volumes", "description": "List project volumes", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"project_id"}, "properties": map[string]interface{}{"project_id": map[string]string{"type": "string"}}}},
 		{"name": "porter_create_volume", "description": "Create a project volume", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"project_id", "name", "size_mb"}, "properties": map[string]interface{}{"project_id": map[string]string{"type": "string"}, "name": map[string]string{"type": "string"}, "size_mb": map[string]string{"type": "integer"}}}},
 		{"name": "porter_attach_volume", "description": "Attach a volume to an app", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"volume_id", "app_id"}, "properties": map[string]interface{}{"volume_id": map[string]string{"type": "string"}, "app_id": map[string]string{"type": "string"}}}},
-		{"name": "porter_list_snapshots", "description": "List VM snapshots", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"vm_id": map[string]string{"type": "string"}}}},
+		{"name": "porter_list_snapshots", "description": "List VM snapshots", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"vm_id"}, "properties": map[string]interface{}{"vm_id": map[string]string{"type": "string"}}}},
 		{"name": "porter_create_snapshot", "description": "Create a VM snapshot", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"vm_id"}, "properties": map[string]interface{}{"vm_id": map[string]string{"type": "string"}}}},
-		{"name": "porter_list_logs", "description": "List VM logs", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"vm_id": map[string]string{"type": "string"}, "limit": map[string]string{"type": "integer"}}}},
+		{"name": "porter_list_logs", "description": "List VM logs", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"vm_id"}, "properties": map[string]interface{}{"vm_id": map[string]string{"type": "string"}, "limit": map[string]string{"type": "integer"}}}},
 		{"name": "porter_list_metrics", "description": "List fleet metric samples", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"limit": map[string]string{"type": "integer"}}}},
 		{"name": "porter_get_autoscale", "description": "Get autoscale/idle policy for an app", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"app_id"}, "properties": map[string]interface{}{"app_id": map[string]string{"type": "string"}}}},
 		{"name": "porter_set_autoscale", "description": "Set autoscale/idle policy for an app", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"app_id"}, "properties": map[string]interface{}{"app_id": map[string]string{"type": "string"}, "enabled": map[string]string{"type": "boolean"}, "min_replicas": map[string]string{"type": "integer"}, "max_replicas": map[string]string{"type": "integer"}, "cpu_target": map[string]string{"type": "integer"}, "idle_timeout_sec": map[string]string{"type": "integer"}, "scale_to_zero": map[string]string{"type": "boolean"}}}},
 		{"name": "porter_touch_app", "description": "Report app activity and CPU for autoscaling", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"app_id"}, "properties": map[string]interface{}{"app_id": map[string]string{"type": "string"}, "cpu_percent": map[string]string{"type": "number"}}}},
 		{"name": "porter_wake_app", "description": "Wake a scaled-to-zero app", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"app_id"}, "properties": map[string]interface{}{"app_id": map[string]string{"type": "string"}}}},
-		{"name": "porter_list_domains", "description": "List domains", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{"project_id": map[string]string{"type": "string"}}}},
+		{"name": "porter_list_domains", "description": "List domains", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"project_id"}, "properties": map[string]interface{}{"project_id": map[string]string{"type": "string"}}}},
 		{"name": "porter_create_domain", "description": "Create a domain route", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"project_id", "app_id", "hostname"}, "properties": map[string]interface{}{"project_id": map[string]string{"type": "string"}, "app_id": map[string]string{"type": "string"}, "hostname": map[string]string{"type": "string"}, "kind": map[string]string{"type": "string"}}}},
 		{"name": "porter_gateway_stats", "description": "Get gateway traffic stats", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "porter_gateway_requests", "description": "List recent gateway requests", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
-		{"name": "porter_list_traces", "description": "List recent gateway traces", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
+		{"name": "porter_list_traces", "description": "Compatibility alias for gateway request records; distributed OpenTelemetry spans are not collected", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "porter_create_preview", "description": "Create an automatic preview domain", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"app_id", "pr_number"}, "properties": map[string]interface{}{"app_id": map[string]string{"type": "string"}, "pr_number": map[string]string{"type": "integer"}}}},
 		{"name": "porter_list_images", "description": "List image catalog", "inputSchema": map[string]interface{}{"type": "object", "properties": map[string]interface{}{}}},
 		{"name": "porter_build_image", "description": "Build Dockerfile/Compose/Git/Docker/OCI into rootfs.ext4", "inputSchema": map[string]interface{}{"type": "object", "required": []string{"name", "source_type"}, "properties": map[string]interface{}{"name": map[string]string{"type": "string"}, "source_type": map[string]string{"type": "string"}, "source_ref": map[string]string{"type": "string"}, "context_dir": map[string]string{"type": "string"}, "dockerfile": map[string]string{"type": "string"}, "git_url": map[string]string{"type": "string"}, "branch": map[string]string{"type": "string"}, "subdir": map[string]string{"type": "string"}, "compose_path": map[string]string{"type": "string"}, "size_mb": map[string]string{"type": "integer"}}}},
@@ -116,11 +135,35 @@ func porterMCPTools() []map[string]interface{} {
 
 func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) (interface{}, error) {
 	ctx := r.Context()
+	principal := principalFromContext(ctx)
+	if err := s.authorizeMCPTool(ctx, principal, name, raw); err != nil {
+		return nil, err
+	}
 	switch name {
 	case "porter_list_nodes":
-		return s.Store.ListNodes(ctx)
+		nodes, err := s.Store.ListNodes(ctx)
+		if err != nil || principal.Admin || principal.hasScope(principal.NodeIDs, "*") {
+			return nodes, err
+		}
+		filtered := make([]store.Node, 0, len(nodes))
+		for _, node := range nodes {
+			if principal.hasScope(principal.NodeIDs, node.ID) {
+				filtered = append(filtered, node)
+			}
+		}
+		return filtered, nil
 	case "porter_list_projects":
-		return s.Store.ListProjects(ctx)
+		projects, err := s.Store.ListProjects(ctx)
+		if err != nil || principal.Admin || principal.hasScope(principal.ProjectIDs, "*") {
+			return projects, err
+		}
+		filtered := make([]store.Project, 0, len(projects))
+		for _, project := range projects {
+			if principal.hasScope(principal.ProjectIDs, project.ID) {
+				filtered = append(filtered, project)
+			}
+		}
+		return filtered, nil
 	case "porter_create_project":
 		var in struct {
 			Name string `json:"name"`
@@ -284,7 +327,17 @@ func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) 
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, err
 		}
-		return s.Store.ListDomains(ctx, in.ProjectID)
+		domains, err := s.Store.ListDomains(ctx, in.ProjectID)
+		if err != nil || principal.Admin || principal.hasScope(principal.ProjectIDs, "*") || in.ProjectID != "" {
+			return domains, err
+		}
+		filtered := make([]store.Domain, 0, len(domains))
+		for _, domain := range domains {
+			if principal.hasScope(principal.ProjectIDs, domain.ProjectID) {
+				filtered = append(filtered, domain)
+			}
+		}
+		return filtered, nil
 	case "porter_create_domain":
 		var in struct {
 			ProjectID string `json:"project_id"`
@@ -303,6 +356,9 @@ func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) 
 	case "porter_list_traces":
 		return s.Store.ListRequestLogs(ctx, 200)
 	case "porter_build_image":
+		if !unisolatedBuildsEnabled() {
+			return nil, &mcpToolError{"image builds are disabled until an isolated builder is configured; set PORTER_ENABLE_UNISOLATED_BUILDS=true only for trusted sources"}
+		}
 		var in struct {
 			Name        string `json:"name"`
 			SourceType  string `json:"source_type"`
@@ -384,7 +440,10 @@ func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) 
 		if !ok {
 			return nil, &mcpToolError{"snapshot not found"}
 		}
-		op, err := s.Store.QueueVMCommand(ctx, snap.VMID, "snapshot.restore", "snapshot.restore", map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath})
+		if snap.StateSHA256 == "" || snap.MemSHA256 == "" {
+			return nil, &mcpToolError{"snapshot has no integrity hashes; create a new snapshot before restoring"}
+		}
+		op, err := s.Store.QueueVMCommand(ctx, snap.VMID, "snapshot.restore", "snapshot.restore", map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath, "state_sha256": snap.StateSHA256, "mem_sha256": snap.MemSHA256})
 		return map[string]string{"operation_id": op}, err
 	case "porter_create_preview":
 		var in struct {

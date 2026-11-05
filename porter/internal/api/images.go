@@ -76,7 +76,11 @@ func (s *Server) restoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "snapshot not found")
 		return
 	}
-	spec := map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath}
+	if snap.StateSHA256 == "" || snap.MemSHA256 == "" {
+		writeError(w, http.StatusConflict, "snapshot has no integrity hashes; create a new snapshot before restoring")
+		return
+	}
+	spec := map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath, "state_sha256": snap.StateSHA256, "mem_sha256": snap.MemSHA256}
 	opID, err := s.Store.QueueVMCommand(r.Context(), snap.VMID, "snapshot.restore", "snapshot.restore", spec)
 	if err != nil {
 		writeError(w, 400, err.Error())

@@ -157,6 +157,9 @@ func main() {
 			case <-reconcileCtx.Done():
 				return
 			case <-t.C:
+				if _, err := st.MarkHeartbeatExpiredNodesUnavailable(reconcileCtx, time.Now()); err != nil {
+					log.Printf("node freshness reconciliation: %v", err)
+				}
 				if err := st.ReconcileAutoscale(reconcileCtx); err != nil {
 					log.Printf("autoscale: %v", err)
 				}

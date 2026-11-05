@@ -1,4 +1,4 @@
-﻿# PORTER HANDOFF — 2026-10-18
+# PORTER HANDOFF — 2026-10-18
 
 ## 1. What this repository is now
 
@@ -261,20 +261,27 @@ porter_detect_framework
 
 - UI is still one large page, not routed pages.
 - No live log streaming (only query).
-- Gateway has no ACME; TLS only via cert/key files.
+- Gateway supports static cert/key TLS and optional HTTP-01 autocert; public
+  ACME acceptance is unverified, and provider DNS/DNS-01/wildcard TLS are absent.
 - Gateway is HTTP reverse proxy; no full WebSocket tuning yet.
 - Guest-init is built and injectable but app startup inside the guest is not
   fully verified.
 - Health checks are process liveness only; no HTTP/TCP guest probes.
-- Image builds use host Docker, not an isolated builder MicroVM.
-- Build runs synchronously; no build log stream or build cache.
+- Image builds still use host Docker/Git, but REST, MCP, and webhook entry points
+  fail closed by default until an isolated builder is configured.
+- Image builds run asynchronously and expose logs/cancellation; those features
+  do not make the unisolated build path safe for untrusted source.
 - Compose supports only the primary service, not full stacks.
-- GitHub auth is local clone based; no GitHub App/webhook-triggered build.
+- Signed GitHub push webhooks pin the commit SHA and deduplicate deliveries;
+  webhook builds remain disabled by default, and GitHub App auth is absent.
 - Snapshot restore endpoint/agent command added, but not yet E2E-verified.
 - Volume resize updates metadata; host file resize not yet applied.
-- Backups are not implemented.
-- Tests are minimal: imagebuilder detection/compose tests only.
-- No CI.
+- The admin API can create and integrity-check local SQLite backups; database
+  restore, off-host retention, encryption, and a full recovery drill are absent.
+- Portable regression tests cover the API, store, gateway, builder, and agent;
+  API-to-fake-agent restart acceptance and KVM validation remain open.
+- GitHub Actions runs portable tests, vet, race checks, the beta build, and UI
+  JavaScript syntax validation; it does not cover KVM/provider acceptance.
 
 ## 8. Next tasks in order
 
