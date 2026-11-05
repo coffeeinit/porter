@@ -13,3 +13,16 @@ Portable verification is `make test`, `make vet`, the race tests in `.github/wor
 The GitHub Actions KVM lane runs on version tags, or on manual dispatch when `run_kvm_acceptance` is enabled. It requires a self-hosted runner labeled `porter-kvm` plus the repository variables `PORTER_KVM_KERNEL`, `PORTER_KVM_ROOTFS`, and optionally `PORTER_FIRECRACKER_BIN`.
 
 This gate currently verifies a real Firecracker apply/stop lifecycle only. It does not establish end-to-end API-to-agent behavior, host-reboot recovery, guest-network readiness, isolation/jailer correctness, snapshot/backup recovery, DNS/TLS provisioning, or complete OpenTelemetry ingestion. A passing portable CI build is not a substitute for those release checks.
+
+## v1.0.0-beta status: blocked
+
+Do not create a v1.0.0-beta tag or release until each required gate has an active, safe acceptance test and passes on the exact release commit. In particular:
+
+- **VM lifecycle and fleet repair:** the KVM gate does not cover start, restart, scale, agent/host restart convergence, failed-replica repair, capacity recovery, or safe drain/evacuation.
+- **Build isolation:** builds are fail-closed by default, but enabling the unisolated-build override is not a safe release solution. Isolation, resource limits, source confinement, archive limits, and cancellation need tests.
+- **Agent security and convergence:** HTTPS polling is not mTLS streaming. Certificate lifecycle, durable command-result retries, and restart convergence need an end-to-end test.
+- **Domains and routing:** application routing exists, but DNS-provider automation and public ACME issuance/renewal are not accepted release behavior.
+- **Observability:** gateway request records and existing fleet metrics/logs are not distributed OpenTelemetry spans or a complete OTLP ingestion pipeline.
+- **Backup and restore:** the current VM snapshot path pauses Firecracker but does not prove guest/application quiescence or rootfs/data-volume recovery. Shared-volume safety and transactional rollback are also unproven. See [`snapshot and restore verification status`](../docs/SNAPSHOT_RESTORE_VERIFIED.md).
+
+The legacy E2E scripts remain disabled because their old bodies used unsafe shared resources or incomplete assertions. Do not remove their fail-closed guards or treat historical script output as current acceptance evidence. Portable unit tests, race tests, and beta binary builds are necessary checks, not release approval.
