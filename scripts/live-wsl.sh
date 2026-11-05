@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT=/mnt/d/github/porter
+printf '%s\n' 'Disabled: this legacy WSL demo deletes a fixed /var/lib path and kills processes by pattern.' >&2
+printf '%s\n' 'See scripts/README.md; do not remove this guard until the demo is isolated.' >&2
+exit 2
 LIVE=/var/lib/porter-live
 B=http://127.0.0.1:18080
 G=http://127.0.0.1:18081

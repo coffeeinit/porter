@@ -30,10 +30,16 @@ fmt:
 clean:
 	rm -rf $(BIN)
 
-.PHONY: e2e-http e2e-snapshot e2e-mcp
+.PHONY: e2e-http e2e-snapshot e2e-mcp kvm-acceptance
 e2e-http:
-	sudo bash scripts/e2e-http.sh
+	@echo "Disabled: legacy E2E used shared /tmp paths and pkill; see scripts/README.md" >&2
+	@false
 e2e-snapshot:
-	sudo bash scripts/e2e-snapshot.sh
+	@echo "Disabled: legacy E2E used shared /tmp paths and pkill; see scripts/README.md" >&2
+	@false
 e2e-mcp:
-	bash scripts/e2e-mcp.sh
+	@echo "Disabled: legacy E2E used shared /tmp paths and pkill; see scripts/README.md" >&2
+	@false
+
+kvm-acceptance:
+	cd porter-agent && PORTER_KVM_ACCEPTANCE=1 go test -count=1 -run '^TestKVMFirecrackerApplyStopAcceptance$$' -v ./internal/runtime

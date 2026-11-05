@@ -5,10 +5,18 @@ on:
     branches:
       - main
       - work/porter-foundation-plan
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      run_kvm_acceptance:
+        description: Run Firecracker acceptance on the self-hosted KVM runner
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -60,3 +68,33 @@ jobs:
         run: |
           test "$(bin/porter version)" = "porter v1.0.0-beta"
           test "$(bin/porter-agent version)" = "v1.0.0-beta"
+
+  kvm-acceptance:
+    name: Firecracker KVM acceptance (release gate)
+    if: (github.event_name == 'workflow_dispatch' && inputs.run_kvm_acceptance) || startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, linux, x64, porter-kvm]
+    timeout-minutes: 20
+    env:
+      PORTER_KVM_KERNEL: ${{ vars.PORTER_KVM_KERNEL }}
+      PORTER_KVM_ROOTFS: ${{ vars.PORTER_KVM_ROOTFS }}
+      PORTER_FIRECRACKER_BIN: ${{ vars.PORTER_FIRECRACKER_BIN }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 1.23.x
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Verify KVM runner and test assets
+        run: |
+          test -c /dev/kvm
+          test -n "$PORTER_KVM_KERNEL" && test -r "$PORTER_KVM_KERNEL"
+          test -n "$PORTER_KVM_ROOTFS" && test -r "$PORTER_KVM_ROOTFS"
+          command -v "${PORTER_FIRECRACKER_BIN:-firecracker}"
+
+      - name: Apply and stop a real Firecracker VM
+        run: make kvm-acceptance

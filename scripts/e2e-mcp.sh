@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' 'Disabled: this legacy E2E uses a shared /tmp directory and broad process-kill cleanup.' >&2
+printf '%s\n' 'See scripts/README.md and use the opt-in KVM acceptance lane instead.' >&2
+exit 2
 ROOT=/mnt/d/github/porter
 WORK=/tmp/porter-e2e-mcp
 B=http://127.0.0.1:18102
