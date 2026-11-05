@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -1243,25 +1244,27 @@ func (s *Store) GetApp(ctx context.Context, id string) (App, bool) {
 }
 
 func (s *Store) PutAutoscalePolicy(ctx context.Context, appID string, enabled bool, min, max, cpuTarget, idleSec int, scaleToZero bool) error {
-	if min < 0 {
-		min = 0
+	if min < 0 || max < 1 || max < min {
+		return fmt.Errorf("invalid replica bounds: require 0 <= min_replicas <= max_replicas and max_replicas >= 1")
 	}
-	if max < min {
-		max = min
+	if cpuTarget < 1 || cpuTarget > 100 {
+		return fmt.Errorf("cpu_target must be between 1 and 100")
 	}
-	if max == 0 {
-		max = 1
+	if idleSec < 0 {
+		return fmt.Errorf("idle_timeout_sec must be >= 0")
 	}
 	return s.scaleExec(ctx, `UPDATE apps SET autoscale_enabled=?,min_replicas=?,max_replicas=?,cpu_target=?,idle_timeout_sec=?,scale_to_zero=? WHERE id=?`,
 		enabled, min, max, cpuTarget, idleSec, scaleToZero, appID)
 }
-
 func (s *Store) scaleExec(ctx context.Context, q string, args ...interface{}) error {
 	_, err := s.db.ExecContext(ctx, q, args...)
 	return err
 }
 
 func (s *Store) TouchApp(ctx context.Context, appID string, cpuPercent float64) error {
+	if math.IsNaN(cpuPercent) || math.IsInf(cpuPercent, 0) || cpuPercent < 0 || cpuPercent > 100 {
+		return errors.New("cpu_percent must be finite and between 0 and 100")
+	}
 	return s.scaleExec(ctx, `UPDATE apps SET last_activity_at=?,last_cpu_percent=? WHERE id=?`, time.Now().UTC(), cpuPercent, appID)
 }
 
@@ -1288,22 +1291,67 @@ func (s *Store) ReconcileAutoscale(ctx context.Context) error {
 	}
 	rows.Close()
 	for _, r := range list {
-		if r.zero && r.last.Valid && time.Since(r.last.Time) > time.Duration(r.idle)*time.Second && r.desired > 0 {
-			_ = s.ScaleApp(ctx, r.id, 0)
+		if r.max < 1 || r.min < 0 || r.max < r.min || r.cpuTarget < 1 || r.cpuTarget > 100 || r.idle < 0 {
+			return fmt.Errorf("autoscale %s has invalid persisted policy", r.id)
+		}
+		low := r.min
+		if r.zero {
+			low = 0
+		}
+		corrected := r.desired
+		if corrected < low {
+			corrected = low
+		}
+		if corrected > r.max {
+			corrected = r.max
+		}
+		if corrected != r.desired {
+			if err := s.ScaleApp(ctx, r.id, corrected); err != nil {
+				return fmt.Errorf("autoscale %s correct desired replicas: %w", r.id, err)
+			}
+			r.desired = corrected
+		}
+		if r.zero && r.last.Valid && time.Since(r.last.Time) > safeSecondsDuration(r.idle) && r.desired > 0 {
+			if err := s.ScaleApp(ctx, r.id, 0); err != nil {
+				return fmt.Errorf("autoscale %s to zero: %w", r.id, err)
+			}
 			continue
 		}
 		if !r.enabled {
 			continue
 		}
 		if r.cpu > float64(r.cpuTarget) && r.desired < r.max {
-			_ = s.ScaleApp(ctx, r.id, r.desired+1)
+			if err := s.ScaleApp(ctx, r.id, minInt(r.desired+1, r.max)); err != nil {
+				return fmt.Errorf("autoscale %s up: %w", r.id, err)
+			}
 		} else if r.cpu > 0 && r.cpu < float64(r.cpuTarget)/2 && r.desired > r.min {
-			_ = s.ScaleApp(ctx, r.id, r.desired-1)
+			if err := s.ScaleApp(ctx, r.id, maxInt(r.desired-1, r.min)); err != nil {
+				return fmt.Errorf("autoscale %s down: %w", r.id, err)
+			}
 		}
 	}
 	return nil
 }
 
+func safeSecondsDuration(seconds int) time.Duration {
+	maxSeconds := int64(math.MaxInt64 / int64(time.Second))
+	if int64(seconds) > maxSeconds {
+		return time.Duration(math.MaxInt64)
+	}
+	return time.Duration(seconds) * time.Second
+}
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
 func (s *Store) RequeueStaleCommands(ctx context.Context, olderThan time.Time) int {
 	res, err := s.db.ExecContext(ctx, `UPDATE commands SET state='queued' WHERE state='sent' AND ((claimed_at = 0 AND created_at < ?) OR (claimed_at > 0 AND claimed_at < ?))`, olderThan, olderThan.UTC().UnixNano())
 	if err != nil {

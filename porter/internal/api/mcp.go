@@ -315,11 +315,17 @@ func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) 
 		if !ok {
 			return nil, &mcpToolError{"app not found"}
 		}
-		target := a.MinReplicas
-		if target < 1 {
-			target = 1
+		target, err := wakeTarget(a)
+		if err != nil {
+			return nil, &mcpToolError{err.Error()}
 		}
-		return map[string]interface{}{"status": "waking", "replicas": target}, s.Store.ScaleApp(ctx, a.ID, target)
+		if err := s.Store.ScaleApp(ctx, a.ID, target); err != nil {
+			return nil, err
+		}
+		if err := s.Store.TouchApp(ctx, a.ID, 0); err != nil {
+			return nil, err
+		}
+		return map[string]interface{}{"status": "waking", "replicas": target}, nil
 	case "porter_list_domains":
 		var in struct {
 			ProjectID string `json:"project_id"`

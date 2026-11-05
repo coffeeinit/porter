@@ -97,6 +97,16 @@ func (b *Builder) BuildDockerfile(ctx context.Context, contextDir, dockerfile, n
 	return b.ConvertArchive(ctx, tarPath, rootfsPath, sizeMB)
 }
 
+const (
+	maxArchiveEntries = 100000
+	maxExpandedBytes  = int64(10) << 30
+)
+
+type archiveBudget struct {
+	entries int
+	bytes   int64
+}
+
 func (b *Builder) ConvertArchive(ctx context.Context, archivePath, rootfsPath string, sizeMB int) (Result, error) {
 	if sizeMB < 64 {
 		sizeMB = 512
@@ -106,7 +116,8 @@ func (b *Builder) ConvertArchive(ctx context.Context, archivePath, rootfsPath st
 		return Result{}, err
 	}
 	defer os.RemoveAll(unpacked)
-	if err := extractArchive(archivePath, unpacked); err != nil {
+	budget := &archiveBudget{}
+	if err := extractArchiveContext(ctx, archivePath, unpacked, budget); err != nil {
 		return Result{}, err
 	}
 	root := filepath.Join(unpacked, "root")
@@ -123,12 +134,12 @@ func (b *Builder) ConvertArchive(ctx context.Context, archivePath, rootfsPath st
 			if err != nil {
 				return Result{}, fmt.Errorf("invalid manifest layer path: %w", err)
 			}
-			if err := applyLayer(layerPath, root); err != nil {
+			if err := applyLayerContext(ctx, layerPath, root, budget); err != nil {
 				return Result{}, err
 			}
 		}
 	} else if _, statErr := os.Stat(filepath.Join(unpacked, "index.json")); statErr == nil {
-		if err := applyOCIArchive(unpacked, root); err != nil {
+		if err := applyOCIArchiveContext(ctx, unpacked, root, budget); err != nil {
 			return Result{}, err
 		}
 	} else if err := applyImageRoot(unpacked, root); err != nil {
@@ -174,8 +185,26 @@ type dockerManifest []struct {
 	Layers []string `json:"Layers"`
 }
 
+const maxMetadataBytes = 16 << 20
+
+func readMetadata(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, maxMetadataBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > maxMetadataBytes {
+		return nil, fmt.Errorf("metadata file exceeds %d-byte limit", maxMetadataBytes)
+	}
+	return b, nil
+}
+
 func readDockerManifest(path string) (dockerManifest, error) {
-	b, err := os.ReadFile(path)
+	b, err := readMetadata(path)
 	if err != nil {
 		return nil, err
 	}
@@ -187,6 +216,10 @@ func readDockerManifest(path string) (dockerManifest, error) {
 }
 
 func extractArchive(path, dest string) error {
+	return extractArchiveContext(context.Background(), path, dest, &archiveBudget{})
+}
+
+func extractArchiveContext(ctx context.Context, path, dest string, budget *archiveBudget) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -194,11 +227,17 @@ func extractArchive(path, dest string) error {
 	defer f.Close()
 	tr := tar.NewReader(f)
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		h, err := tr.Next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := budget.addEntry(h.Size); err != nil {
 			return err
 		}
 		target, err := safeArchiveTarget(dest, h.Name)
@@ -210,6 +249,9 @@ func extractArchive(path, dest string) error {
 			return fmt.Errorf("hard links are not supported: %q", h.Name)
 		case tar.TypeDir:
 			if err := ensureSafeParents(dest, target, true); err != nil {
+				return err
+			}
+			if err := drainTarEntry(ctx, tr); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
@@ -225,7 +267,7 @@ func extractArchive(path, dest string) error {
 			if err != nil {
 				return err
 			}
-			_, err = io.Copy(out, tr)
+			_, err = copyWithContext(ctx, out, tr)
 			closeErr := out.Close()
 			if err != nil {
 				return err
@@ -243,6 +285,54 @@ func extractArchive(path, dest string) error {
 			if err := os.Symlink(h.Linkname, target); err != nil {
 				return err
 			}
+			if err := drainTarEntry(ctx, tr); err != nil {
+				return err
+			}
+		default:
+			if err := drainTarEntry(ctx, tr); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (b *archiveBudget) addEntry(size int64) error {
+	b.entries++
+	if b.entries > maxArchiveEntries {
+		return fmt.Errorf("archive entry limit exceeded (%d)", maxArchiveEntries)
+	}
+	if size > 0 {
+		if size > maxExpandedBytes-b.bytes {
+			return fmt.Errorf("archive expanded byte limit exceeded (%d)", maxExpandedBytes)
+		}
+		b.bytes += size
+	}
+	return nil
+}
+
+func copyWithContext(ctx context.Context, dst io.Writer, src io.Reader) (int64, error) {
+	buf := make([]byte, 32*1024)
+	var n int64
+	for {
+		if err := ctx.Err(); err != nil {
+			return n, err
+		}
+		r, readErr := src.Read(buf)
+		if r > 0 {
+			w, writeErr := dst.Write(buf[:r])
+			n += int64(w)
+			if writeErr != nil {
+				return n, writeErr
+			}
+			if w != r {
+				return n, io.ErrShortWrite
+			}
+		}
+		if readErr == io.EOF {
+			return n, nil
+		}
+		if readErr != nil {
+			return n, readErr
 		}
 	}
 }
@@ -305,6 +395,10 @@ func validateSymlinkTarget(root, link, target string) error {
 	return nil
 }
 func applyLayer(path, root string) error {
+	return applyLayerContext(context.Background(), path, root, &archiveBudget{})
+}
+
+func applyLayerContext(ctx context.Context, path, root string, budget *archiveBudget) error {
 	f, err := os.Open(path)
 	if err != nil {
 		return err
@@ -324,11 +418,17 @@ func applyLayer(path, root string) error {
 	}
 	tr := tar.NewReader(r)
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		h, err := tr.Next()
 		if err == io.EOF {
 			return nil
 		}
 		if err != nil {
+			return err
+		}
+		if err := budget.addEntry(h.Size); err != nil {
 			return err
 		}
 		target, err := safeArchiveTarget(root, h.Name)
@@ -347,6 +447,9 @@ func applyLayer(path, root string) error {
 			if err := os.RemoveAll(filepath.Join(filepath.Dir(target), strings.TrimPrefix(base, ".wh."))); err != nil && !os.IsNotExist(err) {
 				return err
 			}
+			if err := drainTarEntry(ctx, tr); err != nil {
+				return err
+			}
 			continue
 		}
 		switch h.Typeflag {
@@ -356,15 +459,23 @@ func applyLayer(path, root string) error {
 			if err := ensureSafeParents(root, target, true); err != nil {
 				return err
 			}
+			if err := drainTarEntry(ctx, tr); err != nil {
+				return err
+			}
 		case tar.TypeReg, tar.TypeRegA:
 			if err := ensureSafeParents(root, filepath.Dir(target), true); err != nil {
 				return err
+			}
+			if st, statErr := os.Lstat(target); statErr == nil && st.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("refusing symlink target %q", target)
+			} else if statErr != nil && !os.IsNotExist(statErr) {
+				return statErr
 			}
 			out, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode)&0o777)
 			if e != nil {
 				return e
 			}
-			_, e = io.Copy(out, tr)
+			_, e = copyWithContext(ctx, out, tr)
 			ce := out.Close()
 			if e != nil {
 				return e
@@ -380,6 +491,13 @@ func applyLayer(path, root string) error {
 				return err
 			}
 			if err := os.Symlink(h.Linkname, target); err != nil {
+				return err
+			}
+			if err := drainTarEntry(ctx, tr); err != nil {
+				return err
+			}
+		default:
+			if err := drainTarEntry(ctx, tr); err != nil {
 				return err
 			}
 		}
@@ -463,7 +581,11 @@ func (b *Builder) BuildDockerImage(ctx context.Context, ref, name string, sizeMB
 }
 
 func applyOCIArchive(unpacked, root string) error {
-	indexBytes, err := os.ReadFile(filepath.Join(unpacked, "index.json"))
+	return applyOCIArchiveContext(context.Background(), unpacked, root, &archiveBudget{})
+}
+
+func applyOCIArchiveContext(ctx context.Context, unpacked, root string, budget *archiveBudget) error {
+	indexBytes, err := readMetadata(filepath.Join(unpacked, "index.json"))
 	if err != nil {
 		return err
 	}
@@ -491,14 +613,18 @@ func applyOCIArchive(unpacked, root string) error {
 		return err
 	}
 	for _, layer := range manifest.Layers {
-		if _, err := readBlob(unpacked, layer.Digest); err != nil {
-			return err
-		}
 		layerPath, err := blobPath(unpacked, layer.Digest)
 		if err != nil {
 			return err
 		}
-		if err := applyLayer(layerPath, root); err != nil {
+		if err := verifyBlobContext(ctx, layerPath, layer.Digest); err != nil {
+			return err
+		}
+		layerPath, err = blobPath(unpacked, layer.Digest)
+		if err != nil {
+			return err
+		}
+		if err := applyLayerContext(ctx, layerPath, root, budget); err != nil {
 			return err
 		}
 	}
@@ -521,7 +647,7 @@ func readBlob(unpacked, digest string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	b, err := os.ReadFile(p)
+	b, err := readMetadata(p)
 	if err != nil {
 		return nil, err
 	}
@@ -530,6 +656,27 @@ func readBlob(unpacked, digest string) ([]byte, error) {
 		return nil, fmt.Errorf("blob digest mismatch for %s", digest)
 	}
 	return b, nil
+}
+
+func verifyBlobContext(ctx context.Context, path, digest string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := copyWithContext(ctx, h, f); err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != strings.TrimPrefix(digest, "sha256:") {
+		return fmt.Errorf("blob digest mismatch for %s", digest)
+	}
+	return nil
+}
+
+func drainTarEntry(ctx context.Context, r io.Reader) error {
+	_, err := copyWithContext(ctx, io.Discard, r)
+	return err
 }
 
 type dockerConfig struct {
@@ -567,21 +714,21 @@ func writeAppEntrypoint(unpacked, root string) error {
 
 func loadImageConfig(unpacked string) (dockerConfig, error) {
 	var cfg dockerConfig
-	if b, err := os.ReadFile(filepath.Join(unpacked, "manifest.json")); err == nil {
+	if b, err := readMetadata(filepath.Join(unpacked, "manifest.json")); err == nil {
 		var m dockerManifest
 		if json.Unmarshal(b, &m) == nil && len(m) > 0 {
 			configPath, err := confinedPath(unpacked, m[0].Config)
 			if err != nil {
 				return cfg, fmt.Errorf("invalid manifest config path: %w", err)
 			}
-			c, err := os.ReadFile(configPath)
+			c, err := readMetadata(configPath)
 			if err != nil {
 				return cfg, err
 			}
 			return cfg, json.Unmarshal(c, &cfg)
 		}
 	}
-	idx, err := os.ReadFile(filepath.Join(unpacked, "index.json"))
+	idx, err := readMetadata(filepath.Join(unpacked, "index.json"))
 	if err != nil {
 		return cfg, err
 	}
