@@ -1,0 +1,56 @@
+steps:
+  - label: "Portable beta checks"
+    command: |
+      set -euo pipefail
+      make test
+      make vet
+    timeout_in_minutes: 30
+
+  - label: "Go race tests (protocol, control plane, agent)"
+    command: |
+      set -euo pipefail
+      (cd protocol && go test -race ./...)
+      (cd porter && GOWORK=off go test -race ./...)
+      (cd porter-agent && GOWORK=off go test -race ./...)
+    timeout_in_minutes: 30
+
+  - label: "Embedded UI JavaScript syntax"
+    command: |
+      set -euo pipefail
+      python3 scripts/check_ui_js.py porter/web/index.html
+    timeout_in_minutes: 10
+
+  - label: "Build and verify v1.0.0-beta binaries"
+    command: |
+      set -euo pipefail
+      make build VERSION=v1.0.0-beta
+      test "$(bin/porter version)" = "porter v1.0.0-beta"
+      test "$(bin/porter-agent version)" = "v1.0.0-beta"
+      test -x bin/porter-guest-init
+    timeout_in_minutes: 20
+
+  - label: "KVM acceptance (opt-in; trusted builds only)"
+    if: build.env("PORTER_RUN_KVM_ACCEPTANCE") == "true" && (build.pull_request.id == null || build.pull_request.repository.fork == false)
+    agents:
+      queue: "porter-kvm"
+    command: |
+      set -euo pipefail
+      if [ ! -c /dev/kvm ] || [ ! -r /dev/kvm ] || [ ! -w /dev/kvm ]; then
+        echo "KVM acceptance requires readable and writable /dev/kvm on the porter-kvm agent." >&2
+        exit 1
+      fi
+      if [ -z "${PORTER_KVM_KERNEL:-}" ] || [ ! -f "$PORTER_KVM_KERNEL" ] || [ ! -r "$PORTER_KVM_KERNEL" ]; then
+        echo "Set PORTER_KVM_KERNEL to a readable kernel image on the porter-kvm agent." >&2
+        exit 1
+      fi
+      if [ -z "${PORTER_KVM_ROOTFS:-}" ] || [ ! -f "$PORTER_KVM_ROOTFS" ] || [ ! -r "$PORTER_KVM_ROOTFS" ]; then
+        echo "Set PORTER_KVM_ROOTFS to a readable rootfs image on the porter-kvm agent." >&2
+        exit 1
+      fi
+      firecracker="${PORTER_FIRECRACKER_BIN:-firecracker}"
+      if ! command -v "$firecracker" >/dev/null 2>&1; then
+        echo "Firecracker binary not found: $firecracker" >&2
+        exit 1
+      fi
+      make kvm-acceptance
+    timeout_in_minutes: 20
