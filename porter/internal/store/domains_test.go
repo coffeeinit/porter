@@ -109,6 +109,43 @@ func TestManagedDomainIsActiveAndRoutedWithoutTXTProof(t *testing.T) {
 	}
 }
 
+func TestIsActiveRoutedDomainRequiresActiveDomainAndRoute(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(filepath.Join(t.TempDir(), "porter.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer s.Close()
+	project, err := s.CreateProject(ctx, "acme-project")
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+	app, err := s.CreateApp(ctx, project.ID, "acme-app", "image:latest", 8080, 1, 512, 1)
+	if err != nil {
+		t.Fatalf("create app: %v", err)
+	}
+	pending, err := s.CreateDomain(ctx, project.ID, app.ID, "pending.example.com", "custom")
+	if err != nil {
+		t.Fatalf("create pending domain: %v", err)
+	}
+	active, err := s.CreateManagedDomain(ctx, project.ID, app.ID, "active.example.com", "production")
+	if err != nil {
+		t.Fatalf("create active domain: %v", err)
+	}
+	if ok, err := s.IsActiveRoutedDomain(ctx, pending.Hostname); err != nil || ok {
+		t.Fatalf("pending domain eligibility = %v, err=%v; want false", ok, err)
+	}
+	if ok, err := s.IsActiveRoutedDomain(ctx, active.Hostname); err != nil || !ok {
+		t.Fatalf("active domain eligibility = %v, err=%v; want true", ok, err)
+	}
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM routes WHERE host=?`, active.Hostname); err != nil {
+		t.Fatalf("delete active domain route: %v", err)
+	}
+	if ok, err := s.IsActiveRoutedDomain(ctx, active.Hostname); err != nil || ok {
+		t.Fatalf("unrouted domain eligibility = %v, err=%v; want false", ok, err)
+	}
+}
+
 func TestDomainMigrationAddsVerificationTokenColumn(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "legacy.db")
 	db, err := sql.Open("sqlite", "file:"+path)

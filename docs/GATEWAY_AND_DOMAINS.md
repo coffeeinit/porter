@@ -121,9 +121,14 @@ Use ASCII DNS labels (encode international names as punycode). Existing domains
 that were already active before this change are not automatically re-verified;
 review those records before exposing the gateway to public traffic.
 
-The gateway can use static TLS certificate/key files or optional HTTP-01 ACME
-through `PORTER_ACME_DOMAINS`. The ACME path has not been validated against a
-public domain. DNS-provider automation (including Cloudflare), DNS-01, wildcard
+The gateway can use static TLS certificate/key files or optional HTTP-01 ACME.
+Set `PORTER_ACME_ENABLED=true` to authorize certificates dynamically for active,
+routed domains in Porter’s database. `PORTER_ACME_DOMAINS` is an optional exact
+hostname allowlist; setting it without `PORTER_ACME_ENABLED` continues to enable
+ACME for compatibility. In either mode, ACME refuses domains that are not active
+and routed. Custom domains become eligible only after their TXT ownership proof
+activates the route. The ACME path has not been validated against a public
+domain. DNS-provider automation (including Cloudflare), DNS-01, wildcard
 certificates, and production certificate-lifecycle acceptance remain unfinished.
 
 ## Gateway request pipeline

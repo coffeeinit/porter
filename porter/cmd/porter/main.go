@@ -30,17 +30,24 @@ const (
 	gatewayTLSACME   gatewayTLSMode = "acme"
 )
 
-func gatewayTLSConfig(certFile, keyFile, acmeDomains string) (gatewayTLSMode, []string, error) {
+func gatewayTLSConfig(certFile, keyFile, acmeDomains, acmeEnabled string) (gatewayTLSMode, []string, error) {
 	certFile = strings.TrimSpace(certFile)
 	keyFile = strings.TrimSpace(keyFile)
 	acmeDomains = strings.TrimSpace(acmeDomains)
+	acmeEnabled = strings.TrimSpace(acmeEnabled)
 	hasCert, hasKey := certFile != "", keyFile != ""
 	if hasCert != hasKey {
 		return "", nil, fmt.Errorf("PORTER_TLS_CERT and PORTER_TLS_KEY must be set together")
 	}
-	if acmeDomains != "" {
+	if acmeEnabled != "" && !strings.EqualFold(acmeEnabled, "true") && !strings.EqualFold(acmeEnabled, "false") {
+		return "", nil, fmt.Errorf("PORTER_ACME_ENABLED must be true or false")
+	}
+	if acmeDomains != "" || strings.EqualFold(acmeEnabled, "true") {
 		if hasCert {
-			return "", nil, fmt.Errorf("configure either PORTER_ACME_DOMAINS or PORTER_TLS_CERT/PORTER_TLS_KEY, not both")
+			return "", nil, fmt.Errorf("configure either PORTER_ACME_ENABLED/PORTER_ACME_DOMAINS or PORTER_TLS_CERT/PORTER_TLS_KEY, not both")
+		}
+		if acmeDomains == "" {
+			return gatewayTLSACME, nil, nil
 		}
 		rawHosts := strings.Split(acmeDomains, ",")
 		hosts := make([]string, 0, len(rawHosts))
@@ -63,6 +70,42 @@ func gatewayTLSConfig(certFile, keyFile, acmeDomains string) (gatewayTLSMode, []
 		return gatewayTLSStatic, nil, nil
 	}
 	return gatewayTLSHTTP, nil, nil
+}
+
+func acmeHostPolicy(st *store.Store, allowedHosts []string) func(context.Context, string) error {
+	allowed := make(map[string]struct{}, len(allowedHosts))
+	for _, host := range allowedHosts {
+		host = normalizeACMEHost(host)
+		if host != "" {
+			allowed[host] = struct{}{}
+		}
+	}
+	return func(ctx context.Context, host string) error {
+		host = normalizeACMEHost(host)
+		if host == "" {
+			return fmt.Errorf("ACME host is empty")
+		}
+		if len(allowed) > 0 {
+			if _, ok := allowed[host]; !ok {
+				return fmt.Errorf("ACME host %q is not on the configured allowlist", host)
+			}
+		}
+		if st == nil {
+			return fmt.Errorf("ACME domain store is unavailable")
+		}
+		active, err := st.IsActiveRoutedDomain(ctx, host)
+		if err != nil {
+			return fmt.Errorf("check ACME domain %q: %w", host, err)
+		}
+		if !active {
+			return fmt.Errorf("ACME host %q is not an active routed Porter domain", host)
+		}
+		return nil
+	}
+}
+
+func normalizeACMEHost(host string) string {
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
 }
 
 func env(k, def string) string {
@@ -90,7 +133,7 @@ func main() {
 	dbPath := env("PORTER_DB", "porter.db")
 	gwAddr := env("PORTER_GATEWAY_ADDR", ":8081")
 	certFile, keyFile, acmeDomains := os.Getenv("PORTER_TLS_CERT"), os.Getenv("PORTER_TLS_KEY"), os.Getenv("PORTER_ACME_DOMAINS")
-	tlsMode, acmeHosts, tlsErr := gatewayTLSConfig(certFile, keyFile, acmeDomains)
+	tlsMode, acmeHosts, tlsErr := gatewayTLSConfig(certFile, keyFile, acmeDomains, os.Getenv("PORTER_ACME_ENABLED"))
 	if gwAddr != "" && gwAddr != "off" && tlsErr != nil {
 		log.Fatalf("invalid gateway TLS configuration: %v", tlsErr)
 	}
@@ -117,7 +160,7 @@ func main() {
 	if gwAddr != "" && gwAddr != "off" {
 		gw := gateway.New(st)
 		if tlsMode == gatewayTLSACME {
-			m := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(acmeHosts...), Cache: autocert.DirCache(env("PORTER_ACME_CACHE", "/var/lib/porter/certs"))}
+			m := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: acmeHostPolicy(st, acmeHosts), Cache: autocert.DirCache(env("PORTER_ACME_CACHE", "/var/lib/porter/certs"))}
 			go func() {
 				log.Printf("porter ACME HTTP-01 on :80")
 				if err := http.ListenAndServe(":80", m.HTTPHandler(nil)); err != nil {

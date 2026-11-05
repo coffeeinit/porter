@@ -1619,6 +1619,19 @@ func (s *Store) ListDomains(ctx context.Context, projectID string) ([]Domain, er
 	return out, rows.Err()
 }
 
+func (s *Store) IsActiveRoutedDomain(ctx context.Context, hostname string) (bool, error) {
+	hostname, err := normalizeDomainHostname(hostname)
+	if err != nil {
+		return false, err
+	}
+	var active int
+	err = s.db.QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM domains d JOIN routes r ON r.host=d.hostname AND r.app_id=d.app_id
+		WHERE d.hostname=? AND d.status='active'
+	)`, hostname).Scan(&active)
+	return active != 0, err
+}
+
 func (s *Store) VerifyDomain(ctx context.Context, id string) error {
 	return s.verifyDomainWithLookup(ctx, id, func(ctx context.Context, name string) ([]string, error) {
 		return net.DefaultResolver.LookupTXT(ctx, name)
