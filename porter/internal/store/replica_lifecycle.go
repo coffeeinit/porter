@@ -20,6 +20,17 @@ var (
 	ErrInvalidReplicaLifecycleAction = errors.New("unsupported replica lifecycle action")
 )
 
+func bindReplicaApplySpec(spec protocol.VMApplySpec, vmID, replicaID string) (protocol.VMApplySpec, error) {
+	if spec.VMID != vmID {
+		return protocol.VMApplySpec{}, fmt.Errorf("persisted VM apply specification does not match replica VM")
+	}
+	if spec.ReplicaID != "" && spec.ReplicaID != replicaID {
+		return protocol.VMApplySpec{}, fmt.Errorf("persisted VM apply specification does not match replica identity")
+	}
+	spec.ReplicaID = replicaID
+	return spec, nil
+}
+
 // QueueReplicaLifecycle validates the current replica and persists a VM lifecycle
 // operation and command atomically. Start/restart reuse the original apply spec
 // so the agent can reconstruct the VM with its existing image and network config.
@@ -90,11 +101,9 @@ func (s *Store) QueueReplicaLifecycle(ctx context.Context, replicaID, action str
 	if err := json.Unmarshal([]byte(payload), &spec); err != nil {
 		return "", fmt.Errorf("decode persisted VM apply specification: %w", err)
 	}
-	if spec.VMID != vmID {
-		return "", fmt.Errorf("persisted VM apply specification does not match replica VM")
-	}
-	if spec.ReplicaID == "" {
-		spec.ReplicaID = replicaID
+	spec, err = bindReplicaApplySpec(spec, vmID, replicaID)
+	if err != nil {
+		return "", err
 	}
 	raw, err := json.Marshal(spec)
 	if err != nil {

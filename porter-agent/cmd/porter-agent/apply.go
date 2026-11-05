@@ -13,6 +13,58 @@ type applyVMFunc func(context.Context, protocol.VMApplySpec) (store.VM, error)
 type vmHealthFunc func(store.VM) bool
 type vmProcessFunc func(store.VM) (bool, error)
 
+func runVMLifecycleCommand(ctx context.Context, st *store.Store, kind string, spec protocol.VMApplySpec, start, restart applyVMFunc, healthy vmHealthFunc, processRunning vmProcessFunc) (store.VM, error) {
+	switch kind {
+	case "vm.start":
+		return applyVMIdempotent(ctx, st, spec, start, healthy, processRunning)
+	case "vm.restart":
+		if spec.VMID == "" {
+			return store.VM{}, errors.New("vm id required")
+		}
+		vm, restartErr := restart(ctx, spec)
+		if vm.ID == "" {
+			vm.ID = spec.VMID
+		}
+		if vm.ReplicaID == "" {
+			vm.ReplicaID = spec.ReplicaID
+		}
+		if vm.GuestIP == "" {
+			vm.GuestIP = spec.GuestIP
+		}
+		if vm.Port == 0 {
+			vm.Port = spec.Port
+		}
+		if vm.Health == "" {
+			vm.Health = "checking"
+			if restartErr != nil {
+				vm.Health = "unhealthy"
+			}
+		}
+		if restartErr != nil {
+			if vm.State == "" {
+				vm.State = "failed"
+			}
+			if vm.Error == "" {
+				vm.Error = restartErr.Error()
+			}
+		} else {
+			if vm.State == "" {
+				vm.State = "running"
+			}
+			vm.Error = ""
+		}
+		if err := st.UpsertVM(vm); err != nil {
+			if restartErr != nil {
+				return vm, fmt.Errorf("VM restart failed: %v; persist local VM state: %w", restartErr, err)
+			}
+			return vm, fmt.Errorf("persist restarted VM state: %w", err)
+		}
+		return vm, restartErr
+	default:
+		return store.VM{}, fmt.Errorf("unsupported VM lifecycle command %q", kind)
+	}
+}
+
 // applyVMIdempotent makes a retried vm.apply command safe after the agent has
 // launched the guest but the control plane did not receive its first result.
 func applyVMIdempotent(ctx context.Context, st *store.Store, spec protocol.VMApplySpec, apply applyVMFunc, healthy vmHealthFunc, processRunning vmProcessFunc) (store.VM, error) {

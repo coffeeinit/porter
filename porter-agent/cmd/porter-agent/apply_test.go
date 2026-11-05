@@ -137,6 +137,102 @@ func TestApplyVMIdempotentRefusesWhenPriorProcessCannotBeVerified(t *testing.T) 
 	}
 }
 
+func TestRunVMLifecycleCommandStartIsIdempotent(t *testing.T) {
+	st := openApplyTestStore(t)
+	defer st.Close()
+	spec := protocol.VMApplySpec{VMID: "vm-start", ReplicaID: "replica-start", GuestIP: "10.0.0.2", Port: 8080}
+	startCalls, restartCalls := 0, 0
+	start := func(_ context.Context, got protocol.VMApplySpec) (store.VM, error) {
+		startCalls++
+		if got.VMID != spec.VMID {
+			t.Fatalf("start got VM %q, want %q", got.VMID, spec.VMID)
+		}
+		return store.VM{ID: got.VMID, ReplicaID: got.ReplicaID, State: "running", PID: 4242, Socket: "/tmp/vm-start.sock", Health: "healthy"}, nil
+	}
+	restart := func(context.Context, protocol.VMApplySpec) (store.VM, error) {
+		restartCalls++
+		return store.VM{}, nil
+	}
+	healthy := func(vm store.VM) bool { return vm.State == "running" && vm.Health == "healthy" }
+	processRunning := func(store.VM) (bool, error) { return false, nil }
+
+	for range 2 {
+		vm, err := runVMLifecycleCommand(context.Background(), st, "vm.start", spec, start, restart, healthy, processRunning)
+		if err != nil || vm.State != "running" {
+			t.Fatalf("start command: vm=%+v err=%v", vm, err)
+		}
+	}
+	if startCalls != 1 || restartCalls != 0 {
+		t.Fatalf("start calls=%d restart calls=%d, want 1 and 0", startCalls, restartCalls)
+	}
+}
+
+func TestRunVMLifecycleCommandRestartAlwaysRunsAndPersistsFailureState(t *testing.T) {
+	st := openApplyTestStore(t)
+	defer st.Close()
+	spec := protocol.VMApplySpec{VMID: "vm-restart", ReplicaID: "replica-restart", GuestIP: "10.0.0.3", Port: 8081}
+	if err := st.UpsertVM(store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "running", PID: 4242, Socket: "/tmp/vm-restart.sock", Health: "healthy"}); err != nil {
+		t.Fatalf("seed running VM: %v", err)
+	}
+	startCalls, restartCalls := 0, 0
+	start := func(context.Context, protocol.VMApplySpec) (store.VM, error) {
+		startCalls++
+		return store.VM{}, nil
+	}
+	restartErr := errors.New("restart stop failed")
+	restart := func(_ context.Context, got protocol.VMApplySpec) (store.VM, error) {
+		restartCalls++
+		if got.VMID != spec.VMID {
+			t.Fatalf("restart got VM %q, want %q", got.VMID, spec.VMID)
+		}
+		return store.VM{ID: got.VMID, ReplicaID: got.ReplicaID, State: "running", PID: 4242, Socket: "/tmp/vm-restart.sock", Health: "healthy"}, restartErr
+	}
+	vm, err := runVMLifecycleCommand(context.Background(), st, "vm.restart", spec, start, restart, func(store.VM) bool { return true }, func(store.VM) (bool, error) { return true, nil })
+	if !errors.Is(err, restartErr) || vm.State != "running" {
+		t.Fatalf("restart result: vm=%+v err=%v", vm, err)
+	}
+	if startCalls != 0 || restartCalls != 1 {
+		t.Fatalf("start calls=%d restart calls=%d, want 0 and 1", startCalls, restartCalls)
+	}
+	got, ok := st.GetVM(spec.VMID)
+	if !ok || got.State != "running" || got.Error != restartErr.Error() {
+		t.Fatalf("restart failure did not preserve runtime state/error: ok=%v vm=%+v", ok, got)
+	}
+}
+
+func TestRunVMLifecycleCommandRestartPersistsRuntimeState(t *testing.T) {
+	st := openApplyTestStore(t)
+	defer st.Close()
+	spec := protocol.VMApplySpec{VMID: "vm-restart-ok", ReplicaID: "replica-restart-ok"}
+	restartCalls := 0
+	restarted := store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "running", PID: 5151, Socket: "/tmp/vm-restart-ok.sock", Health: "checking"}
+	vm, err := runVMLifecycleCommand(context.Background(), st, "vm.restart", spec,
+		func(context.Context, protocol.VMApplySpec) (store.VM, error) {
+			t.Fatal("restart command called the start function")
+			return store.VM{}, nil
+		},
+		func(_ context.Context, got protocol.VMApplySpec) (store.VM, error) {
+			restartCalls++
+			if got.VMID != spec.VMID {
+				t.Fatalf("restart got VM %q, want %q", got.VMID, spec.VMID)
+			}
+			return restarted, nil
+		},
+		func(store.VM) bool { return true },
+		func(store.VM) (bool, error) { return true, nil },
+	)
+	if err != nil || vm.State != "running" || vm.PID != restarted.PID {
+		t.Fatalf("restart result: vm=%+v err=%v", vm, err)
+	}
+	if restartCalls != 1 {
+		t.Fatalf("restart called %d times, want exactly once", restartCalls)
+	}
+	got, ok := st.GetVM(spec.VMID)
+	if !ok || got.State != "running" || got.PID != restarted.PID {
+		t.Fatalf("restart runtime state was not persisted: ok=%v vm=%+v", ok, got)
+	}
+}
+
 func TestApplyVMIdempotentAllowsRetryAfterConfirmedProcessExit(t *testing.T) {
 	st := openApplyTestStore(t)
 	defer st.Close()

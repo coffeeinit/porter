@@ -214,6 +214,19 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 			break
 		}
 		res.State = "stopped"
+	case "vm.start", "vm.restart":
+		var spec protocol.VMApplySpec
+		if err := json.Unmarshal(raw, &spec); err != nil {
+			res.Success = false
+			res.Error = err.Error()
+			break
+		}
+		vm, err := runVMLifecycleCommand(ctx, st, c.Kind, spec, eng.Start, eng.Restart, eng.Healthy, eng.ProcessRunning)
+		if err != nil {
+			res.Success = false
+			res.Error = err.Error()
+		}
+		res.State = vm.State
 	case "volume.resize":
 		var in protocol.VolumeResizeSpec
 		if err := json.Unmarshal(raw, &in); err != nil {
