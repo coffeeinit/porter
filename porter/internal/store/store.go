@@ -802,6 +802,24 @@ func (s *Store) CompleteCommand(ctx context.Context, r protocol.CommandResult) e
 		} else if affected != 1 {
 			return fmt.Errorf("operation %s references a replica that is not deleting: %s", operationID, resourceID)
 		}
+	} else if kind == "vm.stop" || kind == "vm.start" || kind == "vm.restart" {
+		if r.Success {
+			replicaState, health := "running", "checking"
+			if kind == "vm.stop" {
+				replicaState, health = "stopped", "unknown"
+			}
+			result, err = tx.ExecContext(ctx, `UPDATE replicas SET state=?,health_status=?,error='',updated_at=? WHERE id=?`, replicaState, health, now, resourceID)
+		} else {
+			result, err = tx.ExecContext(ctx, `UPDATE replicas SET error=?,updated_at=? WHERE id=?`, r.Error, now, resourceID)
+		}
+		if err != nil {
+			return err
+		}
+		if affected, err := result.RowsAffected(); err != nil {
+			return err
+		} else if affected != 1 {
+			return fmt.Errorf("operation %s references missing replica %s", operationID, resourceID)
+		}
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO events(id,kind,resource_id,detail,created_at) VALUES(?,?,?,?,?)`,
 		NewID("evt"), "operation."+state, operationID, r.Error, now); err != nil {

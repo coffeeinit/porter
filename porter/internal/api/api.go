@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/apps/{id}/deployments", s.admin(s.listDeployments))
 	mux.HandleFunc("POST /v1/apps/{id}/rollback", s.admin(s.rollbackApp))
 	mux.HandleFunc("GET /v1/apps/{id}/replicas", s.admin(s.appReplicas))
+	mux.HandleFunc("POST /v1/replicas/{id}/{action}", s.admin(s.replicaLifecycle))
 	mux.HandleFunc("GET /v1/deployments/{id}", s.admin(s.getDeployment))
 	mux.HandleFunc("POST /v1/system/backup", s.admin(s.createBackup))
 	mux.HandleFunc("POST /v1/system/backup/verify", s.admin(s.verifyBackup))
