@@ -1,10 +1,12 @@
 package gateway
 
 import (
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,10 +15,13 @@ import (
 
 // fakePortStore is a minimal Store with just enough to drive the forwarder.
 type fakePortStore struct {
+	mu  sync.RWMutex
 	vms []*types.VM
 }
 
 func (f *fakePortStore) GetVM(id string) (*types.VM, bool) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	for _, v := range f.vms {
 		if v.ID == id {
 			return v, true
@@ -24,7 +29,16 @@ func (f *fakePortStore) GetVM(id string) (*types.VM, bool) {
 	}
 	return nil, false
 }
-func (f *fakePortStore) ListVMs() []*types.VM                    { return f.vms }
+func (f *fakePortStore) ListVMs() []*types.VM {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return append([]*types.VM(nil), f.vms...)
+}
+func (f *fakePortStore) setVMs(vms ...*types.VM) {
+	f.mu.Lock()
+	f.vms = append([]*types.VM(nil), vms...)
+	f.mu.Unlock()
+}
 func (f *fakePortStore) ListDomains(vmID string) []*types.Domain { return nil }
 func (f *fakePortStore) ListFirewallRules(projectID string) []*types.FirewallRule {
 	return nil
@@ -32,8 +46,7 @@ func (f *fakePortStore) ListFirewallRules(projectID string) []*types.FirewallRul
 func (f *fakePortStore) AddTraffic(vmID string, e *types.TrafficEntry) {}
 
 // TestTargetAddressUsesContainerPort guards the gateway upstream-address fix:
-// the proxy must connect to the app's container port *inside* the VM, not the
-// host-facing HostPort.
+// the proxy must connect to the app's container port inside the VM.
 func TestTargetAddressUsesContainerPort(t *testing.T) {
 	vm := &types.VM{IPAddress: "10.42.0.5", Ports: []types.Port{
 		{ContainerPort: 80, HostPort: 8080},
@@ -54,57 +67,184 @@ func TestTargetAddressUsesContainerPort(t *testing.T) {
 	}
 }
 
-// TestPortForwarderBindsAndProxies starts an upstream echo HTTP server, tells
-// the forwarder a running VM claims a host port mapping to it, then verifies a
-// connection through the bound host port reaches the upstream.
-func TestPortForwarderBindsAndProxies(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte("pong"))
-	}))
-	defer upstream.Close()
-
-	_, portStr, _ := net.SplitHostPort(upstream.Listener.Addr().String())
-	upPort, _ := strconv.Atoi(portStr)
-
-	// Reserve a host port by binding it first so we know it's free.
+func reserveHostPort(t *testing.T) int {
+	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("reserve: %v", err)
+		t.Fatalf("reserve host port: %v", err)
 	}
-	hostPort := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close() // free it; the forwarder will bind it
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatalf("release reserved host port: %v", err)
+	}
+	return port
+}
 
-	store := &fakePortStore{vms: []*types.VM{
-		{
-			ID:        "vm1",
-			State:     types.StateRunning,
-			IPAddress: "127.0.0.1",
-			Ports:     []types.Port{{ContainerPort: upPort, HostPort: hostPort}},
-		},
-	}}
+func responseThroughPort(client *http.Client, hostPort int) (string, error) {
+	resp, err := client.Get("http://127.0.0.1:" + strconv.Itoa(hostPort) + "/")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	b, err := io.ReadAll(resp.Body)
+	return string(b), err
+}
+
+func waitForResponse(client *http.Client, hostPort int, want string) bool {
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		body, err := responseThroughPort(client, hostPort)
+		if err == nil && body == want {
+			return true
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return false
+}
+
+func newResponseServer(body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, body)
+	}))
+}
+
+func upstreamPort(t *testing.T, server *httptest.Server) int {
+	t.Helper()
+	_, portStr, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return port
+}
+
+func testHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+		Timeout:   time.Second,
+	}
+}
+
+// TestPortForwarderBindsAndProxies verifies a host port reaches the running VM.
+func TestPortForwarderBindsAndProxies(t *testing.T) {
+	upstream := newResponseServer("pong")
+	defer upstream.Close()
+	upPort := upstreamPort(t, upstream)
+	hostPort := reserveHostPort(t)
+	store := &fakePortStore{}
+	store.setVMs(&types.VM{
+		ID: "vm1", State: types.StateRunning, IPAddress: "127.0.0.1",
+		Ports: []types.Port{{ContainerPort: upPort, HostPort: hostPort}},
+	})
 
 	pf := NewPortForwarder(store)
 	pf.Start()
 	defer pf.Close()
+	client := testHTTPClient()
+	defer client.CloseIdleConnections()
 
-	// Give the reconcile loop a moment to bind.
-	deadline := time.Now().Add(3 * time.Second)
-	var body string
-	for time.Now().Before(deadline) {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(hostPort) + "/")
-		if err == nil {
-			b := make([]byte, 16)
-			n, _ := resp.Body.Read(b)
-			_ = resp.Body.Close()
-			body = string(b[:n])
-			if body == "pong" {
-				break
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
+	if !waitForResponse(client, hostPort, "pong") {
+		t.Fatal("expected host-port request to reach the upstream VM")
 	}
-	if body != "pong" {
-		t.Fatalf("expected 'pong' through host port, got %q", body)
+}
+
+// TestPortForwarderRebindsWhenHostPortOwnerChanges ensures the listener is
+// recreated for the new VM rather than retaining the original closure target.
+func TestPortForwarderRebindsWhenHostPortOwnerChanges(t *testing.T) {
+	oldUpstream := newResponseServer("old-vm")
+	defer oldUpstream.Close()
+	newUpstream := newResponseServer("new-vm")
+	defer newUpstream.Close()
+	hostPort := reserveHostPort(t)
+	store := &fakePortStore{}
+	store.setVMs(&types.VM{
+		ID: "vm-old", State: types.StateRunning, IPAddress: "127.0.0.1",
+		Ports: []types.Port{{ContainerPort: upstreamPort(t, oldUpstream), HostPort: hostPort}},
+	})
+
+	pf := NewPortForwarder(store)
+	pf.Start()
+	defer pf.Close()
+	client := testHTTPClient()
+	defer client.CloseIdleConnections()
+	if !waitForResponse(client, hostPort, "old-vm") {
+		t.Fatal("initial host-port listener did not reach the original VM")
+	}
+
+	store.setVMs(&types.VM{
+		ID: "vm-new", State: types.StateRunning, IPAddress: "127.0.0.1",
+		Ports: []types.Port{{ContainerPort: upstreamPort(t, newUpstream), HostPort: hostPort}},
+	})
+	pf.reconcile()
+
+	if !waitForResponse(client, hostPort, "new-vm") {
+		t.Fatal("host-port listener kept targeting the old VM after ownership changed")
+	}
+}
+
+func TestPortForwarderRebindsWhenContainerPortChanges(t *testing.T) {
+	oldUpstream := newResponseServer("old-target")
+	defer oldUpstream.Close()
+	newUpstream := newResponseServer("new-target")
+	defer newUpstream.Close()
+	hostPort := reserveHostPort(t)
+	store := &fakePortStore{}
+	vmID := "vm-same"
+	store.setVMs(&types.VM{
+		ID: vmID, State: types.StateRunning, IPAddress: "127.0.0.1",
+		Ports: []types.Port{{ContainerPort: upstreamPort(t, oldUpstream), HostPort: hostPort}},
+	})
+
+	pf := NewPortForwarder(store)
+	pf.Start()
+	defer pf.Close()
+	client := testHTTPClient()
+	defer client.CloseIdleConnections()
+	if !waitForResponse(client, hostPort, "old-target") {
+		t.Fatal("initial listener did not reach the original target port")
+	}
+
+	store.setVMs(&types.VM{
+		ID: vmID, State: types.StateRunning, IPAddress: "127.0.0.1",
+		Ports: []types.Port{{ContainerPort: upstreamPort(t, newUpstream), HostPort: hostPort}},
+	})
+	pf.reconcile()
+	if !waitForResponse(client, hostPort, "new-target") {
+		t.Fatal("host-port listener kept targeting the old container port")
+	}
+}
+
+func TestWantedPortsUsesDeterministicOldestClaim(t *testing.T) {
+	const hostPort = 18080
+	older := &types.VM{ID: "vm-z", State: types.StateRunning, IPAddress: "127.0.0.1", Ports: []types.Port{{ContainerPort: 8080, HostPort: hostPort}}}
+	newer := &types.VM{ID: "vm-a", State: types.StateRunning, IPAddress: "127.0.0.1", Ports: []types.Port{{ContainerPort: 8081, HostPort: hostPort}}}
+	older.CreatedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	newer.CreatedAt = older.CreatedAt.Add(time.Second)
+	for _, order := range [][]*types.VM{{newer, older}, {older, newer}} {
+		store := &fakePortStore{}
+		store.setVMs(order...)
+		target, ok := NewPortForwarder(store).wantedPorts()[hostPort]
+		if !ok || target.vmID != older.ID || target.port != 8080 {
+			t.Fatalf("conflicting host-port winner = %+v, ok=%v; want older %s:8080", target, ok, older.ID)
+		}
+	}
+}
+
+func TestWantedPortsUsesVMIDForEqualCreationTimes(t *testing.T) {
+	const hostPort = 18081
+	createdAt := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
+	vmZ := &types.VM{ID: "vm-z", State: types.StateRunning, IPAddress: "127.0.0.1", CreatedAt: createdAt, Ports: []types.Port{{ContainerPort: 8080, HostPort: hostPort}}}
+	vmA := &types.VM{ID: "vm-a", State: types.StateRunning, IPAddress: "127.0.0.1", CreatedAt: createdAt, Ports: []types.Port{{ContainerPort: 8081, HostPort: hostPort}}}
+	for _, order := range [][]*types.VM{{vmZ, vmA}, {vmA, vmZ}} {
+		store := &fakePortStore{}
+		store.setVMs(order...)
+		target, ok := NewPortForwarder(store).wantedPorts()[hostPort]
+		if !ok || target.vmID != vmA.ID || target.port != 8081 {
+			t.Fatalf("equal-time conflict winner = %+v, ok=%v; want %s:8081", target, ok, vmA.ID)
+		}
 	}
 }
 
