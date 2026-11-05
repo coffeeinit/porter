@@ -100,7 +100,7 @@ ON CONFLICT(id) DO UPDATE SET replica_id=excluded.replica_id,state=excluded.stat
 
 func (s *Store) GetVM(id string) (VM, bool) {
 	var v VM
-	err := s.db.QueryRow(`SELECT id,replica_id,state,pid,socket,tap_name,error,updated_at FROM vms WHERE id=?`, id).Scan(&v.ID, &v.ReplicaID, &v.State, &v.PID, &v.Socket, &v.TapName, &v.Error, &v.UpdatedAt)
+	err := s.db.QueryRow(`SELECT id,replica_id,state,pid,socket,tap_name,guest_ip,port,health,error,updated_at FROM vms WHERE id=?`, id).Scan(&v.ID, &v.ReplicaID, &v.State, &v.PID, &v.Socket, &v.TapName, &v.GuestIP, &v.Port, &v.Health, &v.Error, &v.UpdatedAt)
 	return v, err == nil
 }
 

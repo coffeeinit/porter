@@ -70,10 +70,19 @@ func (e *Engine) ensureNetwork(ctx context.Context, spec *protocol.VMApplySpec) 
 	return tap, nil
 }
 
-func (e *Engine) deleteTap(ctx context.Context, tap string) {
-	if tap != "" {
-		_ = run(ctx, "ip", "link", "del", tap)
+func (e *Engine) deleteTap(ctx context.Context, tap string) error {
+	if tap == "" {
+		return nil
 	}
+	err := run(ctx, "ip", "link", "del", tap)
+	if err == nil {
+		return nil
+	}
+	message := strings.ToLower(err.Error())
+	if strings.Contains(message, "cannot find device") || strings.Contains(message, "does not exist") || strings.Contains(message, "no such device") {
+		return nil
+	}
+	return fmt.Errorf("delete TAP interface %q: %w", tap, err)
 }
 
 func tapName(vmID string) string {

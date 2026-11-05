@@ -4,8 +4,11 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -123,7 +126,7 @@ func run(args []string) {
 		case <-ctx.Done():
 			return
 		case <-hb.C:
-			_ = cl.Heartbeat(ctx, protocol.Heartbeat{NodeID: cfg.NodeID, CPUsFree: runtime.NumCPU(), MemoryFreeMB: memTotalMB(), DiskFreeMB: diskFreeMB(dataDir), VMCount: st.CountVMs(), At: time.Now().UTC()})
+			_ = cl.Heartbeat(ctx, protocol.Heartbeat{NodeID: cfg.NodeID, CPUsFree: runtime.NumCPU(), MemoryFreeMB: memAvailableMB(), DiskFreeMB: diskFreeMB(dataDir), VMCount: st.CountVMs(), At: time.Now().UTC()})
 			for _, vm := range st.ListVMs() {
 				if lines := eng.TailLog(vm, 30); len(lines) > 0 {
 					_ = cl.PostLogs(ctx, vm.ID, lines)
@@ -165,7 +168,7 @@ func run(args []string) {
 }
 
 func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *store.Store, c protocol.Command) {
-	res := protocol.CommandResult{CommandID: c.ID, OperationID: c.OperationID, NodeID: c.NodeID, Success: true}
+	res := protocol.CommandResult{CommandID: c.ID, OperationID: c.OperationID, NodeID: c.NodeID, Attempt: c.Attempt, Success: true}
 	raw, _ := json.Marshal(c.Payload)
 	switch c.Kind {
 	case "vm.apply":
@@ -175,22 +178,11 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 			res.Error = err.Error()
 			break
 		}
-		vm, err := eng.Apply(ctx, spec)
+		vm, err := applyVMIdempotent(ctx, st, spec, eng.Apply, eng.Healthy, eng.ProcessRunning)
 		if err != nil {
 			res.Success = false
 			res.Error = err.Error()
-			vm = store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed", Error: err.Error(), GuestIP: spec.GuestIP, Port: spec.Port, Health: "unhealthy"}
 		}
-		if vm.GuestIP == "" {
-			vm.GuestIP = spec.GuestIP
-		}
-		if vm.Port == 0 {
-			vm.Port = spec.Port
-		}
-		if vm.Health == "" {
-			vm.Health = "checking"
-		}
-		_ = st.UpsertVM(vm)
 		res.State = vm.State
 	case "vm.delete":
 		var spec protocol.VMApplySpec
@@ -199,16 +191,27 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 			res.Error = err.Error()
 			break
 		}
-		if vm, ok := st.GetVM(spec.VMID); ok {
-			_ = eng.Delete(ctx, vm)
-			_ = st.UpsertVM(store.VM{ID: vm.ID, ReplicaID: vm.ReplicaID, State: "deleted", TapName: vm.TapName})
+		if err := transitionVM(ctx, st, spec.VMID, "deleted", func(ctx context.Context, vm store.VM) error {
+			return eng.Delete(ctx, vm)
+		}); err != nil {
+			res.Success = false
+			res.Error = err.Error()
+			break
 		}
+		res.State = "deleted"
 	case "vm.stop":
 		var spec protocol.VMApplySpec
-		_ = json.Unmarshal(raw, &spec)
-		if vm, ok := st.GetVM(spec.VMID); ok {
-			_ = eng.Stop(vm)
-			_ = st.UpsertVM(store.VM{ID: vm.ID, ReplicaID: vm.ReplicaID, State: "stopped", TapName: vm.TapName})
+		if err := json.Unmarshal(raw, &spec); err != nil {
+			res.Success = false
+			res.Error = err.Error()
+			break
+		}
+		if err := transitionVM(ctx, st, spec.VMID, "stopped", func(_ context.Context, vm store.VM) error {
+			return eng.Stop(vm)
+		}); err != nil {
+			res.Success = false
+			res.Error = err.Error()
+			break
 		}
 		res.State = "stopped"
 	case "volume.resize":
@@ -226,9 +229,11 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 		res.State = "resized"
 	case "snapshot.restore":
 		var in struct {
-			VMID      string `json:"vm_id"`
-			StatePath string `json:"state_path"`
-			MemPath   string `json:"mem_path"`
+			VMID        string `json:"vm_id"`
+			StatePath   string `json:"state_path"`
+			MemPath     string `json:"mem_path"`
+			StateSHA256 string `json:"state_sha256"`
+			MemSHA256   string `json:"mem_sha256"`
 		}
 		if err := json.Unmarshal(raw, &in); err != nil {
 			res.Success = false
@@ -241,7 +246,7 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 			res.Error = "vm not found"
 			break
 		}
-		nvm, err := eng.RestoreSnapshot(ctx, vm, in.StatePath, in.MemPath)
+		nvm, err := eng.RestoreSnapshot(ctx, vm, in.StatePath, in.MemPath, in.StateSHA256, in.MemSHA256)
 		if err != nil {
 			res.Success = false
 			res.Error = err.Error()
@@ -268,7 +273,23 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 			res.Error = err.Error()
 			break
 		}
-		_ = cl.RecordSnapshot(ctx, map[string]interface{}{"id": snap.SnapshotID, "vm_id": snap.VMID, "state_path": statePath, "mem_path": memPath, "size_bytes": size})
+		stateSHA256, err := fileSHA256(statePath)
+		if err != nil {
+			res.Success = false
+			res.Error = fmt.Sprintf("hash snapshot state: %v", err)
+			break
+		}
+		memSHA256, err := fileSHA256(memPath)
+		if err != nil {
+			res.Success = false
+			res.Error = fmt.Sprintf("hash snapshot memory: %v", err)
+			break
+		}
+		if err := cl.RecordSnapshot(ctx, map[string]interface{}{"id": snap.SnapshotID, "vm_id": snap.VMID, "state_path": statePath, "mem_path": memPath, "state_sha256": stateSHA256, "mem_sha256": memSHA256, "size_bytes": size}); err != nil {
+			res.Success = false
+			res.Error = fmt.Sprintf("record snapshot: %v", err)
+			break
+		}
 		res.State = "snapshot_ready"
 	default:
 		res.Success = false
@@ -277,6 +298,41 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 	if err := cl.Result(ctx, res); err != nil {
 		log.Printf("result: %v", err)
 	}
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func transitionVM(ctx context.Context, st *store.Store, vmID, state string, cleanup func(context.Context, store.VM) error) error {
+	if vmID == "" {
+		return fmt.Errorf("vm id required")
+	}
+	vm, ok := st.GetVM(vmID)
+	if !ok {
+		return nil
+	}
+	if cleanup != nil {
+		if err := cleanup(ctx, vm); err != nil {
+			return fmt.Errorf("clean up vm %q: %w", vmID, err)
+		}
+	}
+	vm.State = state
+	vm.Health = ""
+	vm.Error = ""
+	if err := st.UpsertVM(vm); err != nil {
+		return fmt.Errorf("persist vm %q %s state: %w", vmID, state, err)
+	}
+	return nil
 }
 
 func hostname() string { h, _ := os.Hostname(); return h }
@@ -296,6 +352,25 @@ func memTotalMB() int {
 		}
 	}
 	return 4096
+}
+
+func memAvailableMB() int {
+	b, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return memTotalMB()
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(line, "MemAvailable:") {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				kb, err := strconv.Atoi(fields[1])
+				if err == nil && kb > 0 {
+					return kb / 1024
+				}
+			}
+		}
+	}
+	return memTotalMB()
 }
 
 func diskFreeMB(path string) int {
