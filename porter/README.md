@@ -1,22 +1,16 @@
-﻿# `porter` — control plane
+# `porter` — control plane
 
-This Go project produces the `porter` binary.
+This Go project produces the `porter` binary. It runs the admin API and embedded UI, SQLite store, scheduler/controllers, fleet registry, deployment and image catalog, and gateway. It does not touch host resources or call Firecracker directly; the local `porter-agent` is the only privileged host component.
 
-It runs:
+## Fleet transport today
 
-- admin API
-- embedded admin UI
-- SQLite store
-- scheduler
-- controllers/reconcilers
-- fleet registry
-- deployment/image catalog
-- gateway
+The current agent protocol is JSON over request/response HTTP(S): one-time-token enrollment, bearer-authenticated heartbeats, command polling, results, logs, snapshots, and VM-state reports. It does not use a WebSocket stream.
 
-It does **not** touch host resources or call Firecracker directly. The local
-`porter-agent` is the only privileged host component.
+To serve the API over HTTPS, set `PORTER_API_TLS_CERT` and `PORTER_API_TLS_KEY`. To require verified agent client certificates on the agent fleet routes, also set `PORTER_AGENT_CLIENT_CA`. Client certificates must be signed by that CA and contain the URI SAN `spiffe://porter/node/<node-id>` matching `X-Porter-Node-ID`. The node bearer token remains required. Enrollment and admin routes are not subject to the agent mTLS gate.
 
-Planned layout:
+Certificate issuance, renewal, revocation workflows, and rotation are operator-managed and are not implemented by Porter. See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md) for the implemented HTTP routes and the clearly labeled future stream proposal.
+
+## Project layout
 
 ```text
 porter/
@@ -31,31 +25,7 @@ porter/
   internal/deploy/
   internal/image/
   internal/gateway/
-  migrations/
   web/
 ```
 
-See [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and
-[`../docs/BACKEND_V1_PLAN.md`](../docs/BACKEND_V1_PLAN.md).
-
-## Embedded fleet manager
-
-The `porter` binary also contains the fleet manager role. It is a logical package
-inside Porter, not a separate deployment:
-
-- one-time join tokens
-- agent enrollment
-- mTLS certificate issuance/rotation
-- long-lived agent WebSocket registry
-- heartbeat/capacity aggregation
-- command dispatch/ack/retry
-- operation result relay
-- optional WireGuard hub
-- node lifecycle + agent upgrade coordination
-
-Porter normally runs inside a MicroVM managed by `porter-agent`, with
-`porter.db` on an agent-managed persistent volume. Each node runs only one
-`porter-agent` with its own local SQLite.
-
-
-
+See [`../docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) and [`../docs/BACKEND_V1_PLAN.md`](../docs/BACKEND_V1_PLAN.md).

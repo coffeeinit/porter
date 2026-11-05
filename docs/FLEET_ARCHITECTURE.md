@@ -1,4 +1,4 @@
-﻿# Fleet Architecture — Porter + Agent
+# Fleet Architecture — Porter + Agent
 
 ## Two deployable projects
 
@@ -10,6 +10,8 @@ porter-agent     per-node executor
 The fleet manager is a **logical package inside Porter**, not a separate binary.
 Porter exposes the UI/API, scheduler, enrollment endpoint, mTLS agent
 connections, command relay, and optional WireGuard hub.
+
+> **Status:** This document describes the target fleet architecture, not the complete current implementation. Current agents use JSON HTTPS polling with bearer tokens; operator-configured mTLS can protect fleet routes. WebSocket streaming and automatic certificate issuance/rotation are not implemented. See [`PROTOCOL.md`](PROTOCOL.md) for the current contract.
 
 This keeps the deployment simple:
 

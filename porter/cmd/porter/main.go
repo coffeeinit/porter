@@ -190,6 +190,10 @@ func main() {
 	if gwAddr != "" && gwAddr != "off" && tlsErr != nil {
 		log.Fatalf("invalid gateway TLS configuration: %v", tlsErr)
 	}
+	apiTLSConfig, requireAgentMTLS, apiTLSErr := loadAPITLSConfig(os.Getenv("PORTER_API_TLS_CERT"), os.Getenv("PORTER_API_TLS_KEY"), os.Getenv("PORTER_AGENT_CLIENT_CA"))
+	if apiTLSErr != nil {
+		log.Fatalf("invalid API TLS configuration: %v", apiTLSErr)
+	}
 	admin := os.Getenv("PORTER_ADMIN_TOKEN")
 	if admin == "" {
 		b := make([]byte, 24)
@@ -211,11 +215,22 @@ func main() {
 		log.Fatalf("configure OpenTelemetry tracing: %v", err)
 	}
 	baseDomain := env("PORTER_BASE_DOMAIN", "porter.local")
-	srv := &http.Server{Addr: addr, Handler: trackRequests.Wrap(telemetry.HTTPHandler(api.New(st, admin, baseDomain).Handler(), "porter.api")), ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
+	apiHandler := api.New(st, admin, baseDomain).Handler()
+	if requireAgentMTLS {
+		apiHandler = api.RequireAgentMTLS(apiHandler)
+	}
+	srv := &http.Server{Addr: addr, Handler: trackRequests.Wrap(telemetry.HTTPHandler(apiHandler, "porter.api")), TLSConfig: apiTLSConfig, ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
 	go func() {
-		log.Printf("porter %s listening on %s db=%s", Version, addr, dbPath)
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatal(err)
+		var serveErr error
+		if apiTLSConfig != nil {
+			log.Printf("porter %s API listening on %s (TLS, agent mTLS=%t) db=%s", Version, addr, requireAgentMTLS, dbPath)
+			serveErr = srv.ListenAndServeTLS("", "")
+		} else {
+			log.Printf("porter %s listening on %s db=%s", Version, addr, dbPath)
+			serveErr = srv.ListenAndServe()
+		}
+		if serveErr != nil && serveErr != http.ErrServerClosed {
+			log.Fatal(serveErr)
 		}
 	}()
 	var gatewayServers []*http.Server

@@ -1,4 +1,4 @@
-﻿# Fleet ↔ Porter Connectivity
+# Fleet ↔ Porter Connectivity
 
 ## Recommendation
 
@@ -11,6 +11,8 @@ Use **two layers**:
 
 This gives reliable control-plane connectivity behind NAT while still allowing
 a private encrypted network between nodes when WireGuard is available.
+
+> **Status:** The outbound mTLS WebSocket described here is a target design, not the current transport. Current agents use HTTPS request/response polling; optional operator-managed mTLS is available on agent fleet routes. See [`PROTOCOL.md`](PROTOCOL.md) for the implemented behavior.
 
 ## Why not WireGuard only?
 
@@ -78,18 +80,17 @@ Then WireGuard cannot be the only transport. Options:
 - use an optional DERP/relay service
 - integrate Headscale/Tailscale as a separate optional project later
 
-This is explicitly out of V1 scope; V1 guarantees outbound WSS connectivity.
+These are target-design options, not current V1 guarantees. The current agent transport is HTTPS request/response polling; no WSS control path is implemented.
 
 ## Fleet endpoint
 
-Agents connect outbound to Porter, which embeds the fleet manager role:
+Agents currently connect outbound to Porter's HTTP API:
 
 ```text
-agent -> porter  (public enrollment + mTLS WSS)
+agent -> porter  (JSON HTTPS polling + bearer node token; optional mTLS)
 ```
 
-This keeps deployment to one server binary. Agent connection handling is a
-separate package inside Porter and can be split into its own binary later
-without changing the agent protocol.
-
-
+Set `PORTER_API_TLS_CERT`, `PORTER_API_TLS_KEY`, and `PORTER_AGENT_CLIENT_CA`
+to enable the optional node-bound mTLS gate. See [`PROTOCOL.md`](PROTOCOL.md)
+for route and certificate identity details. WebSocket connection handling is
+future work, not part of the current agent protocol.

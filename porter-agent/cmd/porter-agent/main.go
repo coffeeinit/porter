@@ -58,6 +58,14 @@ func arg(args []string, name, def string) string {
 	return def
 }
 
+func agentTLSOptions(args []string) client.TLSOptions {
+	return client.TLSOptions{
+		ServerCAFile:   arg(args, "--server-ca", os.Getenv("PORTER_AGENT_SERVER_CA")),
+		ClientCertFile: arg(args, "--client-cert", os.Getenv("PORTER_AGENT_CLIENT_CERT")),
+		ClientKeyFile:  arg(args, "--client-key", os.Getenv("PORTER_AGENT_CLIENT_KEY")),
+	}
+}
+
 func join(args []string) {
 	server := arg(args, "--server", "http://127.0.0.1:8080")
 	token := arg(args, "--token", "")
@@ -77,7 +85,7 @@ func join(args []string) {
 	req := protocol.EnrollRequest{Token: token, Hostname: name, OS: "linux", Arch: runtime.GOARCH, CPUs: cpus, MemoryMB: mem, DiskMB: disk}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	resp, err := client.Join(ctx, server, req)
+	resp, err := client.JoinWithTLS(ctx, server, req, agentTLSOptions(args))
 	if err != nil {
 		log.Fatalf("join failed: %v", err)
 	}
@@ -104,7 +112,10 @@ func run(args []string) error {
 	if err != nil || cfg.NodeID == "" {
 		log.Fatal("agent not joined; run porter-agent join first")
 	}
-	cl := client.New(cfg.Server, cfg.NodeID, cfg.NodeToken)
+	cl, err := client.NewWithTLS(cfg.Server, cfg.NodeID, cfg.NodeToken, agentTLSOptions(args))
+	if err != nil {
+		return fmt.Errorf("configure control-plane TLS: %w", err)
+	}
 	netCfg := fcruntime.NetworkConfig{}
 	if arg(args, "--network", "on") != "off" {
 		netCfg = fcruntime.NetworkConfig{Bridge: "porter0", CIDR: "10.42.0.0/16", GatewayIP: "10.42.0.1", OutIface: "eth0", EnableNAT: true}

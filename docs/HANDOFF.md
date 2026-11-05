@@ -49,6 +49,7 @@ The old implementation, old docs, old prototypes, and old image catalog are in
 - join + enrollment
 - local SQLite
 - heartbeat
+- HTTPS/JSON bearer polling; optional CA-verified mTLS with a node-bound certificate URI; no WebSocket stream or automatic certificate lifecycle
 - command polling
 - real Firecracker lifecycle
 - TAP/bridge/NAT
@@ -280,6 +281,8 @@ porter_detect_framework
   restore, off-host retention, encryption, and a full recovery drill are absent.
 - Portable regression tests cover the API, store, gateway, builder, and agent;
   API-to-fake-agent restart acceptance and KVM validation remain open.
+- Agent WebSocket streaming and automatic client-certificate issuance, renewal,
+  rotation, and revocation workflows are not implemented.
 - GitHub Actions runs portable tests, vet, race checks, the beta build, and UI
   JavaScript syntax validation; it does not cover KVM/provider acceptance.
 

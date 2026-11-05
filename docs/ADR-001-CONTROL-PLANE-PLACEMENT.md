@@ -1,4 +1,4 @@
-﻿# ADR-001: Control Plane Placement
+# ADR-001: Control Plane Placement
 
 ## Status
 
@@ -39,8 +39,9 @@ Porter is trusted infrastructure. The important isolation boundary is between
 
 - `porter-agent` is the only privileged host component.
 - Porter has no KVM, Firecracker socket, TAP, or host root filesystem access.
-- Porter and local agent communicate over a private Unix socket or localhost mTLS.
-- Remote agents connect outbound to Porter over WSS.
+- Current agents use JSON request/response over HTTPS with bearer node tokens; loopback HTTP is for development.
+- Operator-configured mTLS can protect agent fleet routes, but outbound WebSocket streaming and automatic certificate lifecycle are not implemented.
+- Outbound mTLS WSS remains a target design, not the current transport.
 - Porter restarts must not kill workloads.
 - `porter.db` and `porter-agent.db` are separate SQLite databases.
 
