@@ -5,20 +5,40 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"porter/controlplane/internal/store"
 )
 
 func TestBuildImageRequiresExplicitUnisolatedBuildOptIn(t *testing.T) {
 	t.Setenv(unisolatedBuildOptIn, "")
-	req := httptest.NewRequest("POST", "/v1/images/build", strings.NewReader(`{"source_type":"docker","source_ref":"alpine:latest"}`))
+	st, err := store.Open(filepath.Join(t.TempDir(), "porter.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer st.Close()
+	server := New(st, "", "")
+	req := httptest.NewRequest("POST", "/v1/images/build", strings.NewReader(`{"name":"blocked","source_type":"docker","source_ref":"alpine:latest"}`))
 	response := httptest.NewRecorder()
-	(&Server{}).buildImage(response, req)
+	server.buildImage(response, req)
 	if response.Code != 503 {
 		t.Fatalf("status=%d want 503; body=%s", response.Code, response.Body.String())
 	}
-	if !strings.Contains(response.Body.String(), unisolatedBuildOptIn) {
+	wantGuidance := "set " + unisolatedBuildOptIn + "=true only for trusted sources"
+	if !strings.Contains(response.Body.String(), wantGuidance) {
 		t.Fatalf("response does not explain the operator override: %s", response.Body.String())
+	}
+	images, err := st.ListImages(context.Background())
+	if err != nil || len(images) != 0 {
+		t.Fatalf("blocked build created image records: images=%+v err=%v", images, err)
+	}
+	server.buildMu.Lock()
+	building := len(server.building)
+	server.buildMu.Unlock()
+	if building != 0 {
+		t.Fatalf("blocked build launched %d build tasks, want none", building)
 	}
 }
 
