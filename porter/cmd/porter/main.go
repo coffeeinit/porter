@@ -6,10 +6,12 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -18,6 +20,7 @@ import (
 
 	"porter/controlplane/internal/gateway"
 	"porter/controlplane/internal/store"
+	"porter/controlplane/internal/telemetry"
 )
 
 var Version = "v1.0.0-dev"
@@ -115,6 +118,56 @@ func env(k, def string) string {
 	return def
 }
 
+type requestTracker struct {
+	mu       sync.Mutex
+	active   int
+	stopping bool
+	drained  chan struct{}
+}
+
+func newRequestTracker() *requestTracker {
+	return &requestTracker{drained: make(chan struct{})}
+}
+
+func (t *requestTracker) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.mu.Lock()
+		if t.stopping {
+			t.mu.Unlock()
+			http.Error(w, "server shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		t.active++
+		t.mu.Unlock()
+
+		defer func() {
+			t.mu.Lock()
+			t.active--
+			if t.stopping && t.active == 0 {
+				close(t.drained)
+			}
+			t.mu.Unlock()
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (t *requestTracker) StopAccepting() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopping {
+		return
+	}
+	t.stopping = true
+	if t.active == 0 {
+		close(t.drained)
+	}
+}
+
+func (t *requestTracker) Wait() {
+	<-t.drained
+}
+
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -149,43 +202,57 @@ func main() {
 		log.Fatalf("open store: %v", err)
 	}
 	defer st.Close()
+	requestContext, cancelRequests := context.WithCancel(context.Background())
+	defer cancelRequests()
+	trackRequests := newRequestTracker()
+	baseContext := func(net.Listener) context.Context { return requestContext }
+	traceShutdown, err := telemetry.SetupTracing(context.Background())
+	if err != nil {
+		log.Fatalf("configure OpenTelemetry tracing: %v", err)
+	}
 	baseDomain := env("PORTER_BASE_DOMAIN", "porter.local")
-	srv := &http.Server{Addr: addr, Handler: api.New(st, admin, baseDomain).Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: addr, Handler: trackRequests.Wrap(telemetry.HTTPHandler(api.New(st, admin, baseDomain).Handler(), "porter.api")), ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
 	go func() {
 		log.Printf("porter %s listening on %s db=%s", Version, addr, dbPath)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
 	}()
+	var gatewayServers []*http.Server
 	if gwAddr != "" && gwAddr != "off" {
-		gw := gateway.New(st)
+		gw := trackRequests.Wrap(telemetry.HTTPHandler(gateway.New(st), "porter.gateway"))
 		if tlsMode == gatewayTLSACME {
 			m := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: acmeHostPolicy(st, acmeHosts), Cache: autocert.DirCache(env("PORTER_ACME_CACHE", "/var/lib/porter/certs"))}
+			challengeServer := &http.Server{Addr: ":80", Handler: trackRequests.Wrap(m.HTTPHandler(nil)), ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
+			gatewayServers = append(gatewayServers, challengeServer)
 			go func() {
 				log.Printf("porter ACME HTTP-01 on :80")
-				if err := http.ListenAndServe(":80", m.HTTPHandler(nil)); err != nil {
+				if err := challengeServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 					log.Printf("ACME HTTP-01 listener stopped: %v", err)
 				}
 			}()
+			tlsServer := &http.Server{Addr: ":443", Handler: gw, TLSConfig: m.TLSConfig(), ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
+			gatewayServers = append(gatewayServers, tlsServer)
 			go func() {
 				log.Printf("porter gateway ACME TLS on :443")
-				srv := &http.Server{Addr: ":443", Handler: gw, TLSConfig: m.TLSConfig()}
-				if err := srv.ListenAndServeTLS("", ""); err != nil {
+				if err := tlsServer.ListenAndServeTLS("", ""); err != nil && err != http.ErrServerClosed {
 					log.Printf("gateway ACME TLS listener stopped: %v", err)
 				}
 			}()
 		} else {
+			gatewayServer := &http.Server{Addr: gwAddr, Handler: gw, ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
+			gatewayServers = append(gatewayServers, gatewayServer)
 			go func() {
 				if tlsMode == gatewayTLSStatic {
 					log.Printf("porter gateway listening on %s (TLS)", gwAddr)
-					if err := http.ListenAndServeTLS(gwAddr, certFile, keyFile, gw); err != nil {
+					if err := gatewayServer.ListenAndServeTLS(certFile, keyFile); err != nil && err != http.ErrServerClosed {
 						log.Printf("gateway stopped: %v", err)
 					}
-					return
-				}
-				log.Printf("porter gateway listening on %s (HTTP)", gwAddr)
-				if err := http.ListenAndServe(gwAddr, gw); err != nil {
-					log.Printf("gateway stopped: %v", err)
+				} else {
+					log.Printf("porter gateway listening on %s (HTTP)", gwAddr)
+					if err := gatewayServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+						log.Printf("gateway stopped: %v", err)
+					}
 				}
 			}()
 		}
@@ -213,8 +280,42 @@ func main() {
 	ch := make(chan os.Signal, 1)
 	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
 	<-ch
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = srv.Shutdown(ctx)
+	trackRequests.StopAccepting()
+	reconcileCancel()
+	shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	servers := append([]*http.Server{srv}, gatewayServers...)
+	shutdownErrors := make(chan error, len(servers))
+	var shutdownWait sync.WaitGroup
+	for _, server := range servers {
+		shutdownWait.Add(1)
+		go func(server *http.Server) {
+			defer shutdownWait.Done()
+			if err := server.Shutdown(shutdownContext); err != nil {
+				shutdownErrors <- fmt.Errorf("HTTP server %s shutdown: %w", server.Addr, err)
+			}
+		}(server)
+	}
+	shutdownWait.Wait()
+	close(shutdownErrors)
+	shutdownFailed := false
+	for err := range shutdownErrors {
+		shutdownFailed = true
+		log.Printf("%v", err)
+	}
+	if shutdownFailed {
+		cancelRequests()
+		for _, server := range servers {
+			if err := server.Close(); err != nil && err != http.ErrServerClosed {
+				log.Printf("HTTP server %s force close: %v", server.Addr, err)
+			}
+		}
+	}
+	trackRequests.Wait()
+	shutdownCancel()
+	traceContext, traceCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer traceCancel()
+	if err := traceShutdown(traceContext); err != nil {
+		log.Printf("OpenTelemetry trace shutdown: %v", err)
+	}
 	log.Printf("porter stopped")
 }

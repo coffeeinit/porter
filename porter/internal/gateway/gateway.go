@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"porter/controlplane/internal/store"
+	"porter/controlplane/internal/telemetry"
 )
 
 var upstreamTransport = &http.Transport{
@@ -31,11 +32,18 @@ var upstreamTransport = &http.Transport{
 }
 
 type Gateway struct {
-	Store *store.Store
-	rr    uint64
+	Store     *store.Store
+	rr        uint64
+	transport http.RoundTripper
 }
 
-func New(st *store.Store) *Gateway { return &Gateway{Store: st} }
+func New(st *store.Store) *Gateway {
+	return &Gateway{Store: st, transport: newInstrumentedTransport(upstreamTransport)}
+}
+
+func newInstrumentedTransport(base http.RoundTripper) http.RoundTripper {
+	return telemetry.HTTPTransport(base)
+}
 
 type recorder struct {
 	http.ResponseWriter
@@ -127,7 +135,10 @@ func (g *Gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(target)
-	proxy.Transport = upstreamTransport
+	proxy.Transport = g.transport
+	if proxy.Transport == nil {
+		proxy.Transport = newInstrumentedTransport(upstreamTransport)
+	}
 	proxy.FlushInterval = -1
 	originalDirector := proxy.Director
 	proxy.Director = func(out *http.Request) {

@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"porter/controlplane/internal/store"
 )
@@ -136,5 +139,58 @@ func TestACMEHostPolicyFailsClosedOnStoreError(t *testing.T) {
 	}
 	if err := policy(ctx, domain.Hostname); err == nil {
 		t.Fatal("ACME policy accepted a domain after its store became unavailable")
+	}
+}
+
+func TestRequestTrackerDrainsActiveAndRejectsNewRequests(t *testing.T) {
+	tracker := newRequestTracker()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	handler := tracker.Wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(entered)
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	handlerDone := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://porter.local/", nil))
+		close(handlerDone)
+	}()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("request handler did not start")
+	}
+
+	tracker.StopAccepting()
+	tracker.StopAccepting()
+	waitDone := make(chan struct{})
+	go func() {
+		tracker.Wait()
+		close(waitDone)
+	}()
+	select {
+	case <-waitDone:
+		t.Fatal("tracker reported drained while a request was still active")
+	default:
+	}
+
+	close(release)
+	select {
+	case <-waitDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("tracker did not drain after the active request completed")
+	}
+	select {
+	case <-handlerDone:
+	case <-time.After(5 * time.Second):
+		t.Fatal("active request did not return")
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://porter.local/after-shutdown", nil))
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("request after shutdown returned %d, want %d", response.Code, http.StatusServiceUnavailable)
 	}
 }

@@ -148,6 +148,10 @@ The current implementation uses Go's `httputil.NewSingleHostReverseProxy` with w
 
 The active UI now shows the TXT ownership record and value for pending custom domains and can call the existing verification endpoint. Operators still create the TXT and A/CNAME records in their DNS provider by hand; automatic Cloudflare or other provider connections are not implemented.
 
+## Trace export (partial)
+
+The admin API and gateway emit HTTP server spans, and gateway proxy requests emit client spans. W3C trace context and baggage are propagated to proxied workloads. Set `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` or `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces to an OTLP/HTTP protobuf collector; set `OTEL_SERVICE_NAME` to override the default `porter` resource name. Export is disabled when no endpoint is configured, and only `http/protobuf` is supported. To reduce accidental secret and high-cardinality export, span targets use generic `porter`/`upstream` hosts and `/` paths; query strings, URL userinfo, peer addresses and User-Agent values are omitted. API/gateway handlers and upstream requests still receive their original values. This is export only: Porter does not yet ingest/query/store traces, metrics, or logs, and the embedded UI does not display distributed spans. The existing request-summary endpoint is not an OTel trace store.
+
 ## Future gateway work
 
 - DNS provider adapter interface, starting with Cloudflare, plus manual/external DNS mapping
