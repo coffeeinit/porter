@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -39,7 +40,9 @@ func main() {
 	case "join":
 		join(os.Args[2:])
 	case "run":
-		run(os.Args[2:])
+		if err := run(os.Args[2:]); err != nil {
+			log.Fatal(err)
+		}
 	default:
 		fmt.Println("unknown command")
 		os.Exit(2)
@@ -90,7 +93,7 @@ func join(args []string) {
 	fmt.Println("run: sudo porter-agent run --data-dir", dataDir)
 }
 
-func run(args []string) {
+func run(args []string) error {
 	dataDir := arg(args, "--data-dir", "/var/lib/porter-agent")
 	st, err := store.Open(filepath.Join(dataDir, "porter-agent.db"))
 	if err != nil {
@@ -124,7 +127,7 @@ func run(args []string) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-hb.C:
 			_ = cl.Heartbeat(ctx, protocol.Heartbeat{NodeID: cfg.NodeID, CPUsFree: runtime.NumCPU(), MemoryFreeMB: memAvailableMB(), DiskFreeMB: diskFreeMB(dataDir), VMCount: st.CountVMs(), At: time.Now().UTC()})
 			for _, vm := range st.ListVMs() {
@@ -155,19 +158,99 @@ func run(args []string) {
 				}
 			}
 		case <-cmdTick.C:
-			cmds, err := cl.Commands(ctx)
+			cmds, err := pollCommands(ctx, cl, st)
 			if err != nil {
+				if isPermanentCommandResultError(err) {
+					return fmt.Errorf("agent stopped; pending command result was rejected and retained locally, operator action required: %w", err)
+				}
 				log.Printf("commands: %v", err)
 				continue
 			}
 			for _, c := range cmds {
-				handle(ctx, cl, eng, st, c)
+				if err := handle(ctx, cl, eng, st, c); err != nil {
+					return fmt.Errorf("agent stopped before polling more commands; result for command %s attempt %d requires operator action: %w", c.ID, c.Attempt, err)
+				}
 			}
 		}
 	}
 }
 
-func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *store.Store, c protocol.Command) {
+type commandResultPoster interface {
+	Result(context.Context, protocol.CommandResult) error
+}
+
+type commandControlPlane interface {
+	commandResultPoster
+	Commands(context.Context) ([]protocol.Command, error)
+}
+
+type commandHandlerClient interface {
+	commandResultPoster
+	RecordSnapshot(context.Context, map[string]interface{}) error
+}
+
+type httpStatusCoder interface {
+	HTTPStatusCode() int
+}
+
+type permanentCommandResultError struct{ err error }
+
+func (e *permanentCommandResultError) Error() string {
+	return fmt.Sprintf("permanent command-result rejection; result retained locally: %v", e.err)
+}
+
+func (e *permanentCommandResultError) Unwrap() error { return e.err }
+
+func isPermanentCommandResultError(err error) bool {
+	var permanent *permanentCommandResultError
+	return errors.As(err, &permanent)
+}
+
+func isPermanentHTTPStatusError(err error) bool {
+	var statusErr httpStatusCoder
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+	status := statusErr.HTTPStatusCode()
+	if status < 400 || status >= 500 {
+		return false
+	}
+	switch status {
+	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests:
+		return false
+	default:
+		return true
+	}
+}
+
+func pollCommands(ctx context.Context, cl commandControlPlane, st *store.Store) ([]protocol.Command, error) {
+	if err := flushPendingCommandResults(ctx, cl, st); err != nil {
+		return nil, err
+	}
+	return cl.Commands(ctx)
+}
+
+func flushPendingCommandResults(ctx context.Context, cl commandResultPoster, st *store.Store) error {
+	pending, err := st.PendingCommandResults()
+	if err != nil {
+		return fmt.Errorf("read command result outbox: %w", err)
+	}
+	for _, result := range pending {
+		if err := cl.Result(ctx, result); err != nil {
+			postErr := fmt.Errorf("post result for command %s attempt %d: %w", result.CommandID, result.Attempt, err)
+			if isPermanentHTTPStatusError(err) {
+				return &permanentCommandResultError{err: postErr}
+			}
+			return postErr
+		}
+		if err := st.AckCommandResult(result.CommandID, result.Attempt); err != nil {
+			return fmt.Errorf("ack result for command %s attempt %d: %w", result.CommandID, result.Attempt, err)
+		}
+	}
+	return nil
+}
+
+func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine, st *store.Store, c protocol.Command) error {
 	res := protocol.CommandResult{CommandID: c.ID, OperationID: c.OperationID, NodeID: c.NodeID, Attempt: c.Attempt, Success: true}
 	raw, _ := json.Marshal(c.Payload)
 	switch c.Kind {
@@ -308,9 +391,16 @@ func handle(ctx context.Context, cl *client.Client, eng *fcruntime.Engine, st *s
 		res.Success = false
 		res.Error = "unknown command kind: " + c.Kind
 	}
-	if err := cl.Result(ctx, res); err != nil {
-		log.Printf("result: %v", err)
+	if err := st.QueueCommandResult(res); err != nil {
+		return fmt.Errorf("persist result for command %s attempt %d: %w", c.ID, c.Attempt, err)
 	}
+	if err := flushPendingCommandResults(ctx, cl, st); err != nil {
+		if isPermanentCommandResultError(err) {
+			return err
+		}
+		log.Printf("command result queued for retry: %v", err)
+	}
+	return nil
 }
 
 func fileSHA256(path string) (string, error) {

@@ -2,6 +2,9 @@ package client
 
 import (
 	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -48,5 +51,23 @@ func TestClientRejectsRemotePlainHTTPBeforeSendingNodeToken(t *testing.T) {
 	err := cl.Heartbeat(context.Background(), protocol.Heartbeat{NodeID: "node-1"})
 	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
 		t.Fatalf("Heartbeat error = %v, want remote HTTP rejected with HTTPS guidance", err)
+	}
+}
+
+func TestResultReturnsTypedHTTPStatusError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+	}))
+	defer server.Close()
+	cl := New(server.URL, "node-1", "node-token")
+	err := cl.Result(context.Background(), protocol.CommandResult{
+		CommandID: "cmd-1", OperationID: "op-1", NodeID: "node-1", Attempt: 1,
+	})
+	var statusErr *HTTPStatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("Result error = %v, want *HTTPStatusError", err)
+	}
+	if statusErr.HTTPStatusCode() != http.StatusConflict || statusErr.Path != "/v1/fleet/result" {
+		t.Fatalf("HTTP status error = %+v, want conflict on result endpoint", statusErr)
 	}
 }

@@ -14,6 +14,20 @@ import (
 	"porter/protocol"
 )
 
+// HTTPStatusError reports an HTTP response that the server did not accept.
+type HTTPStatusError struct {
+	Method string
+	Path   string
+	Code   int
+	Status string
+}
+
+func (e *HTTPStatusError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Path, e.Status)
+}
+
+func (e *HTTPStatusError) HTTPStatusCode() int { return e.Code }
+
 type Client struct {
 	Server    string
 	NodeID    string
@@ -90,7 +104,7 @@ func (c *Client) do(ctx context.Context, method, path string, in, out interface{
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("%s: %s", path, resp.Status)
+		return &HTTPStatusError{Method: method, Path: path, Code: resp.StatusCode, Status: resp.Status}
 	}
 	if out != nil {
 		return json.NewDecoder(resp.Body).Decode(out)
