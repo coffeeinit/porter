@@ -55,7 +55,7 @@ jobs:
       - name: Run race tests
         run: |
           (cd protocol && go test -race ./...)
-          (cd porter && go test -race ./internal/store ./internal/api ./internal/gateway ./internal/imagebuilder)
+          (cd porter && go test -race ./...)
           (cd porter-agent && go test -race ./...)
 
       - name: Check embedded UI JavaScript syntax
