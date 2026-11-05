@@ -589,6 +589,8 @@ func (s *Store) scheduleReplicaTx(ctx context.Context, tx *sql.Tx, rep Replica, 
 		return err
 	}
 	vmID := NewID("vm")
+	tapDigest := sha256.Sum256([]byte(vmID))
+	tapName := "pt" + hex.EncodeToString(tapDigest[:])[:13]
 	guestIP, guestMAC, err := allocateIP(ctx, tx, nodeID, rep.ID)
 	if err != nil {
 		return err
@@ -614,7 +616,7 @@ func (s *Store) scheduleReplicaTx(ctx context.Context, tx *sql.Tx, rep Replica, 
 	spec := protocol.VMApplySpec{VMID: vmID, ReplicaID: rep.ID, ProjectID: rep.ProjectID, DeploymentID: rep.DeploymentID,
 		Image: image, KernelPath: kernelRef, RootfsPath: rootfsRef, VCPUs: vcpus, MemoryMB: mem, DiskMB: 1024, Port: appPort,
 		Bridge: "porter0", BridgeCIDR: "10.42.0.0/16", GatewayIP: "10.42.0.1",
-		GuestIP: guestIP, GuestMAC: guestMAC, TapName: "pt" + strings.ReplaceAll(vmID[len(vmID)-8:], "_", ""),
+		GuestIP: guestIP, GuestMAC: guestMAC, TapName: tapName,
 		VolumeID: volumeID, VolumeSizeMB: volumeSize}
 	rows, _ := tx.QueryContext(ctx, `SELECT key,value FROM app_env WHERE app_id=?`, rep.AppID)
 	if rows != nil {

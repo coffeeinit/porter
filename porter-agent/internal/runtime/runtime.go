@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -29,61 +28,149 @@ type Engine struct {
 	Rootfs         string
 	Network        NetworkConfig
 	InitPath       string
+	supervisor     processSupervisor
 }
 
 func New(baseDir, kernel, rootfs string, network NetworkConfig) *Engine {
-	return &Engine{BaseDir: baseDir, FirecrackerBin: "firecracker", Kernel: kernel, Rootfs: rootfs, Network: network}
+	if abs, err := filepath.Abs(baseDir); err == nil {
+		baseDir = abs
+	}
+	return &Engine{BaseDir: baseDir, FirecrackerBin: "firecracker", Kernel: kernel, Rootfs: rootfs, Network: network, supervisor: newSystemdSupervisor()}
 }
 
 func (e *Engine) Apply(ctx context.Context, spec protocol.VMApplySpec) (store.VM, error) {
-	if spec.VMID == "" {
-		return store.VM{}, fmt.Errorf("vm id required")
+	return e.apply(ctx, spec, false)
+}
+
+func (e *Engine) Start(ctx context.Context, spec protocol.VMApplySpec) (store.VM, error) {
+	return e.apply(ctx, spec, false)
+}
+
+func (e *Engine) Restart(ctx context.Context, spec protocol.VMApplySpec) (store.VM, error) {
+	return e.apply(ctx, spec, true)
+}
+
+func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRestart bool) (store.VM, error) {
+	var err error
+	if spec, err = normalizedSpec(spec, e.Kernel, e.Rootfs); err != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed", Error: err.Error()}, err
 	}
-	dir := filepath.Join(e.BaseDir, spec.VMID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return store.VM{}, err
+	unlock, err := e.vmLock(ctx, spec.VMID)
+	if err != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+	}
+	defer unlock()
+
+	dir, err := e.vmDir(spec.VMID, true)
+	if err != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
 	}
 	sock := filepath.Join(dir, "firecracker.sock")
-	_ = os.Remove(sock)
-	logPath := filepath.Join(dir, "firecracker.log")
-	logFile, err := os.Create(logPath)
+	manager := e.supervisorOrDefault()
+	fingerprint, err := fingerprintSpec(spec)
 	if err != nil {
 		return store.VM{}, err
 	}
-	defer logFile.Close()
+	if pid, active, statusErr := manager.Status(ctx, spec.VMID); statusErr != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, statusErr
+	} else if active {
+		manifest, readErr := e.readManifest(spec.VMID)
+		if readErr != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("VM service %s is already active but cannot be safely adopted: %w", vmUnitName(spec.VMID), readErr)
+		}
+		if manifest.SpecHash != fingerprint {
+			return manifest.VM, fmt.Errorf("VM %s is already active with a different specification; stop it before applying changes", spec.VMID)
+		}
+		if forceRestart {
+			if err := e.stopRuntime(manifest.VM, true, false); err != nil {
+				return manifest.VM, fmt.Errorf("stop VM before restart: %w", err)
+			}
+		} else {
+			if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
+				return manifest.VM, fmt.Errorf("adopt active VM %s: %w", spec.VMID, err)
+			}
+			pid, active, err = manager.Status(ctx, spec.VMID)
+			if err != nil || !active || pid <= 0 {
+				if err == nil {
+					err = fmt.Errorf("VM systemd unit stopped during adoption")
+				}
+				return manifest.VM, err
+			}
+			vm := manifest.VM
+			vm.PID, vm.State, vm.Error = pid, "running", ""
+			manifest.VM = vm
+			if err := e.writeManifest(manifest); err != nil {
+				return vm, fmt.Errorf("persist adopted VM state: %w", err)
+			}
+			return vm, nil
+		}
+	}
+
+	// An inactive unit and its manifest are stale. Removing only these files is
+	// safe because systemd is the source of truth for a live VM process.
+	if err := removeIfPresent(sock); err != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("remove stale VM socket: %w", err)
+	}
+	if err := e.removeManifest(spec.VMID); err != nil {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+	}
+	for _, item := range []struct{ name, path string }{{"kernel", spec.KernelPath}, {"rootfs", spec.RootfsPath}} {
+		fi, statErr := os.Stat(item.path)
+		if statErr != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("%s image %q: %w", item.name, item.path, statErr)
+		}
+		if !fi.Mode().IsRegular() {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("%s image %q is not a regular file", item.name, item.path)
+		}
+	}
+	volumePath := ""
+	if spec.VolumeID != "" {
+		volumePath = filepath.Join(e.BaseDir, "volumes", spec.VolumeID+".ext4")
+		if err := ensureVolumeFile(volumePath, spec.VolumeSizeMB); err != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+		}
+	}
 	tap, netErr := e.ensureNetwork(ctx, &spec)
 	if netErr != nil {
-		logFile.Close()
-		return store.VM{}, fmt.Errorf("network: %w", netErr)
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("network: %w", netErr)
 	}
-	cmd := exec.Command(e.FirecrackerBin, "--api-sock", sock)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
-		e.deleteTap(ctx, tap)
-		return store.VM{}, err
+	if tap == "" {
+		tap = spec.TapName
 	}
-	vm := store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "booting", PID: cmd.Process.Pid, Socket: sock, TapName: tap}
+	vm := store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "booting", Socket: sock, TapName: tap, GuestIP: spec.GuestIP, Port: spec.Port, Health: "checking"}
+	logPath := filepath.Join(dir, "firecracker.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
+	}
+	if err := logFile.Close(); err != nil {
+		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
+	}
+	manifest := runtimeManifest{
+		Version: 1, SpecHash: fingerprint, KernelPath: spec.KernelPath, RootfsPath: spec.RootfsPath,
+		VolumePath: volumePath, Network: e.Network, GuestMAC: spec.GuestMAC, GatewayIP: spec.GatewayIP,
+		BridgeCIDR: spec.BridgeCIDR, VCPUs: spec.VCPUs, MemoryMB: spec.MemoryMB, VM: vm,
+	}
+	if err := e.writeManifest(manifest); err != nil {
+		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
+	}
+	pid, err := manager.Start(ctx, processSpec{
+		VMID: spec.VMID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
+		KernelPath: spec.KernelPath, RootfsPath: spec.RootfsPath, VolumePath: volumePath,
+		VCPUs: spec.VCPUs, MemoryMB: spec.MemoryMB,
+	})
+	if err != nil {
+		return e.failApply(vm, err)
+	}
+	vm.PID = pid
+	manifest.VM = vm
+	if err := e.writeManifest(manifest); err != nil {
+		return e.failApply(vm, fmt.Errorf("persist started VM state: %w", err))
+	}
 	if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, err
+		return e.failApply(vm, err)
 	}
 	client := socketClient(sock)
-	kernel := spec.KernelPath
-	if kernel == "" {
-		kernel = e.Kernel
-	}
-	rootfs := spec.RootfsPath
-	if rootfs == "" {
-		rootfs = e.Rootfs
-	}
-	if kernel == "" || rootfs == "" {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, fmt.Errorf("kernel and rootfs paths required")
-	}
 	bootArgs := "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro"
 	if e.InitPath != "" {
 		bootArgs += " init=" + e.InitPath
@@ -91,100 +178,182 @@ func (e *Engine) Apply(ctx context.Context, spec protocol.VMApplySpec) (store.VM
 	if spec.GuestIP != "" && spec.GatewayIP != "" {
 		bootArgs += " ip=" + spec.GuestIP + "::" + spec.GatewayIP + ":" + netmask(spec.BridgeCIDR) + "::eth0:off"
 	}
-	if err := putJSON(ctx, client, "/boot-source", map[string]string{"kernel_image_path": kernel, "boot_args": bootArgs}); err != nil {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, err
+	if err := putJSON(ctx, client, "/boot-source", map[string]string{"kernel_image_path": spec.KernelPath, "boot_args": bootArgs}); err != nil {
+		return e.failApply(vm, err)
 	}
-	if err := putJSON(ctx, client, "/drives/rootfs", map[string]interface{}{"drive_id": "rootfs", "path_on_host": rootfs, "is_root_device": true, "is_read_only": false}); err != nil {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, err
+	if err := putJSON(ctx, client, "/drives/rootfs", map[string]interface{}{"drive_id": "rootfs", "path_on_host": spec.RootfsPath, "is_root_device": true, "is_read_only": false}); err != nil {
+		return e.failApply(vm, err)
 	}
 	if spec.VolumeID != "" {
-		volPath := filepath.Join(e.BaseDir, "volumes", spec.VolumeID+".ext4")
-		if err := ensureVolumeFile(volPath, spec.VolumeSizeMB); err != nil {
-			_ = killStartedProcess(cmd)
-			e.deleteTap(ctx, tap)
-			return vm, err
-		}
-		if err := putJSON(ctx, client, "/drives/vdb", map[string]interface{}{"drive_id": "vdb", "path_on_host": volPath, "is_root_device": false, "is_read_only": false}); err != nil {
-			_ = killStartedProcess(cmd)
-			e.deleteTap(ctx, tap)
-			return vm, err
+		if err := putJSON(ctx, client, "/drives/vdb", map[string]interface{}{"drive_id": "vdb", "path_on_host": volumePath, "is_root_device": false, "is_read_only": false}); err != nil {
+			return e.failApply(vm, err)
 		}
 	}
 	if tap != "" {
 		if err := putJSON(ctx, client, "/network-interfaces/eth0", map[string]string{"iface_id": "eth0", "guest_mac": spec.GuestMAC, "host_dev_name": tap}); err != nil {
-			_ = killStartedProcess(cmd)
-			e.deleteTap(ctx, tap)
-			return vm, err
+			return e.failApply(vm, err)
 		}
 	}
-	vcpus := spec.VCPUs
-	if vcpus <= 0 {
-		vcpus = 1
-	}
-	mem := spec.MemoryMB
-	if mem <= 0 {
-		mem = 256
-	}
-	if err := putJSON(ctx, client, "/machine-config", map[string]int{"vcpu_count": vcpus, "mem_size_mib": mem}); err != nil {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, err
+	if err := putJSON(ctx, client, "/machine-config", map[string]int{"vcpu_count": spec.VCPUs, "mem_size_mib": spec.MemoryMB}); err != nil {
+		return e.failApply(vm, err)
 	}
 	if err := putJSON(ctx, client, "/actions", map[string]string{"action_type": "InstanceStart"}); err != nil {
-		_ = killStartedProcess(cmd)
-		e.deleteTap(ctx, tap)
-		return vm, err
+		return e.failApply(vm, err)
 	}
-	vm.State = "running"
+	vm.State, vm.Error = "running", ""
+	manifest.VM = vm
+	if err := e.writeManifest(manifest); err != nil {
+		return e.failApply(vm, fmt.Errorf("persist running VM state: %w", err))
+	}
 	return vm, nil
 }
 
+func (e *Engine) failApply(vm store.VM, cause error) (store.VM, error) {
+	cleanupErr := e.stopRuntime(vm, true, true)
+	vm.State = "failed"
+	vm.Error = cause.Error()
+	if cleanupErr != nil {
+		vm.Error += "; cleanup failed: " + cleanupErr.Error()
+		if manifest, err := e.readManifest(vm.ID); err == nil {
+			manifest.VM = vm
+			if err := e.writeManifest(manifest); err != nil {
+				vm.Error += "; persist failure state: " + err.Error()
+			}
+		}
+		return vm, fmt.Errorf("%s", vm.Error)
+	}
+	vm.PID, vm.Socket = 0, ""
+	return vm, cause
+}
+
 func (e *Engine) Stop(vm store.VM) error {
-	if vm.PID > 0 {
-		running, err := e.ProcessRunning(vm)
-		if err != nil {
-			return fmt.Errorf("verify Firecracker process before stop: %w", err)
-		}
-		if running {
-			if err := syscall.Kill(vm.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
-				return fmt.Errorf("send SIGTERM to Firecracker PID %d: %w", vm.PID, err)
+	if e.supervisor == nil {
+		if e.BaseDir != "" {
+			sock, err := e.vmSocket(vm.ID)
+			if err != nil {
+				return err
 			}
-			if err := e.waitForProcessExit(vm, 5*time.Second); err != nil {
-				running, checkErr := e.ProcessRunning(vm)
-				if checkErr != nil {
-					return fmt.Errorf("verify Firecracker process after SIGTERM: %w", checkErr)
+			if !socketMatches(sock, vm.Socket) {
+				return fmt.Errorf("VM socket path does not match the configured runtime directory")
+			}
+			vm.Socket = sock
+		}
+		if vm.PID > 0 {
+			running, err := e.ProcessRunning(vm)
+			if err != nil {
+				return fmt.Errorf("verify Firecracker process before stop: %w", err)
+			}
+			if running {
+				if err := syscall.Kill(vm.PID, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+					return err
 				}
-				if running {
-					if killErr := syscall.Kill(vm.PID, syscall.SIGKILL); killErr != nil && !errors.Is(killErr, syscall.ESRCH) {
-						return fmt.Errorf("send SIGKILL to Firecracker PID %d: %w", vm.PID, killErr)
+				if err := e.waitForProcessExit(vm, 5*time.Second); err != nil {
+					running, checkErr := e.ProcessRunning(vm)
+					if checkErr != nil {
+						return checkErr
 					}
-					if waitErr := e.waitForProcessExit(vm, 2*time.Second); waitErr != nil {
-						return fmt.Errorf("wait for Firecracker PID %d to exit: %w", vm.PID, waitErr)
+					if running {
+						if err := syscall.Kill(vm.PID, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+							return err
+						}
+						if err := e.waitForProcessExit(vm, 2*time.Second); err != nil {
+							return err
+						}
 					}
 				}
 			}
+			if err := reapChild(vm.PID); err != nil {
+				return err
+			}
 		}
-		if err := reapChild(vm.PID); err != nil {
-			return fmt.Errorf("reap Firecracker PID %d: %w", vm.PID, err)
+		return removeIfPresent(vm.Socket)
+	}
+	if !validVMID(vm.ID) {
+		return fmt.Errorf("invalid VM identity")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), vmStopTimeout+2*time.Second)
+	defer cancel()
+	unlock, err := e.vmLock(ctx, vm.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return e.stopRuntime(vm, true, false)
+}
+
+func (e *Engine) Delete(ctx context.Context, vm store.VM) error {
+	if !validVMID(vm.ID) {
+		return fmt.Errorf("invalid VM identity")
+	}
+	unlock, err := e.vmLock(ctx, vm.ID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return e.stopRuntime(vm, true, true)
+}
+
+func (e *Engine) stopRuntime(vm store.VM, removeTap, removeState bool) error {
+	if !validVMID(vm.ID) {
+		return fmt.Errorf("invalid VM identity")
+	}
+	sock, err := e.vmSocket(vm.ID)
+	if err != nil {
+		return err
+	}
+	if !socketMatches(sock, vm.Socket) {
+		return fmt.Errorf("VM socket path does not match the configured runtime directory")
+	}
+	manager := e.supervisorOrDefault()
+	ctx, cancel := context.WithTimeout(context.Background(), vmStopTimeout+2*time.Second)
+	defer cancel()
+	statusCtx, statusCancel := context.WithTimeout(ctx, time.Second)
+	_, active, err := manager.Status(statusCtx, vm.ID)
+	statusCancel()
+	if err != nil {
+		return fmt.Errorf("inspect VM %s before stop: %w", vm.ID, err)
+	}
+	if active {
+		if err := manager.Stop(ctx, vm.ID); err != nil {
+			return fmt.Errorf("stop VM %s: %w", vm.ID, err)
 		}
 	}
-	if vm.Socket != "" {
-		if err := os.Remove(vm.Socket); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return fmt.Errorf("remove Firecracker socket %q: %w", vm.Socket, err)
+	if err := removeIfPresent(sock); err != nil {
+		return fmt.Errorf("remove VM socket: %w", err)
+	}
+	if removeState {
+		if err := e.removeManifest(vm.ID); err != nil {
+			return fmt.Errorf("remove VM runtime state: %w", err)
+		}
+	} else {
+		manifest, err := e.readManifest(vm.ID)
+		if err == nil {
+			manifest.VM.State, manifest.VM.PID, manifest.VM.Socket, manifest.VM.Error = "stopped", 0, sock, ""
+			manifest.VM.Health = "unknown"
+			if err := e.writeManifest(manifest); err != nil {
+				return fmt.Errorf("persist stopped VM state: %w", err)
+			}
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("read VM runtime state during stop: %w", err)
+		}
+	}
+	if removeTap && vm.TapName != "" {
+		if err := e.deleteTap(ctx, vm.ID, vm.TapName); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (e *Engine) Delete(ctx context.Context, vm store.VM) error {
-	if err := e.Stop(vm); err != nil {
-		return err
+func removeIfPresent(path string) error {
+	if path == "" {
+		return nil
 	}
-	return e.deleteTap(ctx, vm.TapName)
+	err := os.Remove(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	return err
 }
 
 func (e *Engine) waitForProcessExit(vm store.VM, timeout time.Duration) error {
@@ -203,7 +372,6 @@ func (e *Engine) waitForProcessExit(vm store.VM, timeout time.Duration) error {
 		time.Sleep(50 * time.Millisecond)
 	}
 }
-
 func reapChild(pid int) error {
 	for {
 		var status syscall.WaitStatus
@@ -216,20 +384,6 @@ func reapChild(pid int) error {
 		}
 		return err
 	}
-}
-
-func killStartedProcess(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	_, err := cmd.Process.Wait()
-	if err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return err
-	}
-	return nil
 }
 
 func (e *Engine) waitSocket(ctx context.Context, path string, timeout time.Duration) error {
@@ -301,17 +455,27 @@ func ensureVolumeFile(path string, sizeMB int) error {
 }
 
 func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (string, string, int64, error) {
-	if vm.Socket == "" {
+	if !validVMID(vm.ID) || vm.Socket == "" {
 		return "", "", 0, fmt.Errorf("vm socket missing")
 	}
-	if !safePathComponent(vm.ID, 128) {
-		return "", "", 0, fmt.Errorf("invalid vm id")
-	}
-	if !safeSnapshotID(snapshotID) {
+	if !validVMID(snapshotID) {
 		return "", "", 0, fmt.Errorf("invalid snapshot id")
 	}
-	dir := filepath.Join(e.BaseDir, vm.ID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	sock, err := e.vmSocket(vm.ID)
+	if err != nil {
+		return "", "", 0, err
+	}
+	if !socketMatches(sock, vm.Socket) {
+		return "", "", 0, fmt.Errorf("VM socket path does not match the configured runtime directory")
+	}
+	vm.Socket = sock
+	unlock, err := e.vmLock(ctx, vm.ID)
+	if err != nil {
+		return "", "", 0, err
+	}
+	defer unlock()
+	dir, err := e.vmDir(vm.ID, true)
+	if err != nil {
 		return "", "", 0, err
 	}
 	statePath := filepath.Join(dir, snapshotID+".snap")
@@ -320,11 +484,18 @@ func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (
 	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Paused"}); err != nil {
 		return "", "", 0, err
 	}
-	defer func() {
-		_ = methodJSON(context.Background(), client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
-	}()
-	if err := putJSON(ctx, client, "/snapshot/create", map[string]string{"snapshot_type": "Full", "snapshot_path": statePath, "mem_file_path": memPath}); err != nil {
-		return "", "", 0, err
+	snapshotErr := putJSON(ctx, client, "/snapshot/create", map[string]string{"snapshot_type": "Full", "snapshot_path": statePath, "mem_file_path": memPath})
+	resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	resumeErr := methodJSON(resumeCtx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
+	cancel()
+	if snapshotErr != nil {
+		if resumeErr != nil {
+			return "", "", 0, fmt.Errorf("create snapshot: %v; resume VM: %w", snapshotErr, resumeErr)
+		}
+		return "", "", 0, snapshotErr
+	}
+	if resumeErr != nil {
+		return "", "", 0, fmt.Errorf("snapshot created but VM could not be resumed: %w", resumeErr)
 	}
 	var size int64
 	for _, p := range []string{statePath, memPath} {
@@ -336,13 +507,86 @@ func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (
 }
 
 func (e *Engine) Healthy(vm store.VM) bool {
-	running, err := e.ProcessRunning(vm)
-	return err == nil && running && vm.Socket != ""
+	if !validVMID(vm.ID) || vm.Socket == "" {
+		return false
+	}
+	sock, err := e.vmSocket(vm.ID)
+	if err != nil || !socketMatches(sock, vm.Socket) {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	pid, active, err := e.supervisorOrDefault().Status(ctx, vm.ID)
+	if err != nil || !active || pid <= 0 || (vm.PID > 0 && vm.PID != pid) {
+		return false
+	}
+	conn, err := net.DialTimeout("unix", sock, 250*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
 }
 
-// ProcessRunning returns true only when the saved PID is running and its
-// command line still identifies the expected Firecracker binary and socket.
-// An identity-read failure is an error, not proof that it is safe to relaunch.
+// Reconcile adopts a VM service that survived an agent restart, or marks a
+// missing/failed runtime as failed after bounded cleanup. systemd owns the VM
+// process and its cgroup, so the agent never treats a saved PID alone as proof
+// that a workload is still alive.
+func (e *Engine) Reconcile(ctx context.Context, vm store.VM) (store.VM, bool, error) {
+	if !validVMID(vm.ID) {
+		return vm, false, fmt.Errorf("invalid VM identity")
+	}
+	if vm.State != "running" && vm.State != "booting" && vm.State != "failed" {
+		return vm, false, nil
+	}
+	unlock, err := e.vmLock(ctx, vm.ID)
+	if err != nil {
+		return vm, false, err
+	}
+	defer unlock()
+	pid, active, err := e.supervisorOrDefault().Status(ctx, vm.ID)
+	if err != nil {
+		return vm, false, err
+	}
+	if vm.State == "failed" {
+		if err := e.stopRuntime(vm, true, true); err != nil {
+			return vm, false, err
+		}
+		return vm, false, nil
+	}
+	if active && pid > 0 {
+		sock, err := e.vmSocket(vm.ID)
+		if err != nil {
+			return vm, false, err
+		}
+		if !socketMatches(sock, vm.Socket) {
+			return vm, false, fmt.Errorf("VM socket path does not match the configured runtime directory")
+		}
+		conn, dialErr := net.DialTimeout("unix", sock, 250*time.Millisecond)
+		if dialErr == nil {
+			_ = conn.Close()
+			manifest, readErr := e.readManifest(vm.ID)
+			if readErr == nil && manifest.VM.ID == vm.ID {
+				changed := vm.PID != pid || vm.Socket != sock || vm.State != "running" || vm.Error != ""
+				vm.PID, vm.Socket, vm.State, vm.Error = pid, sock, "running", ""
+				if changed {
+					manifest.VM = vm
+					if err := e.writeManifest(manifest); err != nil {
+						return vm, false, err
+					}
+				}
+				return vm, true, nil
+			}
+		}
+	}
+	if err := e.stopRuntime(vm, true, true); err != nil {
+		return vm, false, err
+	}
+	vm.State, vm.Health = "failed", "unhealthy"
+	vm.Error = "Firecracker service was not active during agent reconciliation"
+	return vm, false, nil
+}
+
 func (e *Engine) ProcessRunning(vm store.VM) (bool, error) {
 	if vm.PID <= 0 {
 		return false, nil
@@ -423,6 +667,29 @@ func (e *Engine) TailLog(vm store.VM, maxLines int) []string {
 	return lines
 }
 
+func (e *Engine) validateSnapshotPath(vmID, path string) (string, error) {
+	root, err := filepath.EvalSymlinks(filepath.Join(e.BaseDir, vmID))
+	if err != nil {
+		return "", fmt.Errorf("resolve VM snapshot directory: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve snapshot file %q: %w", path, err)
+	}
+	rel, err := filepath.Rel(root, resolved)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("snapshot file %q is outside VM %s snapshot directory", path, vmID)
+	}
+	fi, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("snapshot file %q: %w", resolved, err)
+	}
+	if !fi.Mode().IsRegular() {
+		return "", fmt.Errorf("snapshot file %q is not a regular file", resolved)
+	}
+	return resolved, nil
+}
+
 func netmask(cidr string) string {
 	_, n, err := net.ParseCIDR(cidr)
 	if err != nil {
@@ -432,19 +699,32 @@ func netmask(cidr string) string {
 }
 
 func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, memPath, stateSHA256, memSHA256 string) (store.VM, error) {
-	if !safePathComponent(vm.ID, 128) {
-		return vm, fmt.Errorf("invalid vm id")
+	if !validVMID(vm.ID) {
+		return vm, fmt.Errorf("invalid VM identity")
+	}
+	if statePath == "" || memPath == "" {
+		return vm, fmt.Errorf("snapshot state and memory paths are required")
 	}
 	stateID := strings.TrimSuffix(filepath.Base(statePath), ".snap")
 	memID := strings.TrimSuffix(filepath.Base(memPath), ".mem")
 	if !safeSnapshotID(stateID) || stateID != memID {
 		return vm, fmt.Errorf("snapshot artifact names do not match")
 	}
-	dir := filepath.Join(e.BaseDir, vm.ID)
-	if err := validateSnapshotArtifact(dir, statePath, ".snap"); err != nil {
+	if statePath == memPath {
+		return vm, fmt.Errorf("snapshot state and memory paths must be different")
+	}
+	var err error
+	if statePath, err = filepath.Abs(statePath); err != nil {
+		return vm, fmt.Errorf("snapshot state path: %w", err)
+	}
+	if memPath, err = filepath.Abs(memPath); err != nil {
+		return vm, fmt.Errorf("snapshot memory path: %w", err)
+	}
+	snapshotDir := filepath.Join(e.BaseDir, vm.ID)
+	if err := validateSnapshotArtifact(snapshotDir, statePath, ".snap"); err != nil {
 		return vm, fmt.Errorf("invalid snapshot state file: %w", err)
 	}
-	if err := validateSnapshotArtifact(dir, memPath, ".mem"); err != nil {
+	if err := validateSnapshotArtifact(snapshotDir, memPath, ".mem"); err != nil {
 		return vm, fmt.Errorf("invalid snapshot memory file: %w", err)
 	}
 	if err := verifySnapshotDigest(statePath, stateSHA256); err != nil {
@@ -453,36 +733,101 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 	if err := verifySnapshotDigest(memPath, memSHA256); err != nil {
 		return vm, fmt.Errorf("invalid snapshot memory digest: %w", err)
 	}
-	if err := e.Stop(vm); err != nil {
-		return vm, fmt.Errorf("stop current VM before snapshot restore: %w", err)
+	for _, path := range []string{statePath, memPath} {
+		validated, validateErr := e.validateSnapshotPath(vm.ID, path)
+		if validateErr != nil {
+			return vm, validateErr
+		}
+		if path == statePath {
+			statePath = validated
+		} else {
+			memPath = validated
+		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return vm, err
-	}
-	sock := filepath.Join(dir, "firecracker.sock")
-	_ = os.Remove(sock)
-	logFile, err := os.Create(filepath.Join(dir, "firecracker-restore.log"))
+	unlock, err := e.vmLock(ctx, vm.ID)
 	if err != nil {
 		return vm, err
 	}
-	cmd := exec.Command(e.FirecrackerBin, "--api-sock", sock)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
-	if err := cmd.Start(); err != nil {
-		logFile.Close()
+	defer unlock()
+	manifest, err := e.readManifest(vm.ID)
+	if err != nil {
+		return vm, fmt.Errorf("restore requires saved VM runtime configuration: %w", err)
+	}
+	if manifest.VCPUs <= 0 || manifest.MemoryMB <= 0 || manifest.KernelPath == "" || manifest.RootfsPath == "" {
+		return vm, fmt.Errorf("saved VM runtime configuration is incomplete")
+	}
+	tap := manifest.VM.TapName
+	if tap == "" {
+		tap = vm.TapName
+	}
+	if tap != "" && (manifest.Network.Bridge == "" || manifest.Network != e.Network) {
+		return vm, fmt.Errorf("snapshot restore requires the VM's original host network configuration")
+	}
+	if err := e.stopRuntime(vm, false, false); err != nil {
 		return vm, err
+	}
+	if tap != "" {
+		netSpec := protocol.VMApplySpec{VMID: vm.ID, TapName: tap}
+		tap, err = e.ensureNetwork(ctx, &netSpec)
+		if err != nil {
+			return vm, fmt.Errorf("recreate VM tap for snapshot restore: %w", err)
+		}
+	}
+	dir, err := e.vmDir(vm.ID, true)
+	if err != nil {
+		return vm, err
+	}
+	sock := filepath.Join(dir, "firecracker.sock")
+	logPath := filepath.Join(dir, "firecracker-restore.log")
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return vm, err
+	}
+	if err := logFile.Close(); err != nil {
+		return vm, err
+	}
+	vm.State, vm.PID, vm.Socket, vm.TapName = "booting", 0, sock, tap
+	manifest.VM = vm
+	if err := e.writeManifest(manifest); err != nil {
+		return vm, err
+	}
+	pid, err := e.supervisorOrDefault().Start(ctx, processSpec{
+		VMID: vm.ID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
+		KernelPath: manifest.KernelPath, RootfsPath: manifest.RootfsPath, VolumePath: manifest.VolumePath,
+		VCPUs: manifest.VCPUs, MemoryMB: manifest.MemoryMB,
+	})
+	if err != nil {
+		return e.failApply(vm, err)
+	}
+	vm.PID = pid
+	manifest.VM = vm
+	if err := e.writeManifest(manifest); err != nil {
+		return e.failApply(vm, err)
 	}
 	if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
-		_ = cmd.Process.Kill()
-		return vm, err
+		return e.failApply(vm, err)
 	}
 	client := socketClient(sock)
-	if err := putJSON(ctx, client, "/snapshot/load", map[string]interface{}{"snapshot_path": statePath, "mem_file_path": memPath, "enable_diff_snapshots": false}); err != nil {
-		_ = cmd.Process.Kill()
-		return vm, err
+	loadRequest := map[string]interface{}{
+		"snapshot_path": statePath,
+		"mem_backend":   map[string]string{"backend_path": memPath, "backend_type": "File"},
+		"resume_vm":     false,
 	}
-	_ = methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
-	return store.VM{ID: vm.ID, ReplicaID: vm.ReplicaID, State: "running", PID: cmd.Process.Pid, Socket: sock, TapName: vm.TapName, GuestIP: vm.GuestIP, Port: vm.Port, Health: "checking"}, nil
+	if tap != "" {
+		loadRequest["network_overrides"] = []map[string]string{{"iface_id": "eth0", "host_dev_name": tap}}
+	}
+	if err := putJSON(ctx, client, "/snapshot/load", loadRequest); err != nil {
+		return e.failApply(vm, err)
+	}
+	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"}); err != nil {
+		return e.failApply(vm, err)
+	}
+	vm.State, vm.Error, vm.Health = "running", "", "checking"
+	manifest.VM = vm
+	if err := e.writeManifest(manifest); err != nil {
+		return e.failApply(vm, err)
+	}
+	return vm, nil
 }
 
 func safePathComponent(value string, maxLen int) bool {
