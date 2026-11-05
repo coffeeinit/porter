@@ -22,6 +22,49 @@ import (
 
 var Version = "v1.0.0-dev"
 
+type gatewayTLSMode string
+
+const (
+	gatewayTLSHTTP   gatewayTLSMode = "http"
+	gatewayTLSStatic gatewayTLSMode = "static"
+	gatewayTLSACME   gatewayTLSMode = "acme"
+)
+
+func gatewayTLSConfig(certFile, keyFile, acmeDomains string) (gatewayTLSMode, []string, error) {
+	certFile = strings.TrimSpace(certFile)
+	keyFile = strings.TrimSpace(keyFile)
+	acmeDomains = strings.TrimSpace(acmeDomains)
+	hasCert, hasKey := certFile != "", keyFile != ""
+	if hasCert != hasKey {
+		return "", nil, fmt.Errorf("PORTER_TLS_CERT and PORTER_TLS_KEY must be set together")
+	}
+	if acmeDomains != "" {
+		if hasCert {
+			return "", nil, fmt.Errorf("configure either PORTER_ACME_DOMAINS or PORTER_TLS_CERT/PORTER_TLS_KEY, not both")
+		}
+		rawHosts := strings.Split(acmeDomains, ",")
+		hosts := make([]string, 0, len(rawHosts))
+		seen := make(map[string]struct{}, len(rawHosts))
+		for _, host := range rawHosts {
+			host = strings.TrimSpace(host)
+			if host == "" {
+				return "", nil, fmt.Errorf("PORTER_ACME_DOMAINS contains an empty hostname")
+			}
+			key := strings.ToLower(host)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			hosts = append(hosts, host)
+		}
+		return gatewayTLSACME, hosts, nil
+	}
+	if hasCert {
+		return gatewayTLSStatic, nil, nil
+	}
+	return gatewayTLSHTTP, nil, nil
+}
+
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -45,6 +88,12 @@ func main() {
 	}
 	addr := env("PORTER_ADDR", ":8080")
 	dbPath := env("PORTER_DB", "porter.db")
+	gwAddr := env("PORTER_GATEWAY_ADDR", ":8081")
+	certFile, keyFile, acmeDomains := os.Getenv("PORTER_TLS_CERT"), os.Getenv("PORTER_TLS_KEY"), os.Getenv("PORTER_ACME_DOMAINS")
+	tlsMode, acmeHosts, tlsErr := gatewayTLSConfig(certFile, keyFile, acmeDomains)
+	if gwAddr != "" && gwAddr != "off" && tlsErr != nil {
+		log.Fatalf("invalid gateway TLS configuration: %v", tlsErr)
+	}
 	admin := os.Getenv("PORTER_ADMIN_TOKEN")
 	if admin == "" {
 		b := make([]byte, 24)
@@ -65,22 +114,26 @@ func main() {
 			log.Fatal(err)
 		}
 	}()
-	gwAddr := env("PORTER_GATEWAY_ADDR", ":8081")
 	if gwAddr != "" && gwAddr != "off" {
 		gw := gateway.New(st)
-		certFile, keyFile := os.Getenv("PORTER_TLS_CERT"), os.Getenv("PORTER_TLS_KEY")
-		acmeDomains := os.Getenv("PORTER_ACME_DOMAINS")
-		if acmeDomains != "" {
-			m := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(strings.Split(acmeDomains, ",")...), Cache: autocert.DirCache(env("PORTER_ACME_CACHE", "/var/lib/porter/certs"))}
-			go func() { log.Printf("porter ACME HTTP-01 on :80"); _ = http.ListenAndServe(":80", m.HTTPHandler(nil)) }()
+		if tlsMode == gatewayTLSACME {
+			m := &autocert.Manager{Prompt: autocert.AcceptTOS, HostPolicy: autocert.HostWhitelist(acmeHosts...), Cache: autocert.DirCache(env("PORTER_ACME_CACHE", "/var/lib/porter/certs"))}
+			go func() {
+				log.Printf("porter ACME HTTP-01 on :80")
+				if err := http.ListenAndServe(":80", m.HTTPHandler(nil)); err != nil {
+					log.Printf("ACME HTTP-01 listener stopped: %v", err)
+				}
+			}()
 			go func() {
 				log.Printf("porter gateway ACME TLS on :443")
 				srv := &http.Server{Addr: ":443", Handler: gw, TLSConfig: m.TLSConfig()}
-				_ = srv.ListenAndServeTLS("", "")
+				if err := srv.ListenAndServeTLS("", ""); err != nil {
+					log.Printf("gateway ACME TLS listener stopped: %v", err)
+				}
 			}()
 		} else {
 			go func() {
-				if certFile != "" && keyFile != "" {
+				if tlsMode == gatewayTLSStatic {
 					log.Printf("porter gateway listening on %s (TLS)", gwAddr)
 					if err := http.ListenAndServeTLS(gwAddr, certFile, keyFile, gw); err != nil {
 						log.Printf("gateway stopped: %v", err)
