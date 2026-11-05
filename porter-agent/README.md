@@ -6,6 +6,10 @@ One privileged agent runs on every Linux/KVM machine. It is the **only** compone
 
 Responsibilities include one-time-token enrollment, host preflight, heartbeat/capacity reporting, command polling, Firecracker lifecycle, TAP/bridge/NAT networking, local volumes and snapshots, and a local SQLite state ledger.
 
+## Snapshot and restore
+
+The agent captures Firecracker state/memory, each VM's private rootfs, and an optional attached volume with file syncs, SHA-256 manifests, exclusive volume locks, and a durable restore journal. The contract is **crash-consistent only**; application freeze/thaw is not implemented. Snapshot files stay on the agent node and are not an off-host backup. Legacy VMs without verified private-rootfs ownership fail closed for snapshot/restore and must be recreated. Portable fake tests cover restore and rollback; real KVM recovery acceptance remains required.
+
 ## Agent transport today
 
 The agent uses JSON request/response over HTTPS with its bearer node token. It sends heartbeats and polls for commands; there is no WebSocket/WSS stream. Remote plaintext HTTP is rejected; loopback HTTP is allowed for development. Enrollment uses its one-time join token and is not protected by the optional client-certificate gate.

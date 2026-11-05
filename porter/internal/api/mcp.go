@@ -446,10 +446,11 @@ func (s *Server) callMCPTool(r *http.Request, name string, raw json.RawMessage) 
 		if !ok {
 			return nil, &mcpToolError{"snapshot not found"}
 		}
-		if snap.StateSHA256 == "" || snap.MemSHA256 == "" {
-			return nil, &mcpToolError{"snapshot has no integrity hashes; create a new snapshot before restoring"}
+		if !restorableSnapshot(snap) {
+			return nil, &mcpToolError{"snapshot is not restorable: crash-consistent disk integrity metadata is incomplete"}
 		}
-		op, err := s.Store.QueueVMCommand(ctx, snap.VMID, "snapshot.restore", "snapshot.restore", map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath, "state_sha256": snap.StateSHA256, "mem_sha256": snap.MemSHA256})
+		spec := protocol.SnapshotRestoreSpec{SnapshotID: snap.ID, VMID: snap.VMID, StatePath: snap.StatePath, MemPath: snap.MemPath, SizeBytes: snap.SizeBytes, StateSHA256: snap.StateSHA256, MemSHA256: snap.MemSHA256, DiskFiles: snap.DiskFiles}
+		op, err := s.Store.QueueVMCommand(ctx, snap.VMID, "snapshot.restore", "snapshot.restore", spec)
 		return map[string]string{"operation_id": op}, err
 	case "porter_create_preview":
 		var in struct {

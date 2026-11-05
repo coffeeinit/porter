@@ -86,6 +86,36 @@ type SnapshotSpec struct {
 	SnapshotID string `json:"snapshot_id"`
 }
 
+type SnapshotRecord struct {
+	ID          string         `json:"id"`
+	VMID        string         `json:"vm_id"`
+	StatePath   string         `json:"state_path"`
+	MemPath     string         `json:"mem_path"`
+	SizeBytes   int64          `json:"size_bytes"`
+	StateSHA256 string         `json:"state_sha256"`
+	MemSHA256   string         `json:"mem_sha256"`
+	DiskFiles   []SnapshotFile `json:"disk_files,omitempty"`
+}
+
+type SnapshotFile struct {
+	Kind         string `json:"kind"`
+	OriginalPath string `json:"original_path"`
+	BackupPath   string `json:"backup_path"`
+	SizeBytes    int64  `json:"size_bytes"`
+	SHA256       string `json:"sha256"`
+}
+
+type SnapshotRestoreSpec struct {
+	SnapshotID  string         `json:"snapshot_id"`
+	VMID        string         `json:"vm_id"`
+	StatePath   string         `json:"state_path"`
+	MemPath     string         `json:"mem_path"`
+	SizeBytes   int64          `json:"size_bytes"`
+	StateSHA256 string         `json:"state_sha256"`
+	MemSHA256   string         `json:"mem_sha256"`
+	DiskFiles   []SnapshotFile `json:"disk_files"`
+}
+
 type VolumeResizeSpec struct {
 	VolumeID string `json:"volume_id"`
 	SizeMB   int    `json:"size_mb"`

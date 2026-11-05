@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,6 +30,8 @@ type Engine struct {
 	Network        NetworkConfig
 	InitPath       string
 	supervisor     processSupervisor
+	volumeMu       sync.Mutex
+	volumeLeases   map[string]*volumeLease
 }
 
 func New(baseDir, kernel, rootfs string, network NetworkConfig) *Engine {
@@ -89,6 +92,22 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 				return manifest.VM, fmt.Errorf("stop VM before restart: %w", err)
 			}
 		} else {
+			if manifest.VolumePath != "" {
+				leaseErr := e.acquireVolumeLease(spec.VMID, manifest.VolumePath)
+				if leaseErr == nil {
+					var shared bool
+					shared, leaseErr = e.volumeUsedByOtherVM(spec.VMID, manifest.VolumePath)
+					if leaseErr == nil && shared {
+						leaseErr = fmt.Errorf("writable volume is referenced by another VM")
+					}
+				}
+				if leaseErr != nil {
+					if stopErr := e.stopRuntime(manifest.VM, true, false); stopErr != nil {
+						leaseErr = fmt.Errorf("%v; stop conflicting VM: %w", leaseErr, stopErr)
+					}
+					return manifest.VM, fmt.Errorf("cannot adopt VM with writable volume: %w", leaseErr)
+				}
+			}
 			if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
 				return manifest.VM, fmt.Errorf("adopt active VM %s: %w", spec.VMID, err)
 			}
@@ -135,9 +154,38 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 		}
 	}
 	volumePath := ""
+	leaseAcquired, keepVolumeLease := false, false
 	if spec.VolumeID != "" {
-		volumePath = filepath.Join(e.BaseDir, "volumes", spec.VolumeID+".ext4")
+		volumePath, err = e.canonicalVolumePath(filepath.Join(e.BaseDir, "volumes", spec.VolumeID+".ext4"), true)
+		if err != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+		}
+		if err := e.acquireVolumeLease(spec.VMID, volumePath); err != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+		}
+		leaseAcquired = true
+		defer func() {
+			if !leaseAcquired || keepVolumeLease {
+				return
+			}
+			statusCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			_, active, statusErr := manager.Status(statusCtx, spec.VMID)
+			if statusErr == nil && !active {
+				_ = e.releaseVolumeLease(spec.VMID)
+			}
+		}()
+		if shared, err := e.volumeUsedByOtherVM(spec.VMID, volumePath); err != nil || shared {
+			if err != nil {
+				return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+			}
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("writable volume is already assigned to another VM")
+		}
 		if err := ensureVolumeFile(volumePath, spec.VolumeSizeMB); err != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
+		}
+		volumePath, err = e.canonicalVolumePath(volumePath, false)
+		if err != nil {
 			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
 		}
 	}
@@ -220,6 +268,9 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	if err := e.writeManifest(manifest); err != nil {
 		return e.failApply(vm, fmt.Errorf("persist running VM state: %w", err))
 	}
+	if spec.VolumeID != "" {
+		keepVolumeLease = true
+	}
 	return vm, nil
 }
 
@@ -285,7 +336,10 @@ func (e *Engine) Stop(vm store.VM) error {
 				return err
 			}
 		}
-		return removeIfPresent(vm.Socket)
+		if err := removeIfPresent(vm.Socket); err != nil {
+			return err
+		}
+		return e.releaseVolumeLease(vm.ID)
 	}
 	if !validVMID(vm.ID) {
 		return fmt.Errorf("invalid VM identity")
@@ -333,6 +387,14 @@ func (e *Engine) Delete(ctx context.Context, vm store.VM) error {
 }
 
 func (e *Engine) stopRuntime(vm store.VM, removeTap, removeState bool) error {
+	return e.stopRuntimeWithLease(vm, removeTap, removeState, false)
+}
+
+func (e *Engine) stopRuntimeKeepingVolumeLease(vm store.VM, removeTap, removeState bool) error {
+	return e.stopRuntimeWithLease(vm, removeTap, removeState, true)
+}
+
+func (e *Engine) stopRuntimeWithLease(vm store.VM, removeTap, removeState, keepVolumeLease bool) error {
 	if !validVMID(vm.ID) {
 		return fmt.Errorf("invalid VM identity")
 	}
@@ -380,6 +442,9 @@ func (e *Engine) stopRuntime(vm store.VM, removeTap, removeState bool) error {
 		if err := e.deleteTap(ctx, vm.ID, vm.TapName); err != nil {
 			return err
 		}
+	}
+	if !keepVolumeLease {
+		return e.releaseVolumeLease(vm.ID)
 	}
 	return nil
 }
@@ -571,84 +636,240 @@ func privateFileHasSingleLink(info os.FileInfo) bool {
 }
 
 func ensureVolumeFile(path string, sizeMB int) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
+	}
+	parentInfo, err := os.Lstat(filepath.Dir(path))
+	if err != nil || parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
+		return fmt.Errorf("volume parent must be a real directory")
 	}
 	if sizeMB <= 0 {
 		sizeMB = 1024
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
+		_ = f.Close()
 		return err
 	}
-	if st.Size() < int64(sizeMB)*1024*1024 {
-		return f.Truncate(int64(sizeMB) * 1024 * 1024)
+	if !st.Mode().IsRegular() || !privateFileHasSingleLink(st) {
+		_ = f.Close()
+		return fmt.Errorf("volume image must be a single-link regular file")
 	}
-	return nil
+	if st.Size() < int64(sizeMB)*1024*1024 {
+		if err := f.Truncate(int64(sizeMB) * 1024 * 1024); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Sync(); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
 }
 
-func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (string, string, int64, error) {
+func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (protocol.SnapshotRecord, error) {
 	if !validVMID(vm.ID) || vm.Socket == "" {
-		return "", "", 0, fmt.Errorf("vm socket missing")
+		return protocol.SnapshotRecord{}, fmt.Errorf("vm socket missing")
 	}
-	if !validVMID(snapshotID) {
-		return "", "", 0, fmt.Errorf("invalid snapshot id")
+	if !safeSnapshotID(snapshotID) {
+		return protocol.SnapshotRecord{}, fmt.Errorf("invalid snapshot id")
 	}
 	sock, err := e.vmSocket(vm.ID)
 	if err != nil {
-		return "", "", 0, err
+		return protocol.SnapshotRecord{}, err
 	}
 	if !socketMatches(sock, vm.Socket) {
-		return "", "", 0, fmt.Errorf("VM socket path does not match the configured runtime directory")
+		return protocol.SnapshotRecord{}, fmt.Errorf("VM socket path does not match the configured runtime directory")
+	}
+	if vm.State != "running" {
+		return protocol.SnapshotRecord{}, fmt.Errorf("snapshot requires a running VM")
 	}
 	vm.Socket = sock
 	unlock, err := e.vmLock(ctx, vm.ID)
 	if err != nil {
-		return "", "", 0, err
+		return protocol.SnapshotRecord{}, err
 	}
 	defer unlock()
 	dir, err := e.vmDir(vm.ID, true)
 	if err != nil {
-		return "", "", 0, err
+		return protocol.SnapshotRecord{}, err
 	}
 	manifest, err := e.readManifest(vm.ID)
 	if err != nil {
-		return "", "", 0, fmt.Errorf("snapshot requires saved VM runtime configuration: %w", err)
+		return protocol.SnapshotRecord{}, fmt.Errorf("snapshot requires saved VM runtime configuration: %w", err)
 	}
 	if err := validatePrivateRootfs(dir, manifest); err != nil {
-		return "", "", 0, err
+		return protocol.SnapshotRecord{}, err
+	}
+	if manifest.RootfsPath == "" || manifest.VCPUs <= 0 || manifest.MemoryMB <= 0 || manifest.KernelPath == "" {
+		return protocol.SnapshotRecord{}, fmt.Errorf("snapshot requires a complete persisted VM runtime configuration")
+	}
+	diskSources := []struct{ kind, path string }{{kind: "rootfs", path: manifest.RootfsPath}}
+	if manifest.VolumePath != "" {
+		volumePath, err := e.canonicalVolumePath(manifest.VolumePath, false)
+		if err != nil {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot attached volume: %w", err)
+		}
+		manifest.VolumePath = volumePath
+		if filepath.Clean(volumePath) == filepath.Clean(manifest.RootfsPath) {
+			return protocol.SnapshotRecord{}, fmt.Errorf("root disk and attached volume paths must differ")
+		}
+		if err := e.acquireVolumeLease(vm.ID, volumePath); err != nil {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot requires exclusive attached-volume ownership: %w", err)
+		}
+		shared, err := e.volumeUsedByOtherVM(vm.ID, volumePath)
+		if err != nil {
+			return protocol.SnapshotRecord{}, err
+		}
+		if shared {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot refused: attached volume is shared by another VM")
+		}
+		diskSources = append(diskSources, struct{ kind, path string }{kind: "volume", path: volumePath})
+	}
+	if record, found, err := e.loadSnapshotRecord(dir, vm.ID, snapshotID, manifest); err != nil {
+		return protocol.SnapshotRecord{}, err
+	} else if found {
+		return record, nil
 	}
 	statePath := filepath.Join(dir, snapshotID+".snap")
 	memPath := filepath.Join(dir, snapshotID+".mem")
+	recordPath := filepath.Join(dir, snapshotID+".record.json")
+	for _, path := range []string{statePath, memPath} {
+		if _, err := os.Lstat(path); err == nil {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot id already exists")
+		} else if !os.IsNotExist(err) {
+			return protocol.SnapshotRecord{}, err
+		}
+	}
+	for _, disk := range diskSources {
+		if _, err := os.Lstat(filepath.Join(dir, snapshotID+"."+disk.kind+".disk")); err == nil {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot id already exists")
+		} else if !os.IsNotExist(err) {
+			return protocol.SnapshotRecord{}, err
+		}
+	}
+	tmpState, err := reserveSnapshotPath(dir, snapshotID, ".snap.tmp")
+	if err != nil {
+		return protocol.SnapshotRecord{}, err
+	}
+	tmpMem, err := reserveSnapshotPath(dir, snapshotID, ".mem.tmp")
+	if err != nil {
+		_ = os.Remove(tmpState)
+		return protocol.SnapshotRecord{}, err
+	}
+	diskPaths := make([]string, 0, len(diskSources))
+	cleanup := func() {
+		_ = os.Remove(tmpState)
+		_ = os.Remove(tmpMem)
+		_ = os.Remove(statePath)
+		_ = os.Remove(memPath)
+		_ = os.Remove(recordPath)
+		for _, path := range diskPaths {
+			_ = os.Remove(path)
+		}
+		_ = syncDir(dir)
+	}
 	client := socketClient(vm.Socket)
+	resume := func() error {
+		resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return methodJSON(resumeCtx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
+	}
 	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Paused"}); err != nil {
-		return "", "", 0, err
-	}
-	snapshotErr := putJSON(ctx, client, "/snapshot/create", map[string]string{"snapshot_type": "Full", "snapshot_path": statePath, "mem_file_path": memPath})
-	resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	resumeErr := methodJSON(resumeCtx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
-	cancel()
-	if snapshotErr != nil {
+		resumeErr := resume()
+		cleanup()
 		if resumeErr != nil {
-			return "", "", 0, fmt.Errorf("create snapshot: %v; resume VM: %w", snapshotErr, resumeErr)
+			if stopErr := e.stopRuntime(vm, true, false); stopErr != nil {
+				return protocol.SnapshotRecord{}, fmt.Errorf("pause VM: %v; resume after failed pause: %v; stop VM: %w", err, resumeErr, stopErr)
+			}
+			return protocol.SnapshotRecord{}, fmt.Errorf("pause VM: %v; resume after failed pause: %v; VM was stopped", err, resumeErr)
 		}
-		return "", "", 0, snapshotErr
+		return protocol.SnapshotRecord{}, err
 	}
-	if resumeErr != nil {
-		return "", "", 0, fmt.Errorf("snapshot created but VM could not be resumed: %w", resumeErr)
+	failWhilePaused := func(cause error) error {
+		if resumeErr := resume(); resumeErr != nil {
+			if stopErr := e.stopRuntime(vm, true, false); stopErr != nil {
+				return fmt.Errorf("%v; resume VM: %v; stop paused VM: %w", cause, resumeErr, stopErr)
+			}
+			return fmt.Errorf("%v; resume VM: %v; VM was stopped", cause, resumeErr)
+		}
+		return cause
 	}
-	var size int64
-	for _, p := range []string{statePath, memPath} {
-		if fi, err := os.Stat(p); err == nil {
-			size += fi.Size()
+	for _, disk := range diskSources {
+		if err := syncDiskSource(disk.path); err != nil {
+			cause := failWhilePaused(fmt.Errorf("sync %s disk: %w", disk.kind, err))
+			cleanup()
+			return protocol.SnapshotRecord{}, cause
 		}
 	}
-	return statePath, memPath, size, nil
+	if err := putJSON(ctx, client, "/snapshot/create", map[string]interface{}{"snapshot_type": "Full", "snapshot_path": tmpState, "mem_file_path": tmpMem, "sync_snapshot_files": true}); err != nil {
+		cause := failWhilePaused(fmt.Errorf("create Firecracker snapshot: %w", err))
+		cleanup()
+		return protocol.SnapshotRecord{}, cause
+	}
+	stateSize, stateHash, err := snapshotFileDigest(tmpState)
+	if err != nil {
+		cause := failWhilePaused(fmt.Errorf("verify snapshot state: %w", err))
+		cleanup()
+		return protocol.SnapshotRecord{}, cause
+	}
+	memSize, memHash, err := snapshotFileDigest(tmpMem)
+	if err != nil {
+		cause := failWhilePaused(fmt.Errorf("verify snapshot memory: %w", err))
+		cleanup()
+		return protocol.SnapshotRecord{}, cause
+	}
+	result := protocol.SnapshotRecord{ID: snapshotID, VMID: vm.ID, StatePath: statePath, MemPath: memPath, StateSHA256: stateHash, MemSHA256: memHash, SizeBytes: stateSize + memSize}
+	for _, disk := range diskSources {
+		backupPath := filepath.Join(dir, snapshotID+"."+disk.kind+".disk")
+		diskPaths = append(diskPaths, backupPath)
+		if err := copyFileDurable(disk.path, backupPath); err != nil {
+			cause := failWhilePaused(fmt.Errorf("backup %s disk: %w", disk.kind, err))
+			cleanup()
+			return protocol.SnapshotRecord{}, cause
+		}
+		size, digest, err := snapshotFileDigest(backupPath)
+		if err != nil {
+			cause := failWhilePaused(fmt.Errorf("verify %s disk backup: %w", disk.kind, err))
+			cleanup()
+			return protocol.SnapshotRecord{}, cause
+		}
+		result.DiskFiles = append(result.DiskFiles, protocol.SnapshotFile{Kind: disk.kind, OriginalPath: disk.path, BackupPath: backupPath, SizeBytes: size, SHA256: digest})
+		result.SizeBytes += size
+	}
+	if err := resume(); err != nil {
+		stopErr := e.stopRuntime(vm, true, false)
+		cleanup()
+		if stopErr != nil {
+			return protocol.SnapshotRecord{}, fmt.Errorf("snapshot created but VM resume failed: %v; stop paused VM: %w", err, stopErr)
+		}
+		return protocol.SnapshotRecord{}, fmt.Errorf("snapshot artifacts created but VM resume failed: %w", err)
+	}
+	if err := publishSnapshotPath(tmpState, statePath); err != nil {
+		cleanup()
+		return protocol.SnapshotRecord{}, err
+	}
+	if err := publishSnapshotPath(tmpMem, memPath); err != nil {
+		cleanup()
+		return protocol.SnapshotRecord{}, err
+	}
+	if err := syncDir(dir); err != nil {
+		cleanup()
+		return protocol.SnapshotRecord{}, fmt.Errorf("sync snapshot directory: %w", err)
+	}
+	if err := persistSnapshotRecord(dir, result); err != nil {
+		cleanup()
+		return protocol.SnapshotRecord{}, fmt.Errorf("persist snapshot record: %w", err)
+	}
+	return result, nil
 }
 
 func (e *Engine) Healthy(vm store.VM) bool {
@@ -689,9 +910,80 @@ func (e *Engine) Reconcile(ctx context.Context, vm store.VM) (store.VM, bool, er
 		return vm, false, err
 	}
 	defer unlock()
+	manifest, manifestErr := e.readManifest(vm.ID)
+	if manifestErr != nil && !os.IsNotExist(manifestErr) {
+		return vm, false, manifestErr
+	}
 	pid, active, err := e.supervisorOrDefault().Status(ctx, vm.ID)
 	if err != nil {
 		return vm, false, err
+	}
+	if manifestErr == nil && manifest.VolumePath != "" {
+		leaseErr := e.acquireVolumeLease(vm.ID, manifest.VolumePath)
+		if leaseErr == nil {
+			var shared bool
+			shared, leaseErr = e.volumeUsedByOtherVM(vm.ID, manifest.VolumePath)
+			if leaseErr == nil && shared {
+				leaseErr = fmt.Errorf("writable volume is referenced by another VM")
+			}
+		}
+		if leaseErr != nil {
+			if active {
+				if stopErr := e.stopRuntime(vm, true, false); stopErr != nil {
+					return vm, false, fmt.Errorf("volume lease conflict and VM could not be stopped: %v; %w", leaseErr, stopErr)
+				}
+			}
+			_ = e.releaseVolumeLease(vm.ID)
+			vm.State, vm.PID, vm.Socket, vm.Health = "failed", 0, "", "unhealthy"
+			vm.Error = "writable volume lease conflict: " + leaseErr.Error()
+			manifest.VM = vm
+			if err := e.writeManifest(manifest); err != nil {
+				return vm, false, err
+			}
+			return vm, false, nil
+		}
+	}
+	journalPath, err := e.restoreJournalPath(vm.ID)
+	if err != nil {
+		return vm, false, err
+	}
+	if info, statErr := os.Lstat(journalPath); statErr == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return vm, false, fmt.Errorf("restore journal is not a regular file")
+		}
+		data, readErr := os.ReadFile(journalPath)
+		if readErr != nil {
+			return vm, false, readErr
+		}
+		var journal diskRestoreJournal
+		if err := json.Unmarshal(data, &journal); err != nil || journal.VMID != vm.ID || !safeSnapshotID(journal.SnapshotID) {
+			return vm, false, fmt.Errorf("invalid pending disk restore journal")
+		}
+		if !journal.Committed {
+			if err := e.stopRuntimeKeepingVolumeLease(vm, true, false); err != nil {
+				return vm, false, fmt.Errorf("stop VM before recovering interrupted disk restore: %w", err)
+			}
+			if err := e.recoverDiskRestore(vm.ID); err != nil {
+				return vm, false, fmt.Errorf("roll back interrupted disk restore: %w", err)
+			}
+			vm.PID, vm.Socket, vm.State, vm.Health = 0, "", "failed", "unhealthy"
+			vm.Error = "interrupted disk restore was rolled back during agent reconciliation"
+			if manifestErr == nil {
+				manifest.VM = vm
+				if err := e.writeManifest(manifest); err != nil {
+					return vm, false, err
+				}
+			}
+			if err := e.releaseVolumeLease(vm.ID); err != nil {
+				return vm, false, err
+			}
+			return vm, false, nil
+		}
+		if err := e.recoverDiskRestore(vm.ID); err != nil {
+			return vm, false, fmt.Errorf("finalize committed disk restore: %w", err)
+		}
+	} else if !os.IsNotExist(statErr) {
+		return vm, false, statErr
 	}
 	if vm.State == "failed" {
 		if err := e.stopRuntime(vm, true, false); err != nil {
@@ -831,22 +1123,9 @@ func (e *Engine) TailLog(vm store.VM, maxLines int) []string {
 }
 
 func validatePrivateRootfs(vmDir string, m runtimeManifest) error {
-	root, err := filepath.Abs(vmDir)
+	path, err := validatePrivateRootfsPath(vmDir, m)
 	if err != nil {
 		return err
-	}
-	if len(m.RootfsIdentity) != sha256.Size*2 {
-		return fmt.Errorf("VM rootfs identity is missing or invalid")
-	}
-	if _, err := hex.DecodeString(m.RootfsIdentity); err != nil {
-		return fmt.Errorf("VM rootfs identity is not valid SHA-256 hex")
-	}
-	path, err := filepath.Abs(m.RootfsPath)
-	if err != nil {
-		return err
-	}
-	if filepath.Dir(path) != root || m.RootfsIdentity == "" || filepath.Base(path) != "rootfs-"+m.RootfsIdentity+".img" {
-		return fmt.Errorf("VM rootfs is not a verified private rootfs inside its VM directory")
 	}
 	fi, err := os.Lstat(path)
 	if err != nil {
@@ -856,6 +1135,27 @@ func validatePrivateRootfs(vmDir string, m runtimeManifest) error {
 		return fmt.Errorf("private VM rootfs is not a regular file")
 	}
 	return nil
+}
+
+func validatePrivateRootfsPath(vmDir string, m runtimeManifest) (string, error) {
+	root, err := filepath.Abs(vmDir)
+	if err != nil {
+		return "", err
+	}
+	if len(m.RootfsIdentity) != sha256.Size*2 {
+		return "", fmt.Errorf("VM rootfs identity is missing or invalid")
+	}
+	if _, err := hex.DecodeString(m.RootfsIdentity); err != nil {
+		return "", fmt.Errorf("VM rootfs identity is not valid SHA-256 hex")
+	}
+	path, err := filepath.Abs(m.RootfsPath)
+	if err != nil {
+		return "", err
+	}
+	if filepath.Dir(path) != root || m.RootfsIdentity == "" || filepath.Base(path) != "rootfs-"+m.RootfsIdentity+".img" {
+		return "", fmt.Errorf("VM rootfs is not a verified private rootfs inside its VM directory")
+	}
+	return path, nil
 }
 
 func (e *Engine) validateSnapshotPath(vmID, path string) (string, error) {
@@ -889,60 +1189,41 @@ func netmask(cidr string) string {
 	return net.IP(n.Mask).String()
 }
 
-func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, memPath, stateSHA256, memSHA256 string) (store.VM, error) {
-	if !validVMID(vm.ID) {
-		return vm, fmt.Errorf("invalid VM identity")
+func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, spec protocol.SnapshotRestoreSpec) (store.VM, error) {
+	if !validVMID(vm.ID) || spec.VMID != vm.ID || !safeSnapshotID(spec.SnapshotID) {
+		return vm, fmt.Errorf("invalid VM or snapshot identity")
 	}
-	if statePath == "" || memPath == "" {
-		return vm, fmt.Errorf("snapshot state and memory paths are required")
-	}
-	stateID := strings.TrimSuffix(filepath.Base(statePath), ".snap")
-	memID := strings.TrimSuffix(filepath.Base(memPath), ".mem")
-	if !safeSnapshotID(stateID) || stateID != memID {
-		return vm, fmt.Errorf("snapshot artifact names do not match")
-	}
-	if statePath == memPath {
-		return vm, fmt.Errorf("snapshot state and memory paths must be different")
-	}
-	var err error
-	if statePath, err = filepath.Abs(statePath); err != nil {
-		return vm, fmt.Errorf("snapshot state path: %w", err)
-	}
-	if memPath, err = filepath.Abs(memPath); err != nil {
-		return vm, fmt.Errorf("snapshot memory path: %w", err)
+	if spec.StatePath == "" || spec.MemPath == "" || !validSnapshotHash(spec.StateSHA256) || !validSnapshotHash(spec.MemSHA256) {
+		return vm, fmt.Errorf("snapshot state and memory integrity metadata are required")
 	}
 	snapshotDir, err := e.vmDir(vm.ID, false)
 	if err != nil {
 		return vm, fmt.Errorf("resolve VM snapshot directory: %w", err)
 	}
-	if err := validateSnapshotArtifact(snapshotDir, statePath, ".snap"); err != nil {
-		return vm, fmt.Errorf("invalid snapshot state file: %w", err)
+	expectedState := filepath.Join(snapshotDir, spec.SnapshotID+".snap")
+	expectedMem := filepath.Join(snapshotDir, spec.SnapshotID+".mem")
+	if spec.StatePath != expectedState || spec.MemPath != expectedMem {
+		return vm, fmt.Errorf("snapshot state or memory path is outside the VM directory")
 	}
-	if err := validateSnapshotArtifact(snapshotDir, memPath, ".mem"); err != nil {
-		return vm, fmt.Errorf("invalid snapshot memory file: %w", err)
+	sock, err := e.vmSocket(vm.ID)
+	if err != nil {
+		return vm, err
 	}
-	if err := verifySnapshotDigest(statePath, stateSHA256); err != nil {
-		return vm, fmt.Errorf("invalid snapshot state digest: %w", err)
+	if !socketMatches(sock, vm.Socket) {
+		return vm, fmt.Errorf("VM socket path does not match the configured runtime directory")
 	}
-	if err := verifySnapshotDigest(memPath, memSHA256); err != nil {
-		return vm, fmt.Errorf("invalid snapshot memory digest: %w", err)
-	}
-	for _, path := range []string{statePath, memPath} {
-		validated, validateErr := e.validateSnapshotPath(vm.ID, path)
-		if validateErr != nil {
-			return vm, validateErr
-		}
-		if path == statePath {
-			statePath = validated
-		} else {
-			memPath = validated
-		}
-	}
+	vm.Socket = sock
 	unlock, err := e.vmLock(ctx, vm.ID)
 	if err != nil {
 		return vm, err
 	}
 	defer unlock()
+	releaseLeaseOnReturn := false
+	defer func() {
+		if releaseLeaseOnReturn {
+			_ = e.releaseVolumeLease(vm.ID)
+		}
+	}()
 	manifest, err := e.readManifest(vm.ID)
 	if err != nil {
 		return vm, fmt.Errorf("restore requires saved VM runtime configuration: %w", err)
@@ -953,6 +1234,54 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 	if manifest.VCPUs <= 0 || manifest.MemoryMB <= 0 || manifest.KernelPath == "" || manifest.RootfsPath == "" {
 		return vm, fmt.Errorf("saved VM runtime configuration is incomplete")
 	}
+	if err := validateSnapshotArtifact(snapshotDir, expectedState, ".snap"); err != nil {
+		return vm, fmt.Errorf("invalid snapshot state file: %w", err)
+	}
+	if err := validateSnapshotArtifact(snapshotDir, expectedMem, ".mem"); err != nil {
+		return vm, fmt.Errorf("invalid snapshot memory file: %w", err)
+	}
+	stateSize, stateHash, err := snapshotFileDigest(expectedState)
+	if err != nil || stateHash != spec.StateSHA256 {
+		return vm, fmt.Errorf("snapshot state checksum or file validation failed")
+	}
+	memSize, memHash, err := snapshotFileDigest(expectedMem)
+	if err != nil || memHash != spec.MemSHA256 {
+		return vm, fmt.Errorf("snapshot memory checksum or file validation failed")
+	}
+	if manifest.VolumePath != "" {
+		volumePath, err := e.canonicalVolumePath(manifest.VolumePath, false)
+		if err != nil {
+			return vm, fmt.Errorf("snapshot restore attached volume: %w", err)
+		}
+		if filepath.Clean(volumePath) == filepath.Clean(manifest.RootfsPath) {
+			return vm, fmt.Errorf("root disk and attached volume paths must differ")
+		}
+		manifest.VolumePath = volumePath
+		e.volumeMu.Lock()
+		heldLease := e.volumeLeases[vm.ID]
+		leaseAlreadyHeld := heldLease != nil && heldLease.path == volumePath
+		e.volumeMu.Unlock()
+		if err := e.acquireVolumeLease(vm.ID, volumePath); err != nil {
+			return vm, fmt.Errorf("restore requires exclusive attached-volume ownership: %w", err)
+		}
+		if !leaseAlreadyHeld && vm.State == "stopped" {
+			releaseLeaseOnReturn = true
+		}
+		shared, err := e.volumeUsedByOtherVM(vm.ID, volumePath)
+		if err != nil {
+			return vm, err
+		}
+		if shared {
+			return vm, fmt.Errorf("restore refused: attached volume is shared by another VM")
+		}
+	}
+	diskSize, err := e.validateRestoreDiskFiles(vm.ID, spec.SnapshotID, manifest, spec.DiskFiles)
+	if err != nil {
+		return vm, err
+	}
+	if spec.SizeBytes != stateSize+memSize+diskSize {
+		return vm, fmt.Errorf("snapshot aggregate size does not match its persisted files")
+	}
 	tap := manifest.VM.TapName
 	if tap == "" {
 		tap = vm.TapName
@@ -960,33 +1289,79 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 	if tap != "" && (manifest.Network.Bridge == "" || manifest.Network != e.Network) {
 		return vm, fmt.Errorf("snapshot restore requires the VM's original host network configuration")
 	}
-	if err := e.stopRuntime(vm, false, false); err != nil {
+	releaseLeaseOnReturn = false
+	if err := e.stopRuntimeKeepingVolumeLease(vm, false, false); err != nil {
 		return vm, err
+	}
+	vm.State, vm.PID, vm.Socket = "stopped", 0, sock
+	if err := e.recoverDiskRestore(vm.ID); err != nil {
+		vm.State, vm.Error = "failed", "recover interrupted disk restore: "+err.Error()
+		return vm, fmt.Errorf("recover interrupted disk restore: %w", err)
 	}
 	if tap != "" {
 		netSpec := protocol.VMApplySpec{VMID: vm.ID, TapName: tap}
 		tap, err = e.ensureNetwork(ctx, &netSpec)
 		if err != nil {
+			_ = e.releaseVolumeLease(vm.ID)
+			vm.Error = err.Error()
 			return vm, fmt.Errorf("recreate VM tap for snapshot restore: %w", err)
 		}
 	}
+	journal, err := e.prepareDiskRestore(vm.ID, spec.SnapshotID, spec.DiskFiles)
+	if err != nil {
+		recoveryErr := e.recoverDiskRestore(vm.ID)
+		if recoveryErr == nil {
+			_ = e.releaseVolumeLease(vm.ID)
+		} else {
+			err = errors.Join(err, recoveryErr)
+		}
+		vm.Error, vm.State = err.Error(), "failed"
+		manifest.VM = vm
+		_ = e.writeManifest(manifest)
+		return vm, err
+	}
 	dir, err := e.vmDir(vm.ID, true)
 	if err != nil {
+		recoveryErr := e.recoverDiskRestore(vm.ID)
+		if recoveryErr == nil {
+			_ = e.releaseVolumeLease(vm.ID)
+		} else {
+			err = errors.Join(err, fmt.Errorf("recover staged disk restore: %w", recoveryErr))
+		}
 		return vm, err
 	}
-	sock := filepath.Join(dir, "firecracker.sock")
+	sock = filepath.Join(dir, "firecracker.sock")
 	logPath := filepath.Join(dir, "firecracker-restore.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	rollback := func(cause error) (store.VM, error) {
+		stopErr := e.stopRuntimeKeepingVolumeLease(vm, true, false)
+		if stopErr != nil {
+			cause = errors.Join(cause, fmt.Errorf("stop failed restore process: %w", stopErr))
+		}
+		restoreErr := e.recoverDiskRestore(vm.ID)
+		if restoreErr != nil {
+			cause = errors.Join(cause, fmt.Errorf("disk rollback failed: %w", restoreErr))
+		}
+		vm.State, vm.PID, vm.Socket, vm.Health, vm.Error = "failed", 0, "", "unhealthy", cause.Error()
+		manifest.VM = vm
+		if err := e.writeManifest(manifest); err != nil {
+			cause = errors.Join(cause, fmt.Errorf("persist failed restore state: %w", err))
+		}
+		if stopErr == nil && restoreErr == nil {
+			_ = e.releaseVolumeLease(vm.ID)
+		}
+		return vm, cause
+	}
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
-		return vm, err
+		return rollback(err)
 	}
 	if err := logFile.Close(); err != nil {
-		return vm, err
+		return rollback(err)
 	}
-	vm.State, vm.PID, vm.Socket, vm.TapName = "booting", 0, sock, tap
+	vm.State, vm.PID, vm.Socket, vm.TapName, vm.Error = "booting", 0, sock, tap, ""
 	manifest.VM = vm
 	if err := e.writeManifest(manifest); err != nil {
-		return vm, err
+		return rollback(err)
 	}
 	pid, err := e.supervisorOrDefault().Start(ctx, processSpec{
 		VMID: vm.ID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
@@ -994,35 +1369,47 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 		VCPUs: manifest.VCPUs, MemoryMB: manifest.MemoryMB,
 	})
 	if err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
 	}
 	vm.PID = pid
 	manifest.VM = vm
 	if err := e.writeManifest(manifest); err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
 	}
 	if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
 	}
 	client := socketClient(sock)
 	loadRequest := map[string]interface{}{
-		"snapshot_path": statePath,
-		"mem_backend":   map[string]string{"backend_path": memPath, "backend_type": "File"},
+		"snapshot_path": expectedState,
+		"mem_backend":   map[string]string{"backend_path": expectedMem, "backend_type": "File"},
 		"resume_vm":     false,
 	}
 	if tap != "" {
 		loadRequest["network_overrides"] = []map[string]string{{"iface_id": "eth0", "host_dev_name": tap}}
 	}
 	if err := putJSON(ctx, client, "/snapshot/load", loadRequest); err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
 	}
 	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"}); err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
 	}
 	vm.State, vm.Error, vm.Health = "running", "", "checking"
 	manifest.VM = vm
 	if err := e.writeManifest(manifest); err != nil {
-		return e.failApply(vm, err)
+		return rollback(err)
+	}
+	journal.Committed = true
+	if err := e.writeDiskRestoreJournal(journal); err != nil {
+		return rollback(err)
+	}
+	if err := e.recoverDiskRestore(vm.ID); err != nil {
+		vm.Error = "restore committed; journal finalization pending: " + err.Error()
+		manifest.VM = vm
+		if persistErr := e.writeManifest(manifest); persistErr != nil {
+			err = errors.Join(err, fmt.Errorf("persist finalization-pending state: %w", persistErr))
+		}
+		return vm, fmt.Errorf("snapshot restored but rollback-journal finalization failed: %w", err)
 	}
 	return vm, nil
 }
@@ -1050,11 +1437,22 @@ func verifySnapshotDigest(path, expected string) error {
 			return fmt.Errorf("SHA-256 digest is malformed")
 		}
 	}
-	f, err := os.Open(path)
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() || !privateFileHasSingleLink(info) {
+		return fmt.Errorf("snapshot artifact must be a single-link regular file")
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	opened, err := f.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return fmt.Errorf("snapshot artifact changed while being opened")
+	}
 	h := sha256.New()
 	if _, err := io.Copy(h, f); err != nil {
 		return err
@@ -1103,21 +1501,54 @@ func validateSnapshotArtifact(dir, path, suffix string) error {
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !privateFileHasSingleLink(info) {
 		return fmt.Errorf("snapshot artifact must be a regular, non-symlink file")
 	}
 	return nil
 }
 
 func (e *Engine) ResizeVolume(ctx context.Context, volumeID string, sizeMB int) error {
-	if volumeID == "" || sizeMB <= 0 {
+	if !validVMID(volumeID) || sizeMB <= 0 {
 		return fmt.Errorf("volume id and size required")
 	}
-	path := filepath.Join(e.BaseDir, "volumes", volumeID+".ext4")
-	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	path, err := e.canonicalVolumePath(filepath.Join(e.BaseDir, "volumes", volumeID+".ext4"), false)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return f.Truncate(int64(sizeMB) * 1024 * 1024)
+	lock, err := openVolumeLock(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = lock.Close()
+	}()
+	shared, err := e.volumeUsedByOtherVM("", path)
+	if err != nil {
+		return err
+	}
+	if shared {
+		return fmt.Errorf("cannot resize a volume referenced by a VM")
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	info, err := f.Stat()
+	if err != nil || !info.Mode().IsRegular() || !privateFileHasSingleLink(info) {
+		_ = f.Close()
+		return fmt.Errorf("volume image must be a single-link regular file")
+	}
+	if err := f.Truncate(int64(sizeMB) * 1024 * 1024); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(path))
 }

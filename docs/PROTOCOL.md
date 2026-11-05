@@ -62,6 +62,44 @@ A heartbeat uses the current `protocol.Heartbeat` fields:
 
 The command endpoint returns the queued `protocol.Command` records. Results use `protocol.CommandResult` (`command_id`, `operation_id`, `node_id`, `attempt`, `success`, and optional `error` or `state`). Agent API payloads are JSON; the Go definitions in `protocol/types.go` are authoritative for fields not shown here.
 
+### Snapshot metadata and consistency
+
+Snapshots are **crash-consistent only**, not application-consistent. The agent pauses the VM while it syncs/captures Firecracker state and memory plus the VM's private rootfs and optional attached volume. It records SHA-256 digests and sizes for each artifact. A retry with the same snapshot ID returns the locally persisted record; the control plane accepts an identical duplicate record and rejects conflicting reuse of that ID.
+
+`POST /v1/fleet/snapshot` accepts a `protocol.SnapshotRecord`. Artifact bytes remain on the agent node under its VM directory; the control plane stores metadata and does not upload or replicate these files. Restoring requires those local artifacts and the same agent storage to remain available, so this is not an off-host backup or host-loss recovery mechanism.
+
+Example shape (one root disk and one attached volume):
+
+```json
+{
+  "id": "snap_...",
+  "vm_id": "vm_...",
+  "state_path": "/var/lib/porter-agent/vms/vm_.../snap_....snap",
+  "mem_path": "/var/lib/porter-agent/vms/vm_.../snap_....mem",
+  "state_sha256": "<64 hex characters>",
+  "mem_sha256": "<64 hex characters>",
+  "size_bytes": 123456,
+  "disk_files": [
+    {
+      "kind": "rootfs",
+      "original_path": "/var/lib/porter-agent/vms/vm_.../rootfs-<identity>.img",
+      "backup_path": "/var/lib/porter-agent/vms/vm_.../snap_....rootfs.disk",
+      "size_bytes": 65536,
+      "sha256": "<64 hex characters>"
+    },
+    {
+      "kind": "volume",
+      "original_path": "/var/lib/porter-agent/volumes/vol_....ext4",
+      "backup_path": "/var/lib/porter-agent/vms/vm_.../snap_....volume.disk",
+      "size_bytes": 65536,
+      "sha256": "<64 hex characters>"
+    }
+  ]
+}
+```
+
+The restore handler requires a complete state, memory, root-disk, and (when attached) volume manifest. The agent validates paths and hashes before stopping the VM, then uses a durable rollback journal for disk replacement and startup recovery.
+
 ### Enabling mTLS
 
 On the control-plane host, set `PORTER_API_TLS_CERT` and `PORTER_API_TLS_KEY` to enable HTTPS. Also set `PORTER_AGENT_CLIENT_CA` to require verified node certificates on heartbeat, command polling, result, log, snapshot, and VM-state requests. Invalid or incomplete certificate configuration fails startup.

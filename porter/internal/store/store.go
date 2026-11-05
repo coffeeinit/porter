@@ -888,14 +888,15 @@ type Volume struct {
 }
 
 type SnapshotRecord struct {
-	ID          string    `json:"id"`
-	VMID        string    `json:"vm_id"`
-	StatePath   string    `json:"state_path"`
-	MemPath     string    `json:"mem_path"`
-	StateSHA256 string    `json:"state_sha256"`
-	MemSHA256   string    `json:"mem_sha256"`
-	SizeBytes   int64     `json:"size_bytes"`
-	CreatedAt   time.Time `json:"created_at"`
+	ID          string                  `json:"id"`
+	VMID        string                  `json:"vm_id"`
+	StatePath   string                  `json:"state_path"`
+	MemPath     string                  `json:"mem_path"`
+	StateSHA256 string                  `json:"state_sha256"`
+	MemSHA256   string                  `json:"mem_sha256"`
+	DiskFiles   []protocol.SnapshotFile `json:"disk_files"`
+	SizeBytes   int64                   `json:"size_bytes"`
+	CreatedAt   time.Time               `json:"created_at"`
 }
 
 type LogLine struct {
@@ -923,9 +924,9 @@ CREATE TABLE IF NOT EXISTS volumes(
  size_mb INTEGER NOT NULL, state TEXT NOT NULL DEFAULT 'available',
  attached_app_id TEXT NOT NULL DEFAULT '', created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS snapshots(
- id TEXT PRIMARY KEY, vm_id TEXT NOT NULL, state_path TEXT NOT NULL,
- mem_path TEXT NOT NULL, state_sha256 TEXT NOT NULL DEFAULT '', mem_sha256 TEXT NOT NULL DEFAULT '',
- size_bytes INTEGER NOT NULL DEFAULT 0, created_at TIMESTAMP NOT NULL);
+	 id TEXT PRIMARY KEY, vm_id TEXT NOT NULL, state_path TEXT NOT NULL,
+	 mem_path TEXT NOT NULL, state_sha256 TEXT NOT NULL DEFAULT '', mem_sha256 TEXT NOT NULL DEFAULT '',
+	 size_bytes INTEGER NOT NULL DEFAULT 0, disk_files_json TEXT NOT NULL DEFAULT '[]', created_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS logs(
  id TEXT PRIMARY KEY, node_id TEXT NOT NULL, vm_id TEXT NOT NULL,
  line TEXT NOT NULL, created_at TIMESTAMP NOT NULL);
@@ -1052,6 +1053,7 @@ func (s *Store) ensureSnapshotColumns() error {
 	for _, column := range []struct{ name, definition string }{
 		{name: "state_sha256", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "mem_sha256", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "disk_files_json", definition: "TEXT NOT NULL DEFAULT '[]'"},
 	} {
 		if found[column.name] {
 			continue
@@ -1096,12 +1098,74 @@ func (s *Store) AttachVolume(ctx context.Context, volumeID, appID string) error 
 }
 
 func (s *Store) RecordSnapshot(ctx context.Context, snap SnapshotRecord) error {
-	if !validSnapshotDigest(snap.StateSHA256) || !validSnapshotDigest(snap.MemSHA256) {
-		return errors.New("snapshot state and memory SHA-256 digests are required")
+	if err := validateSnapshotRecord(snap); err != nil {
+		return err
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO snapshots(id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at) VALUES(?,?,?,?,?,?,?,?)`,
-		snap.ID, snap.VMID, snap.StatePath, snap.MemPath, snap.StateSHA256, snap.MemSHA256, snap.SizeBytes, time.Now().UTC())
-	return err
+	diskFiles, err := json.Marshal(snap.DiskFiles)
+	if err != nil {
+		return fmt.Errorf("encode snapshot disk manifest: %w", err)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO snapshots(id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,disk_files_json,created_at) VALUES(?,?,?,?,?,?,?,?,?)`,
+		snap.ID, snap.VMID, snap.StatePath, snap.MemPath, snap.StateSHA256, snap.MemSHA256, snap.SizeBytes, string(diskFiles), time.Now().UTC())
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 1 {
+		return tx.Commit()
+	}
+	var existing SnapshotRecord
+	var existingDiskFiles string
+	err = tx.QueryRowContext(ctx, `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,disk_files_json FROM snapshots WHERE id=?`, snap.ID).Scan(
+		&existing.ID, &existing.VMID, &existing.StatePath, &existing.MemPath, &existing.StateSHA256, &existing.MemSHA256, &existing.SizeBytes, &existingDiskFiles)
+	if err != nil {
+		return err
+	}
+	if existing.VMID != snap.VMID || existing.StatePath != snap.StatePath || existing.MemPath != snap.MemPath || existing.StateSHA256 != snap.StateSHA256 || existing.MemSHA256 != snap.MemSHA256 || existing.SizeBytes != snap.SizeBytes || existingDiskFiles != string(diskFiles) {
+		return fmt.Errorf("snapshot id %q already exists with different contents", snap.ID)
+	}
+	return tx.Commit()
+}
+
+func validateSnapshotRecord(snap SnapshotRecord) error {
+	if snap.ID == "" || snap.VMID == "" || snap.StatePath == "" || snap.MemPath == "" || filepath.Clean(snap.StatePath) == filepath.Clean(snap.MemPath) {
+		return errors.New("snapshot identity and distinct state/memory paths are required")
+	}
+	if !filepath.IsAbs(snap.StatePath) || !filepath.IsAbs(snap.MemPath) || !validSnapshotDigest(snap.StateSHA256) || !validSnapshotDigest(snap.MemSHA256) {
+		return errors.New("snapshot state and memory absolute paths and SHA-256 digests are required")
+	}
+	if snap.SizeBytes <= 0 || len(snap.DiskFiles) == 0 || len(snap.DiskFiles) > 2 {
+		return errors.New("snapshot must include a positive aggregate size and a root-disk manifest")
+	}
+	seen := make(map[string]bool, len(snap.DiskFiles))
+	paths := map[string]bool{filepath.Clean(snap.StatePath): true, filepath.Clean(snap.MemPath): true}
+	var diskBytes int64
+	for _, file := range snap.DiskFiles {
+		if (file.Kind != "rootfs" && file.Kind != "volume") || seen[file.Kind] {
+			return errors.New("snapshot disk manifest has an invalid or duplicate disk kind")
+		}
+		if file.OriginalPath == "" || file.BackupPath == "" || !filepath.IsAbs(file.OriginalPath) || !filepath.IsAbs(file.BackupPath) || file.SizeBytes <= 0 || !validSnapshotDigest(file.SHA256) {
+			return errors.New("snapshot disk manifest has an invalid path, size, or SHA-256 digest")
+		}
+		original, backup := filepath.Clean(file.OriginalPath), filepath.Clean(file.BackupPath)
+		if original == backup || paths[original] || paths[backup] {
+			return errors.New("snapshot disk manifest paths must be distinct")
+		}
+		paths[original], paths[backup], seen[file.Kind] = true, true, true
+		diskBytes += file.SizeBytes
+	}
+	if !seen["rootfs"] || snap.SizeBytes <= diskBytes {
+		return errors.New("snapshot must include a root-disk manifest and non-disk artifacts")
+	}
+	return nil
 }
 
 func validSnapshotDigest(value string) bool {
@@ -1113,7 +1177,7 @@ func validSnapshotDigest(value string) bool {
 }
 
 func (s *Store) ListSnapshots(ctx context.Context, vmID string) ([]SnapshotRecord, error) {
-	q := `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at FROM snapshots`
+	q := `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,disk_files_json,created_at FROM snapshots`
 	args := []interface{}{}
 	if vmID != "" {
 		q += ` WHERE vm_id=?`
@@ -1128,8 +1192,12 @@ func (s *Store) ListSnapshots(ctx context.Context, vmID string) ([]SnapshotRecor
 	var out []SnapshotRecord
 	for rows.Next() {
 		var x SnapshotRecord
-		if err := rows.Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &x.CreatedAt); err != nil {
+		var diskFiles string
+		if err := rows.Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &diskFiles, &x.CreatedAt); err != nil {
 			return nil, err
+		}
+		if err := json.Unmarshal([]byte(diskFiles), &x.DiskFiles); err != nil {
+			return nil, fmt.Errorf("decode snapshot disk manifest %s: %w", x.ID, err)
 		}
 		out = append(out, x)
 	}
@@ -1767,6 +1835,21 @@ func (s *Store) ListNodeVMs(ctx context.Context, nodeID string) ([]Replica, erro
 	return out, rows.Err()
 }
 
+func (s *Store) NodeOwnsVM(ctx context.Context, nodeID, vmID string) (bool, error) {
+	if nodeID == "" || vmID == "" {
+		return false, nil
+	}
+	var found int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM replicas WHERE node_id=? AND vm_id=? LIMIT 1`, nodeID, vmID).Scan(&found)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Store) ListNodeLogs(ctx context.Context, nodeID string, limit int) ([]LogLine, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 200
@@ -1905,7 +1988,11 @@ func (s *Store) SetReplicaWeight(ctx context.Context, replicaID string, weight i
 
 func (s *Store) GetSnapshot(ctx context.Context, id string) (SnapshotRecord, bool) {
 	var x SnapshotRecord
-	err := s.db.QueryRowContext(ctx, `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,created_at FROM snapshots WHERE id=?`, id).Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &x.CreatedAt)
+	var diskFiles string
+	err := s.db.QueryRowContext(ctx, `SELECT id,vm_id,state_path,mem_path,state_sha256,mem_sha256,size_bytes,disk_files_json,created_at FROM snapshots WHERE id=?`, id).Scan(&x.ID, &x.VMID, &x.StatePath, &x.MemPath, &x.StateSHA256, &x.MemSHA256, &x.SizeBytes, &diskFiles, &x.CreatedAt)
+	if err == nil {
+		err = json.Unmarshal([]byte(diskFiles), &x.DiskFiles)
+	}
 	return x, err == nil
 }
 

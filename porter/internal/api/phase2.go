@@ -235,20 +235,22 @@ func isGitCommitSHA(value string) bool {
 }
 
 func (s *Server) ingestSnapshot(w http.ResponseWriter, r *http.Request) {
-	var snap struct {
-		ID          string `json:"id"`
-		VMID        string `json:"vm_id"`
-		StatePath   string `json:"state_path"`
-		MemPath     string `json:"mem_path"`
-		StateSHA256 string `json:"state_sha256"`
-		MemSHA256   string `json:"mem_sha256"`
-		SizeBytes   int64  `json:"size_bytes"`
-	}
+	var snap protocol.SnapshotRecord
 	if err := json.NewDecoder(r.Body).Decode(&snap); err != nil {
 		writeError(w, 400, "invalid JSON")
 		return
 	}
-	if err := s.Store.RecordSnapshot(r.Context(), store.SnapshotRecord{ID: snap.ID, VMID: snap.VMID, StatePath: snap.StatePath, MemPath: snap.MemPath, StateSHA256: snap.StateSHA256, MemSHA256: snap.MemSHA256, SizeBytes: snap.SizeBytes}); err != nil {
+	nodeID, _ := r.Context().Value(nodeIDKey).(string)
+	owned, err := s.Store.NodeOwnsVM(r.Context(), nodeID, snap.VMID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not verify VM ownership")
+		return
+	}
+	if !owned {
+		writeError(w, http.StatusForbidden, "node does not own snapshot VM")
+		return
+	}
+	if err := s.Store.RecordSnapshot(r.Context(), store.SnapshotRecord{ID: snap.ID, VMID: snap.VMID, StatePath: snap.StatePath, MemPath: snap.MemPath, StateSHA256: snap.StateSHA256, MemSHA256: snap.MemSHA256, DiskFiles: snap.DiskFiles, SizeBytes: snap.SizeBytes}); err != nil {
 		writeError(w, 500, err.Error())
 		return
 	}

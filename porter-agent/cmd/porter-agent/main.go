@@ -4,12 +4,9 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -197,7 +194,20 @@ type commandControlPlane interface {
 
 type commandHandlerClient interface {
 	commandResultPoster
-	RecordSnapshot(context.Context, map[string]interface{}) error
+	RecordSnapshot(context.Context, protocol.SnapshotRecord) error
+}
+
+type commandRuntime interface {
+	Apply(context.Context, protocol.VMApplySpec) (store.VM, error)
+	Start(context.Context, protocol.VMApplySpec) (store.VM, error)
+	Restart(context.Context, protocol.VMApplySpec) (store.VM, error)
+	Stop(store.VM) error
+	Delete(context.Context, store.VM) error
+	Healthy(store.VM) bool
+	ProcessRunning(store.VM) (bool, error)
+	Snapshot(context.Context, store.VM, string) (protocol.SnapshotRecord, error)
+	RestoreSnapshot(context.Context, store.VM, protocol.SnapshotRestoreSpec) (store.VM, error)
+	ResizeVolume(context.Context, string, int) error
 }
 
 type httpStatusCoder interface {
@@ -261,7 +271,7 @@ func flushPendingCommandResults(ctx context.Context, cl commandResultPoster, st 
 	return nil
 }
 
-func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine, st *store.Store, c protocol.Command) error {
+func handle(ctx context.Context, cl commandHandlerClient, eng commandRuntime, st *store.Store, c protocol.Command) error {
 	res := protocol.CommandResult{CommandID: c.ID, OperationID: c.OperationID, NodeID: c.NodeID, Attempt: c.Attempt, Success: true}
 	raw, _ := json.Marshal(c.Payload)
 	switch c.Kind {
@@ -335,13 +345,7 @@ func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine,
 		}
 		res.State = "resized"
 	case "snapshot.restore":
-		var in struct {
-			VMID        string `json:"vm_id"`
-			StatePath   string `json:"state_path"`
-			MemPath     string `json:"mem_path"`
-			StateSHA256 string `json:"state_sha256"`
-			MemSHA256   string `json:"mem_sha256"`
-		}
+		var in protocol.SnapshotRestoreSpec
 		if err := json.Unmarshal(raw, &in); err != nil {
 			res.Success = false
 			res.Error = err.Error()
@@ -353,14 +357,21 @@ func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine,
 			res.Error = "vm not found"
 			break
 		}
-		nvm, err := eng.RestoreSnapshot(ctx, vm, in.StatePath, in.MemPath, in.StateSHA256, in.MemSHA256)
+		nvm, err := eng.RestoreSnapshot(ctx, vm, in)
 		if err != nil {
+			if persistErr := st.UpsertVM(nvm); persistErr != nil {
+				err = fmt.Errorf("%v; persist VM state after restore failure: %w", err, persistErr)
+			}
 			res.Success = false
 			res.Error = err.Error()
 			break
 		}
-		_ = st.UpsertVM(nvm)
-		res.State = "running"
+		if err := st.UpsertVM(nvm); err != nil {
+			res.Success = false
+			res.Error = fmt.Sprintf("restore completed but persist VM state failed; runtime state may be running: %v", err)
+			break
+		}
+		res.State = nvm.State
 	case "snapshot.create":
 		var snap protocol.SnapshotSpec
 		if err := json.Unmarshal(raw, &snap); err != nil {
@@ -374,25 +385,13 @@ func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine,
 			res.Error = "vm not found"
 			break
 		}
-		statePath, memPath, size, err := eng.Snapshot(ctx, vm, snap.SnapshotID)
+		record, err := eng.Snapshot(ctx, vm, snap.SnapshotID)
 		if err != nil {
 			res.Success = false
 			res.Error = err.Error()
 			break
 		}
-		stateSHA256, err := fileSHA256(statePath)
-		if err != nil {
-			res.Success = false
-			res.Error = fmt.Sprintf("hash snapshot state: %v", err)
-			break
-		}
-		memSHA256, err := fileSHA256(memPath)
-		if err != nil {
-			res.Success = false
-			res.Error = fmt.Sprintf("hash snapshot memory: %v", err)
-			break
-		}
-		if err := cl.RecordSnapshot(ctx, map[string]interface{}{"id": snap.SnapshotID, "vm_id": snap.VMID, "state_path": statePath, "mem_path": memPath, "state_sha256": stateSHA256, "mem_sha256": memSHA256, "size_bytes": size}); err != nil {
+		if err := cl.RecordSnapshot(ctx, record); err != nil {
 			res.Success = false
 			res.Error = fmt.Sprintf("record snapshot: %v", err)
 			break
@@ -412,19 +411,6 @@ func handle(ctx context.Context, cl commandHandlerClient, eng *fcruntime.Engine,
 		log.Printf("command result queued for retry: %v", err)
 	}
 	return nil
-}
-
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func transitionVM(ctx context.Context, st *store.Store, vmID, state string, cleanup func(context.Context, store.VM) error) error {

@@ -10,6 +10,10 @@ To serve the API over HTTPS, set `PORTER_API_TLS_CERT` and `PORTER_API_TLS_KEY`.
 
 Certificate issuance, renewal, revocation workflows, and rotation are operator-managed and are not implemented by Porter. See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md) for the implemented HTTP routes and the clearly labeled future stream proposal.
 
+## Snapshot metadata
+
+Snapshot records include SHA-256 manifests for Firecracker state/memory, the private rootfs, and any attached volume. The accepted contract is **crash-consistent only**, not application-consistent. Artifact bytes remain on the agent node; the control plane stores metadata and does not provide off-host retention. Real KVM recovery and full API-to-agent acceptance are still required before the beta gate can pass.
+
 ## Project layout
 
 ```text

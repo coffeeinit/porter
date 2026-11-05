@@ -218,7 +218,7 @@ func (c *Client) PostLogs(ctx context.Context, vmID string, lines []string) erro
 	return c.do(ctx, http.MethodPost, "/v1/fleet/logs", map[string]interface{}{"vm_id": vmID, "lines": lines}, nil)
 }
 
-func (c *Client) RecordSnapshot(ctx context.Context, snap map[string]interface{}) error {
+func (c *Client) RecordSnapshot(ctx context.Context, snap protocol.SnapshotRecord) error {
 	return c.do(ctx, http.MethodPost, "/v1/fleet/snapshot", snap, nil)
 }
 

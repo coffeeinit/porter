@@ -1,40 +1,33 @@
 # Snapshot and restore verification status
 
-## Release status: blocked
+## Beta gate: blocked
 
-The selected beta contract is **crash-consistent recovery only**; application-consistent backups are not promised. The current checkout does not prove complete VM crash-consistent recovery. Do not describe snapshot/restore as verified or use it to approve a v1.0.0-beta release until the required disk, volume, rollback, and end-to-end checks pass.
+The accepted beta contract is **crash-consistent recovery only**. Porter does not promise application-consistent backups: there is no guest freeze/thaw protocol. The current work adds durable root-disk and attached-volume snapshots with checksums and rollback, but it has not passed real Firecracker/KVM recovery acceptance. Do not call backup/restore production-verified or use it to approve v1.0.0-beta yet.
 
-## What the current code does
+## What is implemented
 
-`porter-agent/internal/runtime/runtime.go` pauses Firecracker, writes Firecracker state and memory snapshot files, then resumes the VM. Restore validates those artifact files and hashes, starts Firecracker with the saved runtime configuration, and loads the state and memory files.
+The agent pauses a running VM, asks Firecracker to sync snapshot files, syncs writable disks, and captures Firecracker state and memory plus the VM's private rootfs and optional attached volume. Disk backups use a filesystem reflink when available and a synced file copy otherwise. Each artifact has a SHA-256 digest and size. A durable local record supports retrying the same snapshot ID, and the control-plane store accepts only byte-identical duplicate records.
 
-New VM creation now gives each VM a private writable rootfs copy keyed by the SHA-256 of the base image. This prevents new replicas from writing to a shared image. Existing manifests without private-rootfs ownership metadata are treated as legacy: active VMs may continue running, but restart/reapply after they stop and snapshot/restore fail closed; recreate those VMs before relying on disk recovery. This isolation change does not itself back up any disk.
+Attached volumes use a cross-process exclusive lock. Runtime paths reject symlinks and hard-linked writable disks, and the agent checks other VM manifests before starting, adopting, snapshotting, restoring, or resizing a volume.
 
-The separate control-plane SQLite backup uses `Store.BackupTo` in `porter/internal/store/store.go`. That protects the control-plane database; it does not back up VM root filesystems or attached data volumes.
+Restore validates snapshot files and hashes before stopping the VM. It stages and syncs replacement disks, then uses a durable journal and previous-disk files to roll back an interrupted restore. On agent reconciliation, an uncommitted journal is rolled back before the VM can be adopted; a committed journal is finalized.
 
-## Persistence candidate (not integrated)
+This is a selective integration of reviewed persistence semantics, not a wholesale merge of candidate `f06bf61d2c261000644e1e5a5e824f49ec3f4888`; current private-rootfs, canonical socket/path, TAP, and supervisor guards remain in place.
 
-Candidate commit `f06bf61d2c261000644e1e5a5e824f49ec3f4888` on `work/porter-edge-persistence` reports crash-consistent snapshots of rootfs, Firecracker state/memory, and attached volumes; exclusive cross-process writable-volume locks that fail closed on conflicts; checksums; rollback-journal disk replacement; and restore-queue delivery of the checksum manifest. It remains separate from the current integration. Do not merge the branch wholesale: its runtime overlaps newer socket/path/TAP/systemd safeguards, and its `Healthy` path accepts a caller-supplied socket without the current canonical-socket check.
+## What portable tests prove
 
-Here, candidate `go test ./... -count=1` passed in `porter`, `porter-agent`, and `protocol`; `go test -race ./internal/runtime -count=1` passed in `porter-agent`; focused `legacy/backend` buildkit, DNS, gateway, and store tests passed. The full `legacy/backend` suite could not compile its API/server packages because this worktree lacks the generated `web/dist` embed output. The PostgreSQL-backed domain test and real Firecracker/KVM recovery drill were not run. These results do not verify crash recovery end to end.
+Fake-based runtime tests cover state/memory/rootfs/volume capture and restore, snapshot retry, checksum tampering rejected before VM shutdown, rollback after a failed snapshot load, recovery of an interrupted disk swap, and exclusive volume locking with symlink/hard-link rejection. The control-plane store tests cover legacy-schema migration, checksum-manifest round-trip, and idempotent record retry. These tests do not run Firecracker or prove behavior through the full API-to-agent deployment path.
 
-## What is not proven
+## What remains unproven
 
-- **Application consistency:** the guest init has no freeze/thaw control channel. Application-consistent backups are explicitly out of beta scope; a future claim would require a tested guest quiescence protocol.
-- **Disk recovery:** the current snapshot path does not copy and checksum the rootfs and every attached volume as snapshot artifacts. Restore reuses the configured disk paths, so it does not establish restoration of their contents.
-- **Shared-volume safety:** the current path does not prove exclusive attachment or coordinate concurrent writers before a snapshot or restore.
-- **Transactional recovery:** the current path does not demonstrate an atomic disk swap with a durable rollback journal that recovers from interruption at each restore step.
-- **End-to-end acceptance:** no current active KVM acceptance test proves guest data survives snapshot, restore, process failure, and VM/host restart.
-
-## Historical E2E note
-
-The earlier nginx snapshot/restore sequence in this file is not current acceptance evidence. The legacy `scripts/e2e-snapshot.sh` now fails closed before its old test body; see [`scripts/README.md`](../scripts/README.md). The historical text output cannot establish root/data disk recovery, exclusive volume safety, transactional rollback, or crash recovery.
+- **Application consistency:** explicitly out of scope; guest applications are not frozen or quiesced.
+- **Real runtime acceptance:** no `/dev/kvm`, Firecracker binary, or KVM-capable runner is available in this environment. A real guest-data restore test has not run.
+- **Crash/fault coverage:** portable tests cover rollback after load failure and agent reconciliation of an interrupted swap, but do not inject a host crash at every journal write, rename, directory sync, or power-loss boundary.
+- **Full beta flow:** API-to-agent snapshot/restore, host restart, guest data verification on both root and attached disks, network recovery, DNS/TLS, and load balancing still need acceptance on the exact release commit.
 
 ## Required before unblocking
 
-1. Prove exclusive cross-process locks for every writable volume before VM adoption/reconciliation; reject or stop a conflicting VM safely.
-2. Sync Firecracker state/memory and durable disk state according to a documented crash-consistency sequence.
-3. Capture rootfs and every attached data volume with checksums.
-4. Stage disk changes and restore with a durable transaction/rollback journal.
-5. Add fault-injection tests for every restore step and a real KVM test that verifies guest data bytes after restore and restart.
-6. Reconcile only reviewed slices into the current integration while preserving its canonical socket/path, TAP ownership, supervisor, and idempotency guards; then pass the end-to-end recovery gate on that exact integration commit. Keep application-consistency explicitly out of scope unless a guest freeze/thaw channel is implemented and tested.
+1. Run `make kvm-acceptance` on a real KVM-capable runner with guest data written to both the private rootfs and attached volume; verify bytes after restore and restart.
+2. Add or run fault-injection coverage across the journal and each disk-swap boundary, including recovery after agent/host restart.
+3. Pass safe API-to-agent beta acceptance, plus the other mandatory release gates, on the exact release commit.
+4. Keep application consistency labeled unsupported unless a guest freeze/thaw protocol is implemented and tested.

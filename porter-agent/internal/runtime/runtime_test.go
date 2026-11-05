@@ -53,7 +53,7 @@ func TestSnapshotRejectsUnsafeIDsBeforeTouchingFilesystem(t *testing.T) {
 	engine := New(t.TempDir(), "", "", NetworkConfig{})
 	for _, id := range []string{"", ".", "..", "../outside", "vm/../../etc", "name.with.dot"} {
 		t.Run(id, func(t *testing.T) {
-			_, _, _, err := engine.Snapshot(context.Background(), store.VM{ID: "vm-1", Socket: "/unused.sock"}, id)
+			_, err := engine.Snapshot(context.Background(), store.VM{ID: "vm-1", Socket: "/unused.sock"}, id)
 			if err == nil || !strings.Contains(err.Error(), "invalid snapshot id") {
 				t.Fatalf("snapshot id %q error = %v", id, err)
 			}
@@ -64,7 +64,7 @@ func TestSnapshotRejectsUnsafeIDsBeforeTouchingFilesystem(t *testing.T) {
 func TestSnapshotRejectsSocketOutsideRuntimeDirectory(t *testing.T) {
 	base, outside := t.TempDir(), t.TempDir()
 	engine := New(base, "", "", NetworkConfig{})
-	_, _, _, err := engine.Snapshot(context.Background(), store.VM{ID: "vm-1", Socket: filepath.Join(outside, "other.sock")}, "snap-1")
+	_, err := engine.Snapshot(context.Background(), store.VM{ID: "vm-1", Socket: filepath.Join(outside, "other.sock")}, "snap-1")
 	if err == nil || !strings.Contains(err.Error(), "socket path") {
 		t.Fatalf("Snapshot accepted a foreign socket path: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestRestoreSnapshotRejectsUnsafePathsBeforeRuntimeSideEffects(t *testing.T)
 	if err := os.MkdirAll(filepath.Join(base, "vm-1"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_, err := engine.RestoreSnapshot(context.Background(), vm, "/etc/snap-1.snap", "/etc/snap-1.mem", strings.Repeat("0", 64), strings.Repeat("0", 64))
+	_, err := engine.RestoreSnapshot(context.Background(), vm, protocol.SnapshotRestoreSpec{SnapshotID: "snap-1", VMID: "vm-1", StatePath: "/etc/snap-1.snap", MemPath: "/etc/snap-1.mem", StateSHA256: strings.Repeat("0", 64), MemSHA256: strings.Repeat("0", 64)})
 	if err == nil || !strings.Contains(err.Error(), "outside the VM directory") {
 		t.Fatalf("unsafe restore path error = %v", err)
 	}
@@ -260,13 +260,15 @@ func TestKVMFirecrackerApplyStopAcceptance(t *testing.T) {
 }
 
 type fakeProcessSupervisor struct {
-	mu       sync.Mutex
-	active   bool
-	pid      int
-	starts   int
-	startErr error
-	server   *http.Server
-	listener net.Listener
+	mu          sync.Mutex
+	active      bool
+	pid         int
+	starts      int
+	startErr    error
+	failPath    string
+	afterResume func()
+	server      *http.Server
+	listener    net.Listener
 }
 
 func (s *fakeProcessSupervisor) Start(_ context.Context, spec processSpec) (int, error) {
@@ -283,7 +285,14 @@ func (s *fakeProcessSupervisor) Start(_ context.Context, spec processSpec) (int,
 		return 0, err
 	}
 	s.listener = listener
-	s.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	s.server = &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.failPath != "" && r.URL.Path == s.failPath {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/vm" && s.afterResume != nil {
+			s.afterResume()
+		}
 		w.WriteHeader(http.StatusNoContent)
 	})}
 	s.active = true
@@ -708,7 +717,9 @@ func TestSnapshotAndRestoreRejectLegacySharedRootfs(t *testing.T) {
 	if err != nil || manifest.RootfsPath != sharedRootfs {
 		t.Fatalf("legacy manifest was removed or rewritten: rootfs=%q err=%v", manifest.RootfsPath, err)
 	}
-	if _, _, _, err := engine.Snapshot(context.Background(), vm, "snap-legacy"); err == nil || !strings.Contains(err.Error(), "private rootfs") {
+	snapshotVM := vm
+	snapshotVM.State = "running"
+	if _, err := engine.Snapshot(context.Background(), snapshotVM, "snap-legacy"); err == nil || !strings.Contains(err.Error(), "private rootfs") {
 		t.Fatalf("snapshot accepted a legacy shared rootfs: %v", err)
 	}
 
@@ -722,7 +733,7 @@ func TestSnapshotAndRestoreRejectLegacySharedRootfs(t *testing.T) {
 		t.Fatal(err)
 	}
 	stateSum, memSum := sha256.Sum256(state), sha256.Sum256(memory)
-	_, err = engine.RestoreSnapshot(context.Background(), vm, statePath, memPath, hex.EncodeToString(stateSum[:]), hex.EncodeToString(memSum[:]))
+	_, err = engine.RestoreSnapshot(context.Background(), vm, protocol.SnapshotRestoreSpec{SnapshotID: "snap-legacy", VMID: vm.ID, StatePath: statePath, MemPath: memPath, StateSHA256: hex.EncodeToString(stateSum[:]), MemSHA256: hex.EncodeToString(memSum[:]), SizeBytes: int64(len(state) + len(memory))})
 	if err == nil || !strings.Contains(err.Error(), "rootfs is unsafe") {
 		t.Fatalf("restore accepted a legacy shared rootfs: %v", err)
 	}

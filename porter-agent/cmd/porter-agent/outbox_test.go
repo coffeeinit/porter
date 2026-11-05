@@ -34,7 +34,7 @@ func (f *fakeOutboxControlPlane) Result(_ context.Context, result protocol.Comma
 	return f.resultErr
 }
 
-func (f *fakeOutboxControlPlane) RecordSnapshot(context.Context, map[string]interface{}) error {
+func (f *fakeOutboxControlPlane) RecordSnapshot(context.Context, protocol.SnapshotRecord) error {
 	return nil
 }
 
