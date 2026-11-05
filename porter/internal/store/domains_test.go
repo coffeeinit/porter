@@ -33,8 +33,11 @@ func TestCustomDomainRequiresTXTProofBeforeRouteActivation(t *testing.T) {
 	if domain.Hostname != "example.com" || domain.Status != "pending" || domain.VerificationToken == "" || domain.VerificationRecord != "_porter-verify.example.com" {
 		t.Fatalf("unexpected pending domain response: %+v", domain)
 	}
+	if _, err := s.db.ExecContext(ctx, `INSERT INTO routes(id,host,app_id,path_prefix,created_at) VALUES(?,?,?,?,?)`, NewID("rt"), domain.Hostname, app.ID, "/", domain.CreatedAt); err != nil {
+		t.Fatalf("insert stale route fixture: %v", err)
+	}
 	if _, ok := s.RouteForHost(ctx, "EXAMPLE.COM."); ok {
-		t.Fatal("pending custom domain was routed before TXT proof")
+		t.Fatal("stale route for a pending custom domain was served before TXT proof")
 	}
 
 	lookupName := ""

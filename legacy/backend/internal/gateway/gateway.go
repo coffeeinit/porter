@@ -252,10 +252,9 @@ func sourceMatches(source, ip string) bool {
 	return false
 }
 
-// backendsFor finds healthy VMs that serve the given domain: exact match on
-// a project's domain records (custom/stable) or a deployment preview URL,
-// then a DNS-resolution pass for *.local service names, then fall back to
-// any running VM (dev convenience).
+// backendsFor finds healthy VMs for an exact managed domain or deployment
+// preview URL, then tries *.local service discovery. Unknown and unverified
+// hosts do not select arbitrary VMs.
 func (g *Gateway) backendsFor(host string) []*types.VM {
 	// Preview deployments first: an exact preview host belongs to exactly
 	// one deployment pool (never the weighted production mix).
@@ -285,19 +284,21 @@ func (g *Gateway) backendsFor(host string) []*types.VM {
 		}
 	}
 
-	// Project domain records (custom/stable).
-	for _, vm := range g.store.ListVMs() {
+		// Only explicitly active/verified managed domains can select a backend.
+		// This legacy package has no persisted TXT-proof state, so custom domains
+		// fail closed instead of relying on weaker Host-based routing.
+		for _, vm := range g.store.ListVMs() {
 		if !isHealthy(vm) {
 			continue
 		}
 		for _, d := range g.store.ListProjectDomains(vm.ProjectID) {
-			if strings.EqualFold(d.Domain, host) {
+			if domainCanServe(d) && strings.EqualFold(d.Domain, host) {
 				return g.weightedDeploymentBackends(vm.ProjectID, vm)
 			}
 		}
 		// Legacy per-VM records (older fakes/tests).
 		for _, d := range g.store.ListDomains(vm.ID) {
-			if strings.EqualFold(d.Domain, host) {
+			if domainCanServe(d) && strings.EqualFold(d.Domain, host) {
 				return g.weightedDeploymentBackends(vm.ProjectID, vm)
 			}
 		}
@@ -319,14 +320,24 @@ func (g *Gateway) backendsFor(host string) []*types.VM {
 			}
 		}
 	}
-	// Fallback: single running VM answers any host (single-tenant dev path).
-	out := []*types.VM{}
-	for _, vm := range g.store.ListVMs() {
-		if isHealthy(vm) {
-			out = append(out, vm)
-		}
+	// Unknown hosts must never select an arbitrary VM, including in dev mode.
+	return nil
+}
+
+func domainCanServe(d *types.Domain) bool {
+	if d == nil {
+		return false
 	}
-	return out
+	status := strings.ToLower(strings.TrimSpace(d.Status))
+	if status != "active" && status != "verified" {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(d.Type)) {
+	case "production", "preview", "stable":
+		return true
+	default:
+		return false
+	}
 }
 
 func isHealthy(vm *types.VM) bool {
@@ -342,12 +353,12 @@ func (g *Gateway) projectForHost(host string) (string, bool) {
 			continue
 		}
 		for _, d := range g.store.ListProjectDomains(vm.ProjectID) {
-			if d != nil && strings.EqualFold(d.Domain, host) {
+			if domainCanServe(d) && strings.EqualFold(d.Domain, host) {
 				return vm.ProjectID, true
 			}
 		}
 		for _, d := range g.store.ListDomains(vm.ID) {
-			if d != nil && strings.EqualFold(d.Domain, host) {
+			if domainCanServe(d) && strings.EqualFold(d.Domain, host) {
 				return vm.ProjectID, true
 			}
 		}

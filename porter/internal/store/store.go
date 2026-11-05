@@ -1383,7 +1383,9 @@ func (s *Store) ListRoutes(ctx context.Context) ([]Route, error) {
 func (s *Store) RouteForHost(ctx context.Context, host string) (Route, bool) {
 	var r Route
 	host = strings.TrimSuffix(strings.ToLower(strings.TrimSpace(host)), ".")
-	err := s.db.QueryRowContext(ctx, `SELECT id,host,app_id,path_prefix,created_at FROM routes WHERE host=? ORDER BY created_at DESC LIMIT 1`, host).Scan(&r.ID, &r.Host, &r.AppID, &r.PathPrefix, &r.CreatedAt)
+	err := s.db.QueryRowContext(ctx, `SELECT r.id,r.host,r.app_id,r.path_prefix,r.created_at
+		FROM routes r JOIN domains d ON d.hostname=r.host AND d.app_id=r.app_id
+		WHERE r.host=? AND d.status='active' ORDER BY r.created_at DESC LIMIT 1`, host).Scan(&r.ID, &r.Host, &r.AppID, &r.PathPrefix, &r.CreatedAt)
 	return r, err == nil
 }
 
