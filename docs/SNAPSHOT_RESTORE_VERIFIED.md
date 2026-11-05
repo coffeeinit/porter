@@ -8,6 +8,8 @@ The selected beta contract is **crash-consistent recovery only**; application-co
 
 `porter-agent/internal/runtime/runtime.go` pauses Firecracker, writes Firecracker state and memory snapshot files, then resumes the VM. Restore validates those artifact files and hashes, starts Firecracker with the saved runtime configuration, and loads the state and memory files.
 
+New VM creation now gives each VM a private writable rootfs copy keyed by the SHA-256 of the base image. This prevents new replicas from writing to a shared image. Existing manifests without private-rootfs ownership metadata are treated as legacy: active VMs may continue running, but restart/reapply after they stop and snapshot/restore fail closed; recreate those VMs before relying on disk recovery. This isolation change does not itself back up any disk.
+
 The separate control-plane SQLite backup uses `Store.BackupTo` in `porter/internal/store/store.go`. That protects the control-plane database; it does not back up VM root filesystems or attached data volumes.
 
 ## Persistence candidate (not integrated)

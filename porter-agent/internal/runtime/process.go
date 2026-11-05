@@ -65,19 +65,20 @@ func newSystemdSupervisor() *systemdSupervisor {
 }
 
 type runtimeManifest struct {
-	Version    int           `json:"version"`
-	SpecHash   string        `json:"spec_hash"`
-	KernelPath string        `json:"kernel_path"`
-	RootfsPath string        `json:"rootfs_path"`
-	VolumePath string        `json:"volume_path,omitempty"`
-	Network    NetworkConfig `json:"network"`
-	GuestMAC   string        `json:"guest_mac,omitempty"`
-	GatewayIP  string        `json:"gateway_ip,omitempty"`
-	BridgeCIDR string        `json:"bridge_cidr,omitempty"`
-	VCPUs      int           `json:"vcpus"`
-	MemoryMB   int           `json:"memory_mb"`
-	VM         store.VM      `json:"vm"`
-	UpdatedAt  time.Time     `json:"updated_at"`
+	Version        int           `json:"version"`
+	SpecHash       string        `json:"spec_hash"`
+	KernelPath     string        `json:"kernel_path"`
+	RootfsPath     string        `json:"rootfs_path"`
+	RootfsIdentity string        `json:"rootfs_identity,omitempty"`
+	VolumePath     string        `json:"volume_path,omitempty"`
+	Network        NetworkConfig `json:"network"`
+	GuestMAC       string        `json:"guest_mac,omitempty"`
+	GatewayIP      string        `json:"gateway_ip,omitempty"`
+	BridgeCIDR     string        `json:"bridge_cidr,omitempty"`
+	VCPUs          int           `json:"vcpus"`
+	MemoryMB       int           `json:"memory_mb"`
+	VM             store.VM      `json:"vm"`
+	UpdatedAt      time.Time     `json:"updated_at"`
 }
 
 func (e *Engine) vmLock(ctx context.Context, id string) (func(), error) {
@@ -316,6 +317,18 @@ func (e *Engine) writeManifest(m runtimeManifest) error {
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return err
+	}
+	dirFile, err := os.Open(dir)
+	if err != nil {
+		return fmt.Errorf("open VM state directory for sync: %w", err)
+	}
+	syncErr := dirFile.Sync()
+	closeErr := dirFile.Close()
+	if syncErr != nil {
+		return fmt.Errorf("sync VM state directory: %w", syncErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close VM state directory: %w", closeErr)
 	}
 	return nil
 }

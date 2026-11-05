@@ -82,6 +82,9 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 			return manifest.VM, fmt.Errorf("VM %s is already active with a different specification; stop it before applying changes", spec.VMID)
 		}
 		if forceRestart {
+			if err := validatePrivateRootfs(dir, manifest); err != nil {
+				return manifest.VM, fmt.Errorf("refusing to restart VM with a non-private rootfs: %w", err)
+			}
 			if err := e.stopRuntime(manifest.VM, true, false); err != nil {
 				return manifest.VM, fmt.Errorf("stop VM before restart: %w", err)
 			}
@@ -106,20 +109,28 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 		}
 	}
 
-	// An inactive unit and its manifest are stale. Removing only these files is
-	// safe because systemd is the source of truth for a live VM process.
+	// Keep the prior manifest long enough to establish ownership of an existing
+	// private root disk across restart. A root file without that proof is a collision.
+	priorManifest, priorManifestErr := e.readManifest(spec.VMID)
+	if priorManifestErr != nil && !errors.Is(priorManifestErr, os.ErrNotExist) {
+		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("refusing to replace unreadable VM runtime state: %w", priorManifestErr)
+	}
+	if priorManifestErr == nil {
+		if err := validatePrivateRootfs(dir, priorManifest); err != nil {
+			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("refusing to reapply VM with a non-private rootfs: %w", err)
+		}
+	}
+	// The unit and socket are stale, but keep the old manifest as the ownership
+	// proof for its writable rootfs until writeManifest atomically replaces it.
 	if err := removeIfPresent(sock); err != nil {
 		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("remove stale VM socket: %w", err)
 	}
-	if err := e.removeManifest(spec.VMID); err != nil {
-		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
-	}
 	for _, item := range []struct{ name, path string }{{"kernel", spec.KernelPath}, {"rootfs", spec.RootfsPath}} {
-		fi, statErr := os.Stat(item.path)
+		fi, statErr := os.Lstat(item.path)
 		if statErr != nil {
 			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("%s image %q: %w", item.name, item.path, statErr)
 		}
-		if !fi.Mode().IsRegular() {
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
 			return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, fmt.Errorf("%s image %q is not a regular file", item.name, item.path)
 		}
 	}
@@ -146,8 +157,12 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	if err := logFile.Close(); err != nil {
 		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
 	}
+	privateRootfs, identity, cloneErr := e.ensurePrivateRootfs(dir, spec.RootfsPath, priorManifest, priorManifestErr == nil)
+	if cloneErr != nil {
+		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, cloneErr)
+	}
 	manifest := runtimeManifest{
-		Version: 1, SpecHash: fingerprint, KernelPath: spec.KernelPath, RootfsPath: spec.RootfsPath,
+		Version: 1, SpecHash: fingerprint, KernelPath: spec.KernelPath, RootfsPath: privateRootfs, RootfsIdentity: identity,
 		VolumePath: volumePath, Network: e.Network, GuestMAC: spec.GuestMAC, GatewayIP: spec.GatewayIP,
 		BridgeCIDR: spec.BridgeCIDR, VCPUs: spec.VCPUs, MemoryMB: spec.MemoryMB, VM: vm,
 	}
@@ -156,7 +171,7 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	}
 	pid, err := manager.Start(ctx, processSpec{
 		VMID: spec.VMID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
-		KernelPath: spec.KernelPath, RootfsPath: spec.RootfsPath, VolumePath: volumePath,
+		KernelPath: spec.KernelPath, RootfsPath: privateRootfs, VolumePath: volumePath,
 		VCPUs: spec.VCPUs, MemoryMB: spec.MemoryMB,
 	})
 	if err != nil {
@@ -181,7 +196,7 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	if err := putJSON(ctx, client, "/boot-source", map[string]string{"kernel_image_path": spec.KernelPath, "boot_args": bootArgs}); err != nil {
 		return e.failApply(vm, err)
 	}
-	if err := putJSON(ctx, client, "/drives/rootfs", map[string]interface{}{"drive_id": "rootfs", "path_on_host": spec.RootfsPath, "is_root_device": true, "is_read_only": false}); err != nil {
+	if err := putJSON(ctx, client, "/drives/rootfs", map[string]interface{}{"drive_id": "rootfs", "path_on_host": privateRootfs, "is_root_device": true, "is_read_only": false}); err != nil {
 		return e.failApply(vm, err)
 	}
 	if spec.VolumeID != "" {
@@ -209,20 +224,24 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 }
 
 func (e *Engine) failApply(vm store.VM, cause error) (store.VM, error) {
-	cleanupErr := e.stopRuntime(vm, true, true)
+	cleanupErr := e.stopRuntime(vm, true, false)
 	vm.State = "failed"
 	vm.Error = cause.Error()
+	vm.PID, vm.Socket = 0, ""
 	if cleanupErr != nil {
 		vm.Error += "; cleanup failed: " + cleanupErr.Error()
-		if manifest, err := e.readManifest(vm.ID); err == nil {
-			manifest.VM = vm
-			if err := e.writeManifest(manifest); err != nil {
-				vm.Error += "; persist failure state: " + err.Error()
-			}
+	}
+	if manifest, err := e.readManifest(vm.ID); err == nil {
+		manifest.VM = vm
+		if err := e.writeManifest(manifest); err != nil {
+			vm.Error += "; persist failure state: " + err.Error()
 		}
+	} else if !os.IsNotExist(err) {
+		vm.Error += "; read failure state: " + err.Error()
+	}
+	if cleanupErr != nil {
 		return vm, fmt.Errorf("%s", vm.Error)
 	}
-	vm.PID, vm.Socket = 0, ""
 	return vm, cause
 }
 
@@ -290,7 +309,27 @@ func (e *Engine) Delete(ctx context.Context, vm store.VM) error {
 		return err
 	}
 	defer unlock()
-	return e.stopRuntime(vm, true, true)
+	manifest, manifestErr := e.readManifest(vm.ID)
+	if manifestErr != nil && !errors.Is(manifestErr, os.ErrNotExist) {
+		return fmt.Errorf("read VM runtime state before delete: %w", manifestErr)
+	}
+	privateRootfs := ""
+	if manifestErr == nil {
+		if dir, err := e.vmDir(vm.ID, false); err != nil {
+			return err
+		} else if validateErr := validatePrivateRootfs(dir, manifest); validateErr == nil {
+			privateRootfs = manifest.RootfsPath
+		}
+	}
+	if err := e.stopRuntime(vm, true, false); err != nil {
+		return err
+	}
+	if privateRootfs != "" {
+		if err := removeIfPresent(privateRootfs); err != nil {
+			return fmt.Errorf("remove private VM rootfs: %w", err)
+		}
+	}
+	return e.removeManifest(vm.ID)
 }
 
 func (e *Engine) stopRuntime(vm store.VM, removeTap, removeState bool) error {
@@ -432,6 +471,105 @@ func methodJSON(ctx context.Context, c *http.Client, method, path string, payloa
 	return nil
 }
 
+func (e *Engine) ensurePrivateRootfs(dir, base string, prior runtimeManifest, hasPrior bool) (string, string, error) {
+	f, err := os.OpenFile(base, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return "", "", fmt.Errorf("open base rootfs: %w", err)
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil || !st.Mode().IsRegular() || st.Size() <= 0 {
+		return "", "", fmt.Errorf("base rootfs is not a regular file")
+	}
+	h := sha256.New()
+	n, err := io.Copy(h, f)
+	if err != nil {
+		return "", "", err
+	}
+	if n != st.Size() {
+		return "", "", fmt.Errorf("base rootfs changed while being hashed")
+	}
+	identity := hex.EncodeToString(h.Sum(nil))
+	target := filepath.Join(dir, "rootfs-"+identity+".img")
+	if fi, err := os.Lstat(target); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() {
+			return "", "", fmt.Errorf("private rootfs path collision: not a regular file")
+		}
+		if os.SameFile(st, fi) || !privateFileHasSingleLink(fi) {
+			return "", "", fmt.Errorf("private rootfs path collision: existing file may be shared")
+		}
+		if !hasPrior || prior.RootfsIdentity != identity || filepath.Clean(prior.RootfsPath) != filepath.Clean(target) {
+			// An interrupted apply can leave a base copy not yet named by the current
+			// manifest. Reuse it only if its complete contents match the immutable base.
+			existing, openErr := os.OpenFile(target, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+			if openErr != nil {
+				return "", "", fmt.Errorf("open existing private rootfs: %w", openErr)
+			}
+			existingInfo, statErr := existing.Stat()
+			existingHash := sha256.New()
+			existingBytes, hashErr := io.Copy(existingHash, existing)
+			closeErr := existing.Close()
+			if statErr != nil || hashErr != nil || closeErr != nil {
+				return "", "", fmt.Errorf("verify existing private rootfs: %v", errors.Join(statErr, hashErr, closeErr))
+			}
+			if !existingInfo.Mode().IsRegular() || existingInfo.Size() != st.Size() || existingBytes != st.Size() || hex.EncodeToString(existingHash.Sum(nil)) != identity {
+				return "", "", fmt.Errorf("private rootfs path collision: contents do not match the immutable base")
+			}
+			if err := os.Chmod(target, 0o600); err != nil {
+				return "", "", fmt.Errorf("secure existing private rootfs: %w", err)
+			}
+		}
+		return target, identity, nil
+	} else if !os.IsNotExist(err) {
+		return "", "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".rootfs-*.tmp")
+	if err != nil {
+		return "", "", err
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := f.Seek(0, 0); err != nil {
+		tmp.Close()
+		return "", "", err
+	}
+	copyHash := sha256.New()
+	copied, err := io.Copy(io.MultiWriter(tmp, copyHash), f)
+	if err != nil {
+		tmp.Close()
+		return "", "", err
+	}
+	if copied != st.Size() || hex.EncodeToString(copyHash.Sum(nil)) != identity {
+		tmp.Close()
+		return "", "", fmt.Errorf("base rootfs changed while being copied")
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return "", "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", "", err
+	}
+	if err := os.Link(tmpPath, target); err != nil {
+		return "", "", fmt.Errorf("create private rootfs without overwrite: %w", err)
+	}
+	d, err := os.Open(dir)
+	if err == nil {
+		err = d.Sync()
+		_ = d.Close()
+	}
+	if err != nil {
+		_ = os.Remove(target)
+		return "", "", err
+	}
+	return target, identity, nil
+}
+
+func privateFileHasSingleLink(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink == 1
+}
+
 func ensureVolumeFile(path string, sizeMB int) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -476,6 +614,13 @@ func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (
 	defer unlock()
 	dir, err := e.vmDir(vm.ID, true)
 	if err != nil {
+		return "", "", 0, err
+	}
+	manifest, err := e.readManifest(vm.ID)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("snapshot requires saved VM runtime configuration: %w", err)
+	}
+	if err := validatePrivateRootfs(dir, manifest); err != nil {
 		return "", "", 0, err
 	}
 	statePath := filepath.Join(dir, snapshotID+".snap")
@@ -549,7 +694,16 @@ func (e *Engine) Reconcile(ctx context.Context, vm store.VM) (store.VM, bool, er
 		return vm, false, err
 	}
 	if vm.State == "failed" {
-		if err := e.stopRuntime(vm, true, true); err != nil {
+		if err := e.stopRuntime(vm, true, false); err != nil {
+			return vm, false, err
+		}
+		if manifest, err := e.readManifest(vm.ID); err == nil {
+			manifest.VM.State, manifest.VM.PID, manifest.VM.Socket = "failed", 0, ""
+			manifest.VM.Error = vm.Error
+			if err := e.writeManifest(manifest); err != nil {
+				return vm, false, err
+			}
+		} else if !os.IsNotExist(err) {
 			return vm, false, err
 		}
 		return vm, false, nil
@@ -579,11 +733,20 @@ func (e *Engine) Reconcile(ctx context.Context, vm store.VM) (store.VM, bool, er
 			}
 		}
 	}
-	if err := e.stopRuntime(vm, true, true); err != nil {
+	if err := e.stopRuntime(vm, true, false); err != nil {
 		return vm, false, err
 	}
 	vm.State, vm.Health = "failed", "unhealthy"
+	vm.PID, vm.Socket = 0, ""
 	vm.Error = "Firecracker service was not active during agent reconciliation"
+	if manifest, err := e.readManifest(vm.ID); err == nil {
+		manifest.VM = vm
+		if err := e.writeManifest(manifest); err != nil {
+			return vm, false, err
+		}
+	} else if !os.IsNotExist(err) {
+		return vm, false, err
+	}
 	return vm, false, nil
 }
 
@@ -667,6 +830,34 @@ func (e *Engine) TailLog(vm store.VM, maxLines int) []string {
 	return lines
 }
 
+func validatePrivateRootfs(vmDir string, m runtimeManifest) error {
+	root, err := filepath.Abs(vmDir)
+	if err != nil {
+		return err
+	}
+	if len(m.RootfsIdentity) != sha256.Size*2 {
+		return fmt.Errorf("VM rootfs identity is missing or invalid")
+	}
+	if _, err := hex.DecodeString(m.RootfsIdentity); err != nil {
+		return fmt.Errorf("VM rootfs identity is not valid SHA-256 hex")
+	}
+	path, err := filepath.Abs(m.RootfsPath)
+	if err != nil {
+		return err
+	}
+	if filepath.Dir(path) != root || m.RootfsIdentity == "" || filepath.Base(path) != "rootfs-"+m.RootfsIdentity+".img" {
+		return fmt.Errorf("VM rootfs is not a verified private rootfs inside its VM directory")
+	}
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect private VM rootfs: %w", err)
+	}
+	if fi.Mode()&os.ModeSymlink != 0 || !fi.Mode().IsRegular() || fi.Size() <= 0 || !privateFileHasSingleLink(fi) {
+		return fmt.Errorf("private VM rootfs is not a regular file")
+	}
+	return nil
+}
+
 func (e *Engine) validateSnapshotPath(vmID, path string) (string, error) {
 	root, err := filepath.EvalSymlinks(filepath.Join(e.BaseDir, vmID))
 	if err != nil {
@@ -720,7 +911,10 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 	if memPath, err = filepath.Abs(memPath); err != nil {
 		return vm, fmt.Errorf("snapshot memory path: %w", err)
 	}
-	snapshotDir := filepath.Join(e.BaseDir, vm.ID)
+	snapshotDir, err := e.vmDir(vm.ID, false)
+	if err != nil {
+		return vm, fmt.Errorf("resolve VM snapshot directory: %w", err)
+	}
 	if err := validateSnapshotArtifact(snapshotDir, statePath, ".snap"); err != nil {
 		return vm, fmt.Errorf("invalid snapshot state file: %w", err)
 	}
@@ -752,6 +946,9 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, statePath, me
 	manifest, err := e.readManifest(vm.ID)
 	if err != nil {
 		return vm, fmt.Errorf("restore requires saved VM runtime configuration: %w", err)
+	}
+	if err := validatePrivateRootfs(snapshotDir, manifest); err != nil {
+		return vm, fmt.Errorf("snapshot restore rootfs is unsafe: %w", err)
 	}
 	if manifest.VCPUs <= 0 || manifest.MemoryMB <= 0 || manifest.KernelPath == "" || manifest.RootfsPath == "" {
 		return vm, fmt.Errorf("saved VM runtime configuration is incomplete")

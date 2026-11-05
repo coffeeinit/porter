@@ -264,6 +264,7 @@ type fakeProcessSupervisor struct {
 	active   bool
 	pid      int
 	starts   int
+	startErr error
 	server   *http.Server
 	listener net.Listener
 }
@@ -271,6 +272,9 @@ type fakeProcessSupervisor struct {
 func (s *fakeProcessSupervisor) Start(_ context.Context, spec processSpec) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.startErr != nil {
+		return 0, s.startErr
+	}
 	if s.active {
 		return s.pid, nil
 	}
@@ -453,10 +457,420 @@ func TestApplyIsIdempotentAndRestartableWithSupervisor(t *testing.T) {
 	if err := engine.Stop(restarted); err != nil {
 		t.Fatalf("stop: %v", err)
 	}
+	manifest, err := engine.readManifest(restarted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateRootfs := manifest.RootfsPath
 	if err := engine.Delete(context.Background(), restarted); err != nil {
 		t.Fatalf("delete stopped VM: %v", err)
 	}
+	if _, err := os.Stat(privateRootfs); !os.IsNotExist(err) {
+		t.Fatalf("private rootfs remains after VM delete: %v", err)
+	}
 	if _, err := os.Stat(filepath.Join(base, restarted.ID, "runtime.json")); !os.IsNotExist(err) {
 		t.Fatalf("runtime manifest remains after delete: %v", err)
+	}
+}
+
+func TestApplyIsolatesRootfsPerVMAndPreservesOnRestart(t *testing.T) {
+	base := t.TempDir()
+	kernel, image := filepath.Join(t.TempDir(), "kernel"), filepath.Join(t.TempDir(), "base.img")
+	for _, p := range []string{kernel, image} {
+		if err := os.WriteFile(p, []byte("base-root"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	makeEngine := func() (*Engine, *fakeProcessSupervisor) {
+		e := New(base, kernel, image, NetworkConfig{})
+		f := &fakeProcessSupervisor{}
+		e.supervisor = f
+		return e, f
+	}
+	e1, _ := makeEngine()
+	e2, _ := makeEngine()
+	spec1 := protocol.VMApplySpec{VMID: "vm-one", VCPUs: 1, MemoryMB: 256}
+	spec2 := spec1
+	spec2.VMID = "vm-two"
+	v1, err := e1.Apply(context.Background(), spec1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := e2.Apply(context.Background(), spec2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m1, err := e1.readManifest(v1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2, err := e2.readManifest(v2.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1.RootfsPath == m2.RootfsPath || m1.RootfsPath == image || m2.RootfsPath == image {
+		t.Fatal("VMs share base/private rootfs path")
+	}
+	if err := os.WriteFile(m1.RootfsPath, []byte("guest-write"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{image, m2.RootfsPath} {
+		b, err := os.ReadFile(p)
+		if err != nil || string(b) != "base-root" {
+			t.Fatalf("write leaked to %s: %q %v", p, b, err)
+		}
+	}
+	_ = e1.Stop(v1)
+	e1, super := makeEngine()
+	restarted, err := e1.Restart(context.Background(), spec1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m3, err := e1.readManifest(restarted.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m3.RootfsPath != m1.RootfsPath {
+		t.Fatal("restart replaced writable private rootfs")
+	}
+	b, _ := os.ReadFile(m3.RootfsPath)
+	if string(b) != "guest-write" {
+		t.Fatalf("restart lost guest writes: %q", b)
+	}
+	if super.startCount() != 1 {
+		t.Fatalf("restart start count=%d", super.startCount())
+	}
+	_ = e1.Stop(restarted)
+	_ = e2.Stop(v2)
+}
+
+func TestFailedApplyRetainsPrivateRootfsOwnershipForRetry(t *testing.T) {
+	base := t.TempDir()
+	kernel, image := filepath.Join(t.TempDir(), "kernel"), filepath.Join(t.TempDir(), "base.img")
+	for _, path := range []string{kernel, image} {
+		if err := os.WriteFile(path, []byte("base-image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := New(base, kernel, image, NetworkConfig{})
+	supervisor := &fakeProcessSupervisor{startErr: errors.New("injected start failure")}
+	engine.supervisor = supervisor
+	spec := protocol.VMApplySpec{VMID: "vm-retry", VCPUs: 1, MemoryMB: 256}
+	if _, err := engine.Apply(context.Background(), spec); err == nil {
+		t.Fatal("injected VM start failure was not returned")
+	}
+	manifest, err := engine.readManifest(spec.VMID)
+	if err != nil {
+		t.Fatalf("failed apply lost rootfs ownership manifest: %v", err)
+	}
+	if manifest.VM.State != "failed" {
+		t.Fatalf("failed VM state = %q, want failed", manifest.VM.State)
+	}
+	privateRootfs := manifest.RootfsPath
+
+	supervisor.mu.Lock()
+	supervisor.startErr = nil
+	supervisor.mu.Unlock()
+	vm, err := engine.Apply(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("retry after failed apply: %v", err)
+	}
+	manifest, err = engine.readManifest(spec.VMID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.RootfsPath != privateRootfs {
+		t.Fatal("retry replaced the previously owned private rootfs")
+	}
+	if err := engine.Stop(vm); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrivateRootfsRejectsCollisionsAndLegacySnapshotRootfs(t *testing.T) {
+	dir := t.TempDir()
+	base := filepath.Join(t.TempDir(), "base")
+	_ = os.WriteFile(base, []byte("base"), 0o600)
+	e := New(t.TempDir(), "", "", NetworkConfig{})
+	sum := sha256.Sum256([]byte("base"))
+	id := hex.EncodeToString(sum[:])
+	target := filepath.Join(dir, "rootfs-"+id+".img")
+	if err := os.Symlink(base, target); err != nil {
+		t.Skip(err)
+	}
+	if _, _, err := e.ensurePrivateRootfs(dir, base, runtimeManifest{}, false); err == nil {
+		t.Fatal("private symlink collision accepted")
+	}
+	legacy := filepath.Join(t.TempDir(), "legacy.img")
+	_ = os.WriteFile(legacy, []byte("legacy"), 0o600)
+	if err := validatePrivateRootfs(dir, runtimeManifest{RootfsPath: legacy, RootfsIdentity: id}); err == nil {
+		t.Fatal("legacy shared rootfs path accepted")
+	}
+}
+
+func TestPrivateRootfsRejectsSharedLinksAndVerifiesOrphanCopy(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "base.img")
+	if err := os.WriteFile(base, []byte("base-image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("base-image"))
+	identity := hex.EncodeToString(sum[:])
+	engine := New(t.TempDir(), "", "", NetworkConfig{})
+
+	sharedDir := t.TempDir()
+	sharedPath := filepath.Join(sharedDir, "rootfs-"+identity+".img")
+	if err := os.Link(base, sharedPath); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	sharedManifest := runtimeManifest{RootfsPath: sharedPath, RootfsIdentity: identity}
+	if err := validatePrivateRootfs(sharedDir, sharedManifest); err == nil {
+		t.Fatal("hard-linked shared rootfs passed private-rootfs validation")
+	}
+	if _, _, err := engine.ensurePrivateRootfs(sharedDir, base, runtimeManifest{}, false); err == nil {
+		t.Fatal("hard-linked base image was accepted as a private clone")
+	}
+
+	linkDir := t.TempDir()
+	baseLink := filepath.Join(t.TempDir(), "base-link.img")
+	if err := os.Symlink(base, baseLink); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, _, err := engine.ensurePrivateRootfs(linkDir, baseLink, runtimeManifest{}, false); err == nil {
+		t.Fatal("symlinked base rootfs was accepted")
+	}
+
+	collisionDir := t.TempDir()
+	collisionPath := filepath.Join(collisionDir, "rootfs-"+identity+".img")
+	if err := os.WriteFile(collisionPath, []byte("not-the-base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := engine.ensurePrivateRootfs(collisionDir, base, runtimeManifest{}, false); err == nil {
+		t.Fatal("unowned private-path collision with different contents was accepted")
+	}
+
+	orphanDir := t.TempDir()
+	orphanPath := filepath.Join(orphanDir, "rootfs-"+identity+".img")
+	if err := os.WriteFile(orphanPath, []byte("base-image"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, gotIdentity, err := engine.ensurePrivateRootfs(orphanDir, base, runtimeManifest{}, false)
+	if err != nil {
+		t.Fatalf("exact pre-manifest base copy was not safely reusable: %v", err)
+	}
+	if got != orphanPath || gotIdentity != identity {
+		t.Fatalf("orphan clone result = %q/%q, want %q/%q", got, gotIdentity, orphanPath, identity)
+	}
+}
+
+func TestSnapshotAndRestoreRejectLegacySharedRootfs(t *testing.T) {
+	base := t.TempDir()
+	engine := New(base, "", "", NetworkConfig{})
+	vmID := "vm-legacy"
+	dir, err := engine.vmDir(vmID, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedRootfs := filepath.Join(t.TempDir(), "shared-rootfs.img")
+	if err := os.WriteFile(sharedRootfs, []byte("shared"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("shared"))
+	identity := hex.EncodeToString(sum[:])
+	socket := filepath.Join(dir, "firecracker.sock")
+	vm := store.VM{ID: vmID, Socket: socket, State: "stopped"}
+	spec := protocol.VMApplySpec{VMID: vmID, KernelPath: "/kernel", RootfsPath: sharedRootfs, VCPUs: 1, MemoryMB: 256}
+	fingerprint, err := fingerprintSpec(spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := runtimeManifest{
+		Version: 1, SpecHash: fingerprint, RootfsPath: sharedRootfs, RootfsIdentity: identity,
+		KernelPath: "/kernel", VCPUs: 1, MemoryMB: 256, VM: vm,
+	}
+	if err := engine.writeManifest(manifest); err != nil {
+		t.Fatal(err)
+	}
+	supervisor := &fakeProcessSupervisor{active: true, pid: 4242}
+	engine.supervisor = supervisor
+	if _, err := engine.Restart(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "non-private rootfs") {
+		t.Fatalf("restart accepted or failed to protect an active legacy VM: %v", err)
+	}
+	if !supervisor.active {
+		t.Fatal("legacy shared-rootfs VM was stopped before restart rejection")
+	}
+	supervisor.mu.Lock()
+	supervisor.active = false
+	supervisor.mu.Unlock()
+	if _, err := engine.Start(context.Background(), spec); err == nil || !strings.Contains(err.Error(), "non-private rootfs") {
+		t.Fatalf("reapply migrated an inactive legacy shared rootfs: %v", err)
+	}
+	manifest, err = engine.readManifest(vmID)
+	if err != nil || manifest.RootfsPath != sharedRootfs {
+		t.Fatalf("legacy manifest was removed or rewritten: rootfs=%q err=%v", manifest.RootfsPath, err)
+	}
+	if _, _, _, err := engine.Snapshot(context.Background(), vm, "snap-legacy"); err == nil || !strings.Contains(err.Error(), "private rootfs") {
+		t.Fatalf("snapshot accepted a legacy shared rootfs: %v", err)
+	}
+
+	statePath := filepath.Join(dir, "snap-legacy.snap")
+	memPath := filepath.Join(dir, "snap-legacy.mem")
+	state, memory := []byte("state"), []byte("memory")
+	if err := os.WriteFile(statePath, state, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(memPath, memory, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stateSum, memSum := sha256.Sum256(state), sha256.Sum256(memory)
+	_, err = engine.RestoreSnapshot(context.Background(), vm, statePath, memPath, hex.EncodeToString(stateSum[:]), hex.EncodeToString(memSum[:]))
+	if err == nil || !strings.Contains(err.Error(), "rootfs is unsafe") {
+		t.Fatalf("restore accepted a legacy shared rootfs: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "firecracker-restore.log")); !os.IsNotExist(err) {
+		t.Fatalf("restore performed process setup before legacy-rootfs rejection: %v", err)
+	}
+	if err := engine.Delete(context.Background(), vm); err != nil {
+		t.Fatalf("delete legacy VM: %v", err)
+	}
+	if contents, err := os.ReadFile(sharedRootfs); err != nil || string(contents) != "shared" {
+		t.Fatalf("deleting legacy VM changed shared rootfs: contents=%q err=%v", contents, err)
+	}
+}
+
+func TestPrivateRootfsReusesOnlyExactInterruptedImageUpdateCopy(t *testing.T) {
+	dir := t.TempDir()
+	oldBase, newBase := filepath.Join(t.TempDir(), "old.img"), filepath.Join(t.TempDir(), "new.img")
+	if err := os.WriteFile(oldBase, []byte("old-base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(newBase, []byte("new-base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine := New(t.TempDir(), "", "", NetworkConfig{})
+	oldPath, oldIdentity, err := engine.ensurePrivateRootfs(dir, oldBase, runtimeManifest{}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior := runtimeManifest{RootfsPath: oldPath, RootfsIdentity: oldIdentity}
+	newSum := sha256.Sum256([]byte("new-base"))
+	newIdentity := hex.EncodeToString(newSum[:])
+	newPath := filepath.Join(dir, "rootfs-"+newIdentity+".img")
+	if err := os.WriteFile(newPath, []byte("new-base"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, gotIdentity, err := engine.ensurePrivateRootfs(dir, newBase, prior, true)
+	if err != nil || got != newPath || gotIdentity != newIdentity {
+		t.Fatalf("exact interrupted update copy: path=%q identity=%q err=%v", got, gotIdentity, err)
+	}
+	if err := os.WriteFile(newPath, []byte("guest-state"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := engine.ensurePrivateRootfs(dir, newBase, prior, true); err == nil {
+		t.Fatal("modified unowned update copy was accepted without a manifest")
+	}
+}
+
+func TestApplyPreservesPriorManifestWhenPreflightFails(t *testing.T) {
+	base := t.TempDir()
+	kernel, image := filepath.Join(t.TempDir(), "kernel"), filepath.Join(t.TempDir(), "rootfs.img")
+	for _, path := range []string{kernel, image} {
+		if err := os.WriteFile(path, []byte("image"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := New(base, kernel, image, NetworkConfig{})
+	supervisor := &fakeProcessSupervisor{}
+	engine.supervisor = supervisor
+	spec := protocol.VMApplySpec{VMID: "vm-preflight", VCPUs: 1, MemoryMB: 256}
+	vm, err := engine.Apply(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Stop(vm); err != nil {
+		t.Fatal(err)
+	}
+	before, err := engine.readManifest(spec.VMID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "ip"), []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	engine.Network = NetworkConfig{Bridge: "porter0", CIDR: "10.0.0.0/24", GatewayIP: "10.0.0.1"}
+	if _, err := engine.Apply(context.Background(), spec); err == nil {
+		t.Fatal("network preflight failure was not returned")
+	}
+	after, err := engine.readManifest(spec.VMID)
+	if err != nil {
+		t.Fatalf("preflight failure removed the previous ownership manifest: %v", err)
+	}
+	if after.RootfsPath != before.RootfsPath || after.RootfsIdentity != before.RootfsIdentity {
+		t.Fatal("preflight failure replaced the previous private-rootfs ownership metadata")
+	}
+}
+
+func TestReconcileRootfs(t *testing.T) {
+	base := t.TempDir()
+	kernel, image := filepath.Join(t.TempDir(), "kernel"), filepath.Join(t.TempDir(), "rootfs.img")
+	for _, path := range []string{kernel, image} {
+		if err := os.WriteFile(path, []byte("base"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	engine := New(base, kernel, image, NetworkConfig{})
+	supervisor := &fakeProcessSupervisor{}
+	engine.supervisor = supervisor
+	spec := protocol.VMApplySpec{VMID: "vm-reconcile", VCPUs: 1, MemoryMB: 256}
+	vm, err := engine.Apply(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := engine.readManifest(vm.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateRootfs := manifest.RootfsPath
+	if err := os.WriteFile(privateRootfs, []byte("guest-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := engine.Stop(vm); err != nil {
+		t.Fatal(err)
+	}
+
+	failed, adopted, err := engine.Reconcile(context.Background(), vm)
+	if err != nil || adopted || failed.State != "failed" {
+		t.Fatalf("reconcile missing service = %+v adopted=%v err=%v", failed, adopted, err)
+	}
+	if _, _, err := engine.Reconcile(context.Background(), failed); err != nil {
+		t.Fatalf("reconcile failed VM: %v", err)
+	}
+	manifest, err = engine.readManifest(vm.ID)
+	if err != nil {
+		t.Fatalf("reconciliation discarded the private-rootfs manifest: %v", err)
+	}
+	if manifest.RootfsPath != privateRootfs {
+		t.Fatal("reconciliation changed private-rootfs identity")
+	}
+
+	restarted, err := engine.Apply(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("apply after reconciliation: %v", err)
+	}
+	manifest, err = engine.readManifest(vm.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.RootfsPath != privateRootfs {
+		t.Fatal("reapply after reconciliation replaced the private rootfs")
+	}
+	contents, err := os.ReadFile(privateRootfs)
+	if err != nil || string(contents) != "guest-data" {
+		t.Fatalf("reconciliation lost guest rootfs data: %q err=%v", contents, err)
+	}
+	if err := engine.Stop(restarted); err != nil {
+		t.Fatal(err)
 	}
 }
