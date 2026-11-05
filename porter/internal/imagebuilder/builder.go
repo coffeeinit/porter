@@ -44,6 +44,30 @@ func New(guestInit, kernel, workDir string) *Builder {
 	return &Builder{GuestInitPath: guestInit, KernelPath: kernel, WorkDir: workDir}
 }
 
+func safeArtifactName(name string) string {
+	original := name
+	var safe strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == '-' {
+			safe.WriteRune(r)
+		} else {
+			safe.WriteByte('_')
+		}
+	}
+	base := strings.Trim(safe.String(), "._-")
+	if base == "" {
+		base = "image"
+	}
+	if len(base) > 80 {
+		base = base[:80]
+	}
+	if base != original {
+		sum := sha256.Sum256([]byte(original))
+		base += "-" + hex.EncodeToString(sum[:4])
+	}
+	return base
+}
+
 func (b *Builder) BuildDockerfile(ctx context.Context, contextDir, dockerfile, name string, sizeMB int) (Result, error) {
 	if name == "" {
 		name = "porter-app-" + fmt.Sprint(time.Now().UnixNano())
@@ -54,8 +78,9 @@ func (b *Builder) BuildDockerfile(ctx context.Context, contextDir, dockerfile, n
 	if err := os.MkdirAll(b.WorkDir, 0o755); err != nil {
 		return Result{}, err
 	}
-	tarPath := filepath.Join(b.WorkDir, name+".tar")
-	rootfsPath := filepath.Join(b.WorkDir, name+".ext4")
+	artifactName := safeArtifactName(name)
+	tarPath := filepath.Join(b.WorkDir, artifactName+".tar")
+	rootfsPath := filepath.Join(b.WorkDir, artifactName+".ext4")
 	b.logf("docker build starting for %s", name)
 	args := []string{"build", "-t", name, "-f", dockerfile, contextDir}
 	if out, err := exec.CommandContext(ctx, "docker", args...).CombinedOutput(); err != nil {
@@ -90,8 +115,14 @@ func (b *Builder) ConvertArchive(ctx context.Context, archivePath, rootfsPath st
 	}
 	manifest, err := readDockerManifest(filepath.Join(unpacked, "manifest.json"))
 	if err == nil && len(manifest) > 0 {
+		if _, err := confinedPath(unpacked, manifest[0].Config); err != nil {
+			return Result{}, fmt.Errorf("invalid manifest config path: %w", err)
+		}
 		for _, layer := range manifest[0].Layers {
-			layerPath := filepath.Join(unpacked, filepath.FromSlash(layer))
+			layerPath, err := confinedPath(unpacked, layer)
+			if err != nil {
+				return Result{}, fmt.Errorf("invalid manifest layer path: %w", err)
+			}
 			if err := applyLayer(layerPath, root); err != nil {
 				return Result{}, err
 			}
@@ -165,35 +196,114 @@ func extractArchive(path, dest string) error {
 	for {
 		h, err := tr.Next()
 		if err == io.EOF {
-			break
+			return nil
 		}
 		if err != nil {
 			return err
 		}
-		name := filepath.Clean(h.Name)
-		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
-			continue
+		target, err := safeArchiveTarget(dest, h.Name)
+		if err != nil {
+			return err
 		}
-		target := filepath.Join(dest, name)
 		switch h.Typeflag {
+		case tar.TypeLink:
+			return fmt.Errorf("hard links are not supported: %q", h.Name)
 		case tar.TypeDir:
-			_ = os.MkdirAll(target, 0o755)
-		case tar.TypeReg:
-			_ = os.MkdirAll(filepath.Dir(target), 0o755)
+			if err := ensureSafeParents(dest, target, true); err != nil {
+				return err
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if err := ensureSafeParents(dest, filepath.Dir(target), true); err != nil {
+				return err
+			}
+			if st, e := os.Lstat(target); e == nil && st.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("refusing symlink target %q", target)
+			} else if e != nil && !os.IsNotExist(e) {
+				return e
+			}
 			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode)&0o777)
 			if err != nil {
 				return err
 			}
 			_, err = io.Copy(out, tr)
-			out.Close()
+			closeErr := out.Close()
 			if err != nil {
+				return err
+			}
+			if closeErr != nil {
+				return closeErr
+			}
+		case tar.TypeSymlink:
+			if err := validateSymlinkTarget(dest, target, h.Linkname); err != nil {
+				return err
+			}
+			if err := ensureSafeParents(dest, filepath.Dir(target), true); err != nil {
+				return err
+			}
+			if err := os.Symlink(h.Linkname, target); err != nil {
 				return err
 			}
 		}
 	}
-	return nil
 }
 
+func confinedPath(root, name string) (string, error) {
+	if name == "" || filepath.IsAbs(name) {
+		return "", fmt.Errorf("path must be relative: %q", name)
+	}
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(rootAbs, filepath.FromSlash(name))
+	rel, err := filepath.Rel(rootAbs, p)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("path escapes root: %q", name)
+	}
+	return p, nil
+}
+func safeArchiveTarget(root, name string) (string, error) { return confinedPath(root, name) }
+func ensureSafeParents(root, dir string, create bool) error {
+	root, _ = filepath.Abs(root)
+	dir, _ = filepath.Abs(dir)
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("path escapes root: %q", dir)
+	}
+	cur := root
+	for _, part := range strings.Split(rel, string(os.PathSeparator)) {
+		if part == "." || part == "" {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		st, e := os.Lstat(cur)
+		if os.IsNotExist(e) && create {
+			if e = os.Mkdir(cur, 0755); e == nil {
+				st, e = os.Lstat(cur)
+			}
+		}
+		if e != nil {
+			return e
+		}
+		if st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+			return fmt.Errorf("unsafe parent directory %q", cur)
+		}
+	}
+	return nil
+}
+func validateSymlinkTarget(root, link, target string) error {
+	if filepath.IsAbs(target) {
+		return fmt.Errorf("absolute symlink target rejected: %q", target)
+	}
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(link), filepath.FromSlash(target)))
+	rootAbs, _ := filepath.Abs(root)
+	resolvedAbs, _ := filepath.Abs(resolved)
+	rel, err := filepath.Rel(rootAbs, resolvedAbs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return fmt.Errorf("symlink target escapes root: %q", target)
+	}
+	return nil
+}
 func applyLayer(path, root string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -205,9 +315,9 @@ func applyLayer(path, root string) error {
 	n, _ := f.Read(head)
 	_, _ = f.Seek(0, io.SeekStart)
 	if strings.HasSuffix(path, ".gz") || (n == 2 && head[0] == 0x1f && head[1] == 0x8b) {
-		gz, err := gzip.NewReader(f)
-		if err != nil {
-			return err
+		gz, e := gzip.NewReader(f)
+		if e != nil {
+			return e
 		}
 		defer gz.Close()
 		r = gz
@@ -221,34 +331,57 @@ func applyLayer(path, root string) error {
 		if err != nil {
 			return err
 		}
-		name := filepath.Clean(h.Name)
-		if strings.HasPrefix(name, "..") || filepath.IsAbs(name) {
-			continue
+		target, err := safeArchiveTarget(root, h.Name)
+		if err != nil {
+			return err
+		}
+		name, err := filepath.Rel(root, target)
+		if err != nil {
+			return err
 		}
 		base := filepath.Base(name)
 		if strings.HasPrefix(base, ".wh.") {
-			target := filepath.Join(root, filepath.Dir(name), strings.TrimPrefix(base, ".wh."))
-			_ = os.RemoveAll(target)
+			if err := ensureSafeParents(root, filepath.Dir(target), false); err != nil {
+				return err
+			}
+			if err := os.RemoveAll(filepath.Join(filepath.Dir(target), strings.TrimPrefix(base, ".wh."))); err != nil && !os.IsNotExist(err) {
+				return err
+			}
 			continue
 		}
-		target := filepath.Join(root, name)
 		switch h.Typeflag {
+		case tar.TypeLink:
+			return fmt.Errorf("hard links are not supported: %q", h.Name)
 		case tar.TypeDir:
-			_ = os.MkdirAll(target, 0o755)
-		case tar.TypeReg:
-			_ = os.MkdirAll(filepath.Dir(target), 0o755)
-			out, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode)&0o777)
-			if err != nil {
+			if err := ensureSafeParents(root, target, true); err != nil {
 				return err
 			}
-			_, err = io.Copy(out, tr)
-			out.Close()
-			if err != nil {
+		case tar.TypeReg, tar.TypeRegA:
+			if err := ensureSafeParents(root, filepath.Dir(target), true); err != nil {
 				return err
+			}
+			out, e := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, os.FileMode(h.Mode)&0o777)
+			if e != nil {
+				return e
+			}
+			_, e = io.Copy(out, tr)
+			ce := out.Close()
+			if e != nil {
+				return e
+			}
+			if ce != nil {
+				return ce
 			}
 		case tar.TypeSymlink:
-			_ = os.MkdirAll(filepath.Dir(target), 0o755)
-			_ = os.Symlink(h.Linkname, target)
+			if err := validateSymlinkTarget(root, target, h.Linkname); err != nil {
+				return err
+			}
+			if err := ensureSafeParents(root, filepath.Dir(target), true); err != nil {
+				return err
+			}
+			if err := os.Symlink(h.Linkname, target); err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -320,8 +453,9 @@ func (b *Builder) BuildDockerImage(ctx context.Context, ref, name string, sizeMB
 	if out, err := exec.CommandContext(ctx, "docker", "tag", ref, name).CombinedOutput(); err != nil {
 		return Result{}, fmt.Errorf("docker tag: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	tarPath := filepath.Join(b.WorkDir, name+".tar")
-	rootfsPath := filepath.Join(b.WorkDir, name+".ext4")
+	artifactName := safeArtifactName(name)
+	tarPath := filepath.Join(b.WorkDir, artifactName+".tar")
+	rootfsPath := filepath.Join(b.WorkDir, artifactName+".ext4")
 	if out, err := exec.CommandContext(ctx, "docker", "save", "-o", tarPath, name).CombinedOutput(); err != nil {
 		return Result{}, fmt.Errorf("docker save: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -357,6 +491,9 @@ func applyOCIArchive(unpacked, root string) error {
 		return err
 	}
 	for _, layer := range manifest.Layers {
+		if _, err := readBlob(unpacked, layer.Digest); err != nil {
+			return err
+		}
 		layerPath, err := blobPath(unpacked, layer.Digest)
 		if err != nil {
 			return err
@@ -369,8 +506,14 @@ func applyOCIArchive(unpacked, root string) error {
 }
 
 func blobPath(unpacked, digest string) (string, error) {
-	hex := strings.TrimPrefix(digest, "sha256:")
-	return filepath.Join(unpacked, "blobs", "sha256", hex), nil
+	if len(digest) != len("sha256:")+64 || !strings.HasPrefix(digest, "sha256:") {
+		return "", fmt.Errorf("invalid sha256 digest %q", digest)
+	}
+	digestHex := strings.TrimPrefix(digest, "sha256:")
+	if _, err := hex.DecodeString(digestHex); err != nil {
+		return "", fmt.Errorf("invalid sha256 digest %q", digest)
+	}
+	return filepath.Join(unpacked, "blobs", "sha256", digestHex), nil
 }
 
 func readBlob(unpacked, digest string) ([]byte, error) {
@@ -378,7 +521,15 @@ func readBlob(unpacked, digest string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(p)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(b)
+	if hex.EncodeToString(sum[:]) != strings.TrimPrefix(digest, "sha256:") {
+		return nil, fmt.Errorf("blob digest mismatch for %s", digest)
+	}
+	return b, nil
 }
 
 type dockerConfig struct {
@@ -419,7 +570,11 @@ func loadImageConfig(unpacked string) (dockerConfig, error) {
 	if b, err := os.ReadFile(filepath.Join(unpacked, "manifest.json")); err == nil {
 		var m dockerManifest
 		if json.Unmarshal(b, &m) == nil && len(m) > 0 {
-			c, err := os.ReadFile(filepath.Join(unpacked, filepath.FromSlash(m[0].Config)))
+			configPath, err := confinedPath(unpacked, m[0].Config)
+			if err != nil {
+				return cfg, fmt.Errorf("invalid manifest config path: %w", err)
+			}
+			c, err := os.ReadFile(configPath)
 			if err != nil {
 				return cfg, err
 			}
