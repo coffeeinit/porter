@@ -1,0 +1,62 @@
+name: Porter CI
+
+on:
+  push:
+    branches:
+      - main
+      - work/porter-foundation-plan
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: porter-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portable-checks:
+    name: Portable checks (KVM acceptance is separate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23.x
+          cache: true
+          cache-dependency-path: '**/go.sum'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Run tests
+        run: make test
+
+      - name: Run static analysis
+        run: make vet
+
+      - name: Run race tests
+        run: |
+          (cd protocol && go test -race ./...)
+          (cd porter && go test -race ./internal/store ./internal/api ./internal/gateway ./internal/imagebuilder)
+          (cd porter-agent && go test -race ./...)
+
+      - name: Check embedded UI JavaScript syntax
+        run: python3 scripts/check_ui_js.py porter/web/index.html
+
+      - name: Build beta binaries
+        run: make build VERSION=v1.0.0-beta
+
+      - name: Verify binary version strings
+        run: |
+          test "$(bin/porter version)" = "porter v1.0.0-beta"
+          test "$(bin/porter-agent version)" = "v1.0.0-beta"
