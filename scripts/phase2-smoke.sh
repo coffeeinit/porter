@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 B=http://127.0.0.1:18083
+printf '%s\n' 'Disabled: this legacy smoke script uses fixed /tmp paths and broad process-kill cleanup.' >&2
+printf '%s\n' 'See scripts/README.md; do not remove this guard until the test is isolated.' >&2
+exit 2
 A=testadmin
 rm -rf /tmp/porter-p2
 mkdir -p /tmp/porter-p2/agent

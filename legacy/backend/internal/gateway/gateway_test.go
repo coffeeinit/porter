@@ -81,7 +81,12 @@ func TestGatewayProxiesAndRecordsTraffic(t *testing.T) {
 	host, portStr, _ := net.SplitHostPort(u.Host)
 	port, _ := strconv.Atoi(portStr)
 
-	st := &fakeStore{vms: []*types.VM{healthyVM("vm1", host, port)}}
+	vm := healthyVM("vm1", host, port)
+	vm.ProjectID = "proj1"
+	st := &fakeStore{
+		vms:     []*types.VM{vm},
+		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "web.myapp.test", Type: "production", Status: "active"}}},
+	}
 	gw := NewGateway(st)
 
 	req := httptest.NewRequest(http.MethodGet, "http://web.myapp.test/", nil)
@@ -113,7 +118,8 @@ func TestGatewayFirewallBlocksDeny(t *testing.T) {
 	port, _ := strconv.Atoi(portStr)
 
 	st := &fakeStore{
-		vms: []*types.VM{healthyVM("vm1", host, port)},
+		vms:     []*types.VM{healthyVM("vm1", host, port)},
+		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "web.myapp.test", Type: "production", Status: "active"}}},
 		rules: []*types.FirewallRule{
 			{ID: "r1", ProjectID: "proj1", Action: "deny", Source: "203.0.113.0/24", Priority: 1, Active: true},
 		},
@@ -156,7 +162,7 @@ func TestGatewayScaleToZeroWake(t *testing.T) {
 	stopped.ProjectID = "proj1"
 	st := &fakeStore{
 		vms:     []*types.VM{stopped},
-		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "custom", Status: "active"}}},
+		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "production", Status: "active"}}},
 	}
 	gw := NewGateway(st)
 	var woke string
@@ -189,7 +195,7 @@ func TestGatewayNoWakeWithoutWaker(t *testing.T) {
 	stopped.ProjectID = "proj1"
 	st := &fakeStore{
 		vms:     []*types.VM{stopped},
-		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "custom", Status: "active"}}},
+		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "production", Status: "active"}}},
 	}
 	gw := NewGateway(st) // no Waker: current 503 behavior
 
@@ -219,7 +225,7 @@ func TestGatewayNoWakeWhenHealthy(t *testing.T) {
 	vm.ProjectID = "proj1"
 	st := &fakeStore{
 		vms:     []*types.VM{vm},
-		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "custom", Status: "active"}}},
+		domains: map[string][]*types.Domain{"proj1": {{ProjectID: "proj1", Domain: "app.test", Type: "production", Status: "active"}}},
 	}
 	gw := NewGateway(st)
 	woke := false

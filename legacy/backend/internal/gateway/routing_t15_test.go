@@ -105,7 +105,7 @@ func TestT15ProjectDomainsWeightedPool(t *testing.T) {
 	st := &t15gwStore{
 		vms: []*types.VM{vmA, vmB},
 		projDomains: map[string][]*types.Domain{
-			"p1": {{ProjectID: "p1", Domain: "app.test", Status: "active"}},
+			"p1": {{ProjectID: "p1", Domain: "app.test", Type: "production", Status: "active"}},
 		},
 		deployments: map[string][]*types.Deployment{
 			"p1": {
@@ -127,7 +127,7 @@ func TestT15ProjectDomainsWeightedPool(t *testing.T) {
 	// Legacy per-VM domain records still route (backward compat path).
 	legacy := &t15gwStore{
 		vms:       []*types.VM{t15mkVM("vm-l", "p9", "10.0.0.99")},
-		vmDomains: map[string][]*types.Domain{"vm-l": {{Domain: "legacy.test"}}},
+		vmDomains: map[string][]*types.Domain{"vm-l": {{Domain: "legacy.test", Type: "production", Status: "verified"}}},
 	}
 	gwLegacy := NewGateway(legacy)
 	got = gwLegacy.backendsFor("legacy.test")
@@ -174,7 +174,7 @@ func TestT15LocalDNSRouting(t *testing.T) {
 	}
 }
 
-func TestT15UnknownHostFallback(t *testing.T) {
+func TestT15UnknownHostDoesNotFallbackToAnyVM(t *testing.T) {
 	empty := NewGateway(&t15gwStore{})
 	if got := empty.backendsFor("nope.test"); len(got) != 0 {
 		t.Fatalf("empty store must have no fallback, got %d", len(got))
@@ -186,13 +186,19 @@ func TestT15UnknownHostFallback(t *testing.T) {
 		t.Fatalf("unknown host with no backend must be 503, got %d", rr.Code)
 	}
 
-	// Single healthy VM answers any host (single-tenant dev convenience).
+	// A single healthy VM must not answer an arbitrary Host header.
 	single := NewGateway(&t15gwStore{vms: []*types.VM{t15mkVM("only", "p1", "10.0.0.7")}})
-	if got := single.backendsFor("anything.test"); len(got) != 1 || got[0].ID != "only" {
-		t.Fatalf("single-VM fallback must answer any host, got %v", t15ids(got))
+	if got := single.backendsFor("anything.test"); len(got) != 0 {
+		t.Fatalf("unknown host selected an arbitrary VM: %v", t15ids(got))
+	}
+	req = httptest.NewRequest(http.MethodGet, "http://anything.test/", nil)
+	rr = httptest.NewRecorder()
+	single.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unknown Host with a healthy VM must not route, got HTTP %d", rr.Code)
 	}
 
-	// Unhealthy VMs are never fallback candidates.
+	// Unhealthy VMs remain unavailable for unknown hosts.
 	stopped := t15mkVM("s", "p1", "10.0.0.8")
 	stopped.State = types.StateStopped
 	sick := t15mkVM("u", "p1", "10.0.0.9")
@@ -203,14 +209,40 @@ func TestT15UnknownHostFallback(t *testing.T) {
 	}
 }
 
+func TestT15DomainRoutingRequiresVerifiedManagedStatus(t *testing.T) {
+	vm := t15mkVM("vm-1", "p1", "10.0.0.7")
+	st := &t15gwStore{
+		vms: []*types.VM{vm},
+		projDomains: map[string][]*types.Domain{
+			"p1": {
+				{ProjectID: "p1", Domain: "pending.test", Type: "production", Status: "pending"},
+				{ProjectID: "p1", Domain: "unproven-custom.test", Type: "custom", Status: "active"},
+				{ProjectID: "p1", Domain: "verified.test", Type: "production", Status: "verified"},
+			},
+		},
+	}
+	gw := NewGateway(st)
+	for _, host := range []string{"pending.test", "unproven-custom.test"} {
+		if got := gw.backendsFor(host); len(got) != 0 {
+			t.Errorf("unverified legacy domain %q selected backends: %v", host, t15ids(got))
+		}
+		if projectID, ok := gw.projectForHost(host); ok {
+			t.Errorf("unverified legacy domain %q resolved to project %q", host, projectID)
+		}
+	}
+	if got := gw.backendsFor("verified.test"); len(got) != 1 || got[0].ID != vm.ID {
+		t.Fatalf("verified managed domain did not route to its VM: %v", t15ids(got))
+	}
+}
+
 func TestT15CrossTenantUnknownHost(t *testing.T) {
 	vmA := t15mkVM("vm-a", "pA", "10.0.0.21")
 	vmB := t15mkVM("vm-b", "pB", "10.0.0.22")
 	st := &t15gwStore{
 		vms: []*types.VM{vmA, vmB},
 		projDomains: map[string][]*types.Domain{
-			"pA": {{ProjectID: "pA", Domain: "a.test", Status: "active"}},
-			"pB": {{ProjectID: "pB", Domain: "b.test", Status: "active"}},
+			"pA": {{ProjectID: "pA", Domain: "a.test", Type: "production", Status: "active"}},
+			"pB": {{ProjectID: "pB", Domain: "b.test", Type: "production", Status: "active"}},
 		},
 	}
 	gw := NewGateway(st)
@@ -225,10 +257,10 @@ func TestT15CrossTenantUnknownHost(t *testing.T) {
 		t.Fatalf("known host b.test must serve only pB, got %v", ids)
 	}
 
-	// Unknown hosts fall back across tenants (documented dev behavior).
+	// Unknown hosts never fall back across tenants.
 	got = gw.backendsFor("unknown.test")
-	if ids := t15ids(got); !ids["vm-a"] || !ids["vm-b"] {
-		t.Fatalf("unknown-host fallback currently spans tenants, got %v", ids)
+	if len(got) != 0 {
+		t.Fatalf("unknown host selected cross-tenant backends: %v", t15ids(got))
 	}
 }
 
@@ -239,7 +271,7 @@ func TestT15FailedBuildExcluded(t *testing.T) {
 	st := &t15gwStore{
 		vms: []*types.VM{good, bad, other},
 		projDomains: map[string][]*types.Domain{
-			"p1": {{ProjectID: "p1", Domain: "app.test", Status: "active"}},
+			"p1": {{ProjectID: "p1", Domain: "app.test", Type: "production", Status: "active"}},
 		},
 		deployments: map[string][]*types.Deployment{
 			"p1": {
@@ -256,11 +288,10 @@ func TestT15FailedBuildExcluded(t *testing.T) {
 		t.Fatalf("failed build must be excluded from weighted pool, got %v", ids)
 	}
 
-	// Failed preview URL never resolves to its pool: the request falls
-	// through to the cross-VM fallback instead of a 1-VM preview pool.
+	// Failed preview URL never resolves to its pool or another VM.
 	got = gw.backendsFor("prev-bad.test")
-	if len(got) != 3 {
-		t.Fatalf("failed preview must fall through to fallback (3 healthy), got %v", t15ids(got))
+	if len(got) != 0 {
+		t.Fatalf("failed preview unexpectedly selected backends: %v", t15ids(got))
 	}
 }
 
@@ -323,7 +354,7 @@ func TestT15WeightBounds(t *testing.T) {
 	vm := t15mkVM("vm-c", "p1", "10.0.0.41")
 	st2 := &t15gwStore{
 		vms:         []*types.VM{vm},
-		projDomains: map[string][]*types.Domain{"p1": {{ProjectID: "p1", Domain: "App.Test"}}},
+		projDomains: map[string][]*types.Domain{"p1": {{ProjectID: "p1", Domain: "App.Test", Type: "production", Status: "active"}}},
 	}
 	if got := NewGateway(st2).backendsFor("app.test"); len(got) != 1 {
 		t.Fatal("project domain match must be case-insensitive")

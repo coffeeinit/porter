@@ -1,4 +1,40 @@
-﻿# PORTER HANDOFF — 2026-10-18
+# PORTER HANDOFF — 2026-11-05
+
+**v1.0.0-beta status: blocked.** No real KVM recovery acceptance or full API-to-agent release E2E has passed on the current integration.
+
+## Current handoff — 2026-11-05, 20:15 IST
+
+This section is the authoritative resume point. The owner said **stop all** work; implementation and tests are stopped. Do not resume coding, commit, push, or open a PR unless the owner asks again. This documentation update is the only work performed after that stop request.
+
+### Branch and published state
+
+- Repository: `/workspace/porter-inspection`.
+- Branch: `work/porter-foundation-plan`.
+- Local `HEAD` and a fresh `git ls-remote` both resolve to `e0c3f395272faf7044cf249aa474af063175624a` on `coffeeinit/porter`.
+- The local `origin/work/porter-foundation-plan` tracking ref is stale at `87396b0`; trust a fresh remote query, not that tracking ref.
+- No Porter PR, tag, or release exists.
+- The last reported ten-milestone ledger said 8/10 at the Buildkite setup push, but earlier counters were inconsistent. Reconstruct the count from confirmed commits before relying on the limit.
+
+Published milestones after `19b041b` include PostgreSQL CI (`4680ac3`), lifecycle API/agent dispatch (`851adaf`, `f4f09ac`), gateway port-forward rebinding (`62aeed4`), agent result outbox (`d704faf`), fail-closed build guard (`a1bdf1a`), ACME domain authorization (`43cf8e5`), privacy-safe OTLP trace export (`de11c38`), node-bound optional mTLS (`87396b0`), and Buildkite config (`e0c3f39`). Earlier work includes private per-VM writable rootfs (`19b041b`) and gateway/domain hardening. Confirm each SHA against the remote before quoting it as published.
+
+### CI and KVM status
+
+- The owner’s Buildkite GitHub Actions Compatibility run showed all 5/5 jobs successful; the Firecracker KVM job was skipped. The “workflow token unavailable” message was an annotation, not a job failure. Leave workflow-authorized tokens disabled unless a test actually needs GitHub API access.
+- A native Buildkite pipeline is present at `.buildkite/pipeline.yml`; setup notes are in `docs/BUILDKITE_SETUP.md`. Its KVM step is opt-in and requires the dedicated `porter-kvm` self-hosted queue.
+- No KVM-capable machine or registered self-hosted runner was available. This sandbox has no `/dev/kvm`, Firecracker, or Jailer. Real VM lifecycle and recovery acceptance remain mandatory blockers; portable CI is not KVM evidence.
+- The KVM target currently covers only a real Firecracker apply/stop check, not the full beta acceptance matrix.
+
+### Uncommitted work at stop — preserve it
+
+The working tree was dirty and nothing below was staged, committed, or pushed. Last reported checks on this exact working tree passed `make test`, `make vet`, race suites for the Go modules, UI syntax, beta binary/version assertions, formatting, and `git diff --check`. KVM acceptance did not run. Review the changes before any future staging; do not reset or clean them blindly.
+
+Modified files: `docs/HANDOFF.md`, `docs/PROTOCOL.md`, `docs/SNAPSHOT_RESTORE_VERIFIED.md`, `porter-agent/README.md`, `porter-agent/cmd/porter-agent/main.go`, `porter-agent/cmd/porter-agent/outbox_test.go`, `porter-agent/internal/client/client.go`, `porter-agent/internal/runtime/runtime.go`, `porter-agent/internal/runtime/runtime_test.go`, `porter/README.md`, `porter/internal/api/images.go`, `porter/internal/api/mcp.go`, `porter/internal/api/phase2.go`, `porter/internal/store/snapshot_integrity_test.go`, `porter/internal/store/store.go`, `protocol/types.go`, and `scripts/README.md`.
+
+Untracked files: `porter-agent/cmd/porter-agent/snapshot_dispatch_test.go`, `porter-agent/internal/runtime/disk_snapshot.go`, `porter-agent/internal/runtime/disk_snapshot_test.go`, and `porter/internal/api/snapshot_roundtrip_test.go`.
+
+The snapshot/restore work now validates that authenticated snapshot metadata belongs to the reporting node and refuses to report restore success if the agent cannot persist its local VM ledger. It has fake-based API/SQLite and agent HTTP-dispatch tests. Its intended contract is crash consistency only; application-consistent snapshots are unsupported. The detailed gate and remaining KVM/fault-injection requirements are in `docs/SNAPSHOT_RESTORE_VERIFIED.md`.
+
+Other uncommitted changes include agent result-outbox behavior and strengthened fail-closed image-build tests. Treat these as separate review units; do not publish them as a single undifferentiated patch.
 
 ## 1. What this repository is now
 
@@ -49,18 +85,19 @@ The old implementation, old docs, old prototypes, and old image catalog are in
 - join + enrollment
 - local SQLite
 - heartbeat
+- HTTPS/JSON bearer polling; optional CA-verified mTLS with a node-bound certificate URI; no WebSocket stream or automatic certificate lifecycle
 - command polling
 - real Firecracker lifecycle
 - TAP/bridge/NAT
 - kernel `ip=` guest network boot args
 - persistent `/dev/vdb` data drive
-- snapshot create (pause/resume)
-- snapshot restore command
+- crash-consistent snapshot capture of Firecracker state/memory, private rootfs, and optional attached volume; synced files, SHA-256 manifests, exclusive volume locks, and durable retry record
+- snapshot restore command with staged disk replacement, rollback journal, and interrupted-restore recovery before VM adoption
 - serial log shipping
 - process liveness health reporting
 - signed-update path not implemented yet
 
-### Verified live in WSL Ubuntu
+### Historical WSL checks (not current beta acceptance evidence)
 - real Firecracker boot under KVM
 - real TAP/bridge/NAT
 - persistent volume attached as `/dev/vdb`
@@ -261,20 +298,29 @@ porter_detect_framework
 
 - UI is still one large page, not routed pages.
 - No live log streaming (only query).
-- Gateway has no ACME; TLS only via cert/key files.
+- Gateway supports static cert/key TLS and optional HTTP-01 autocert; public
+  ACME acceptance is unverified, and provider DNS/DNS-01/wildcard TLS are absent.
 - Gateway is HTTP reverse proxy; no full WebSocket tuning yet.
 - Guest-init is built and injectable but app startup inside the guest is not
   fully verified.
 - Health checks are process liveness only; no HTTP/TCP guest probes.
-- Image builds use host Docker, not an isolated builder MicroVM.
-- Build runs synchronously; no build log stream or build cache.
+- Image builds still use host Docker/Git, but REST, MCP, and webhook entry points
+  fail closed by default until an isolated builder is configured.
+- Image builds run asynchronously and expose logs/cancellation; those features
+  do not make the unisolated build path safe for untrusted source.
 - Compose supports only the primary service, not full stacks.
-- GitHub auth is local clone based; no GitHub App/webhook-triggered build.
-- Snapshot restore endpoint/agent command added, but not yet E2E-verified.
-- Volume resize updates metadata; host file resize not yet applied.
-- Backups are not implemented.
-- Tests are minimal: imagebuilder detection/compose tests only.
-- No CI.
+- Signed GitHub push webhooks pin the commit SHA and deduplicate deliveries;
+  webhook builds remain disabled by default, and GitHub App auth is absent.
+- Crash-consistent snapshot/restore now includes disk files, checksums, volume locks, and rollback-journal recovery. Portable fake tests pass; real KVM, host-restart, and API-to-agent recovery remain unverified. Application consistency is not promised.
+- Volume resize applies to the host disk file and is blocked while a VM manifest still references the volume; real KVM resize acceptance remains open.
+- The admin API can create and integrity-check local SQLite backups; database
+  restore, off-host retention, encryption, and a full recovery drill are absent.
+- Portable regression tests cover the API, store, gateway, builder, and agent;
+  API-to-fake-agent restart acceptance and KVM validation remain open.
+- Agent WebSocket streaming and automatic client-certificate issuance, renewal,
+  rotation, and revocation workflows are not implemented.
+- GitHub Actions runs portable tests, vet, race checks, the beta build, and UI
+  JavaScript syntax validation; it does not cover KVM/provider acceptance.
 
 ## 8. Next tasks in order
 

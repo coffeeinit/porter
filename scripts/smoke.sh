@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 BASE=http://127.0.0.1:18080
+printf '%s\n' 'Disabled: this legacy smoke script deletes a fixed /tmp agent directory and leaves a background process.' >&2
+printf '%s\n' 'See scripts/README.md; do not remove this guard until the test is isolated.' >&2
+exit 2
 ADMIN=testadmin
 RESP=$(curl -s -X POST "$BASE/v1/fleet/join-tokens" -H "Authorization: Bearer $ADMIN" -H "Content-Type: application/json" -d '{"ttl_seconds":600}')
 echo "$RESP"

@@ -1,7 +1,7 @@
 <template>
   <div class="detail">
     <nav class="crumbs">
-      <router-link to="/apps">Applications</router-link>
+      <router-link to="/services">Services</router-link>
       <span class="sep">/</span>
       <span class="here">{{ project.name || '…' }}</span>
     </nav>
@@ -20,13 +20,13 @@
         <p class="mono dim src">{{ project.image || project.source || 'no image' }}</p>
       </div>
       <div class="head-stats">
-        <div class="hstat"><span class="n">{{ vms.length }}</span><span class="l">replicas</span></div>
-        <div class="hstat"><span class="n">{{ deployments.length }}</span><span class="l">deployments</span></div>
+        <div class="hstat"><span class="n">{{ vms.length }}</span><span class="l">instances</span></div>
+        <div class="hstat"><span class="n">{{ deployments.length }}</span><span class="l">releases</span></div>
         <div class="hstat"><span class="n">{{ healthy }}</span><span class="l">healthy</span></div>
       </div>
     </div>
 
-    <div v-if="loading" class="empty">Loading application…</div>
+    <div v-if="loading" class="empty">Loading service…</div>
 
     <!-- Tabs -->
     <template v-else-if="project.id">
@@ -36,23 +36,20 @@
 
       <!-- Overview -->
       <section v-if="tab === 'Overview'" class="body">
-        <h2>MicroVM replicas</h2>
+        <h2>Instances</h2>
         <div class="card">
           <table v-if="vms.length">
-            <thead><tr><th>VM</th><th>State</th><th>Health</th><th>IP</th><th>vCPU</th><th>Memory</th><th>Started</th></tr></thead>
+            <thead><tr><th>Instance</th><th>State</th><th>Health</th><th>Operator view</th></tr></thead>
             <tbody>
-              <tr v-for="vm in vms" :key="vm.id">
-                <td class="mono">{{ shortId(vm.id) }}</td>
+              <tr v-for="(vm, index) in vms" :key="vm.id">
+                <td>Instance {{ index + 1 }}</td>
                 <td><span class="pill" :class="pillClass(vm.state)">{{ vm.state || '—' }}</span></td>
                 <td><span class="pill" :class="pillClass(vm.health_status)">{{ vm.health_status || '—' }}</span></td>
-                <td class="mono">{{ vm.ip_address || '—' }}</td>
-                <td class="tnum">{{ vm.vcpus ?? '—' }}</td>
-                <td class="tnum">{{ vm.mem_mib ? `${vm.mem_mib} MiB` : '—' }}</td>
-                <td class="muted">{{ vm.started_at ? ago(vm.started_at) : '—' }}</td>
+                <td><router-link :to="`/instances/${encodeURIComponent(vm.id)}`">Inspect →</router-link></td>
               </tr>
             </tbody>
           </table>
-          <div v-else class="empty">No replicas are running for this application yet.</div>
+          <div v-else class="empty">No instances are running for this service yet.</div>
         </div>
 
         <h2>Metrics summary</h2>
@@ -69,30 +66,30 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">Metrics are not available yet — samples appear once replicas report telemetry.</div>
+        <div v-else class="empty">Metrics are not available yet — samples appear once instances report telemetry.</div>
 
         <h2>Recent activity</h2>
         <div class="card" v-if="events.length">
           <table>
-            <thead><tr><th>Status</th><th>Detail</th><th>VM</th><th style="text-align:right">When</th></tr></thead>
+            <thead><tr><th>Status</th><th>Detail</th><th>Instance</th><th style="text-align:right">When</th></tr></thead>
             <tbody>
               <tr v-for="e in events" :key="e.id">
                 <td><span class="pill" :class="pillClass(e.status)">{{ e.status || 'info' }}</span></td>
                 <td>{{ e.detail || '—' }}</td>
-                <td class="mono">{{ e.vm_id || '—' }}</td>
+                <td>{{ e.vm_id ? 'Instance event' : '—' }}</td>
                 <td class="muted" style="text-align:right">{{ ago(e.ts) }}</td>
               </tr>
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">No health events recorded for this application yet.</div>
+        <div v-else class="empty">No health events recorded for this service yet.</div>
       </section>
 
-      <!-- Deployments -->
-      <section v-else-if="tab === 'Deployments'" class="body">
+      <!-- Releases -->
+      <section v-else-if="tab === 'Releases'" class="body">
         <div class="card" v-if="deployments.length">
           <table>
-            <thead><tr><th>Rev</th><th>Label</th><th>Environment</th><th>Status</th><th>Traffic</th><th>Preview</th><th>Created</th></tr></thead>
+            <thead><tr><th>Release</th><th>Label</th><th>Environment</th><th>Status</th><th>Traffic</th><th>Preview</th><th>Created</th></tr></thead>
             <tbody>
               <tr v-for="d in deployments" :key="d.id" class="click-row" @click="$router.push('/deployments')">
                 <td class="tnum">#{{ d.revision }}</td>
@@ -106,7 +103,7 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">No deployments yet for this application.</div>
+        <div v-else class="empty">No releases yet for this service.</div>
       </section>
 
       <!-- Logs -->
@@ -114,7 +111,7 @@
         <div class="card log-card" v-if="logs.length">
           <div v-for="(l, i) in logs" :key="i" class="log-line mono">{{ l }}</div>
         </div>
-        <div v-else class="empty">No logs available yet — lines appear once replicas emit output.</div>
+        <div v-else class="empty">No logs available yet — lines appear once instances emit output.</div>
       </section>
 
       <!-- Metrics -->
@@ -129,7 +126,7 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">No metric samples yet — collectors report once replicas are running.</div>
+        <div v-else class="empty">No metric samples yet — collectors report once instances are running.</div>
       </section>
 
       <!-- Events -->
@@ -144,12 +141,12 @@
             </tbody>
           </table>
         </div>
-        <div v-else class="empty">No events recorded for this application yet.</div>
+        <div v-else class="empty">No events recorded for this service yet.</div>
       </section>
 
       <!-- Settings -->
       <section v-else class="body">
-        <h2>Application settings</h2>
+        <h2>Service settings</h2>
         <div class="card">
           <table class="kv">
             <tbody>
@@ -158,7 +155,7 @@
               <tr><th>Image</th><td class="mono">{{ project.image || '—' }}</td></tr>
               <tr><th>Source</th><td>{{ project.source || '—' }}</td></tr>
               <tr><th>Network</th><td class="mono">{{ project.network || '—' }}</td></tr>
-              <tr><th>Desired replicas</th><td class="tnum">{{ project.replicas_desired || project.replicas || '—' }}</td></tr>
+              <tr><th>Desired instances</th><td class="tnum">{{ project.replicas_desired || project.replicas || '—' }}</td></tr>
               <tr><th>Restart policy</th><td>{{ project.restart_policy || '—' }}</td></tr>
               <tr><th>SSH</th><td>{{ project.ssh_enabled ? 'Enabled' : 'Disabled' }}</td></tr>
               <tr><th>Tags</th><td>{{ (project.tags || []).join(', ') || '—' }}</td></tr>
@@ -166,7 +163,7 @@
             </tbody>
           </table>
         </div>
-        <p class="muted note">Editing settings is not available in this view yet — manage configuration from Projects.</p>
+        <p class="muted note">Editing settings is not available in this view yet — manage configuration from the project.</p>
       </section>
     </template>
   </div>
@@ -187,7 +184,7 @@ const logs = ref([])
 const metrics = ref([])
 const events = ref([])
 const tab = ref('Overview')
-const tabs = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Events', 'Settings']
+const tabs = ['Overview', 'Releases', 'Logs', 'Metrics', 'Events', 'Settings']
 
 // Latest value per metric name for the Metrics tab.
 const latestMetrics = computed(() => {
@@ -243,7 +240,7 @@ async function load() {
   await Promise.all([
     get(`/projects/${encodeURIComponent(id)}?expand=vms`)
       .then((d) => { project.value = d?.project || d || {}; vms.value = d?.vms || [] })
-      .catch(() => failed.push('application')),
+      .catch(() => failed.push('service')),
     get(`/projects/${encodeURIComponent(id)}/deployments?limit=200`)
       .then((d) => { deployments.value = Array.isArray(d) ? d : [] })
       .catch(() => failed.push('deployments')),

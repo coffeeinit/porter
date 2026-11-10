@@ -1,8 +1,10 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 
 	"porter/controlplane/internal/store"
 	"porter/protocol"
@@ -76,13 +78,46 @@ func (s *Server) restoreSnapshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, 404, "snapshot not found")
 		return
 	}
-	spec := map[string]string{"vm_id": snap.VMID, "state_path": snap.StatePath, "mem_path": snap.MemPath}
+	if !restorableSnapshot(snap) {
+		writeError(w, http.StatusConflict, "snapshot is not restorable: crash-consistent state, memory, root-disk, or attached-volume integrity metadata is incomplete")
+		return
+	}
+	spec := protocol.SnapshotRestoreSpec{SnapshotID: snap.ID, VMID: snap.VMID, StatePath: snap.StatePath, MemPath: snap.MemPath, SizeBytes: snap.SizeBytes, StateSHA256: snap.StateSHA256, MemSHA256: snap.MemSHA256, DiskFiles: snap.DiskFiles}
 	opID, err := s.Store.QueueVMCommand(r.Context(), snap.VMID, "snapshot.restore", "snapshot.restore", spec)
 	if err != nil {
 		writeError(w, 400, err.Error())
 		return
 	}
 	writeJSON(w, 202, map[string]string{"operation_id": opID, "status": "restore queued"})
+}
+
+func restorableSnapshot(snap store.SnapshotRecord) bool {
+	if snap.ID == "" || snap.VMID == "" || snap.SizeBytes <= 0 || snap.StatePath == "" || snap.MemPath == "" || !filepath.IsAbs(snap.StatePath) || !filepath.IsAbs(snap.MemPath) || filepath.Clean(snap.StatePath) == filepath.Clean(snap.MemPath) || !validSnapshotHex(snap.StateSHA256) || !validSnapshotHex(snap.MemSHA256) || len(snap.DiskFiles) == 0 || len(snap.DiskFiles) > 2 {
+		return false
+	}
+	seen := make(map[string]bool, len(snap.DiskFiles))
+	paths := map[string]bool{filepath.Clean(snap.StatePath): true, filepath.Clean(snap.MemPath): true}
+	var diskBytes int64
+	for _, file := range snap.DiskFiles {
+		if (file.Kind != "rootfs" && file.Kind != "volume") || seen[file.Kind] || file.SizeBytes <= 0 || !validSnapshotHex(file.SHA256) || !filepath.IsAbs(file.OriginalPath) || !filepath.IsAbs(file.BackupPath) {
+			return false
+		}
+		original, backup := filepath.Clean(file.OriginalPath), filepath.Clean(file.BackupPath)
+		if original == backup || paths[original] || paths[backup] {
+			return false
+		}
+		paths[original], paths[backup], seen[file.Kind] = true, true, true
+		diskBytes += file.SizeBytes
+	}
+	return seen["rootfs"] && snap.SizeBytes > diskBytes
+}
+
+func validSnapshotHex(value string) bool {
+	if len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 var _ = protocol.Version

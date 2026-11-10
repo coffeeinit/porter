@@ -3,7 +3,7 @@
     <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
         <h1>Backups &amp; Recovery</h1>
-        <p class="muted">Per-project backup schedules and the durable snapshot / backup catalog with checksums.</p>
+        <p class="muted">Crash-consistent local snapshot operations and backup metadata.</p>
       </div>
       <select v-model="projectId" style="width:auto" @change="load">
         <option v-for="p in projects" :key="p.id" :value="p.id">{{ p.name }}</option>
@@ -12,241 +12,236 @@
 
     <div v-if="error" class="error-bar">{{ error }}</div>
     <template v-else>
-      <!-- Schedules -->
-      <div class="card" style="padding:0;margin-top:16px;overflow-x:auto">
-        <div class="row" style="justify-content:space-between;padding:14px 16px;flex-wrap:wrap;gap:8px">
-          <div>
-            <h2 style="margin:0">Backup Schedules</h2>
-            <span class="muted" style="font-size:12px">Cron-driven recurring backups per workload (one per project + workload).</span>
-          </div>
-          <button @click="schedOpen = !schedOpen">{{ schedOpen ? 'Close' : '+ New Schedule' }}</button>
-        </div>
-
-        <form v-if="schedOpen" class="sched-form" @submit.prevent="createSchedule">
-          <label class="fld">Workload<input v-model="sched.workload" placeholder="postgres-primary" /></label>
-          <label class="fld">Cron (5 fields)<input v-model="sched.cron" placeholder="0 2 * * *" class="mono" /></label>
-          <label class="fld">Retention (copies)<input v-model.number="sched.retention" type="number" min="1" style="width:90px" /></label>
-          <button type="submit" :disabled="busy">{{ busy ? 'Saving…' : 'Save Schedule' }}</button>
-          <span v-if="schedMsg" :class="schedErr ? 'bad' : 'oktext'">{{ schedMsg }}</span>
-        </form>
-
-        <table v-if="schedules.length">
-          <thead>
-            <tr>
-              <th>Workload</th>
-              <th>Schedule</th>
-              <th>Retention</th>
-              <th>Last Run</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="s in schedules" :key="s.ID || s.id">
-              <td class="mono">{{ s.Workload || s.workload }}</td>
-              <td class="mono">{{ s.Cron || s.cron }}</td>
-              <td>{{ s.Retention || s.retention }} copies</td>
-              <td class="muted">{{ lastRun(s) }}</td>
-              <td><span class="pill" :class="enabled(s) ? 'ok' : 'info'">{{ enabled(s) ? 'Active' : 'Disabled' }}</span></td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="empty">No backup schedules for this project yet — the service templates add a daily default when provisioned.</div>
+      <div class="card notice">
+        <strong>Snapshots stay on the assigned agent host.</strong>
+        Capture and restore use crash-consistent snapshots only. Off-host backup, scheduling, and recovery after loss of that host are unavailable. A restore replaces the selected VM's current state.
       </div>
 
-      <!-- Backup catalog -->
-      <div class="card" style="padding:0;margin-top:14px;overflow-x:auto">
-        <div style="padding:14px 16px">
-          <h2 style="margin:0">Backup Catalog</h2>
-          <span class="muted" style="font-size:12px">Immutable recovery points with SHA-256 digests, newest first.</span>
+      <div class="card catalog">
+        <div class="section-head">
+          <div><h2>Backup records</h2><span class="muted">Metadata only · off-host copy unavailable</span></div>
+          <span class="pill info">{{ backups.length }} records</span>
         </div>
         <table v-if="backups.length">
-          <thead>
-            <tr>
-              <th>Backup ID</th>
-              <th>Object</th>
-              <th>Size</th>
-              <th>SHA-256</th>
-              <th>Trigger</th>
-              <th>Created</th>
-              <th>Integrity</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Record</th><th>Service / instance</th><th>State</th><th>Off-host</th><th>Artifact</th><th>Integrity</th><th>Created</th></tr></thead>
           <tbody>
-            <tr v-for="b in backups" :key="b.ID || b.id">
-              <td class="mono">{{ short(b.ID || b.id) }}</td>
-              <td class="mono muted">{{ b.ObjectPath || b.object_path }}</td>
-              <td>{{ bytes(b.SizeBytes || b.size_bytes) }}</td>
-              <td class="mono muted" :title="b.SHA256 || b.sha256">{{ (b.SHA256 || b.sha256 || '').slice(0, 12) }}…</td>
-              <td><span class="pill info">{{ b.Trigger || b.trigger || 'manual' }}</span></td>
-              <td class="muted">{{ ago(b.CreatedAt || b.created_at) }}</td>
-              <td>
-                <span class="pill" :class="(b.Verified ?? b.verified) ? 'ok' : 'warn'">
-                  {{ (b.Verified ?? b.verified) ? 'Verified' : 'Unverified' }}
-                </span>
-              </td>
+            <tr v-for="b in backups" :key="b.id">
+              <td><span class="mono">{{ short(b.id) }}</span><div class="muted">{{ b.consistency || 'crash_consistent' }}</div></td>
+              <td><div>{{ b.service_id || '—' }}</div><div class="mono muted">{{ b.instance_id || '—' }}</div></td>
+              <td><span class="pill info">{{ b.state || 'metadata_only' }}</span></td>
+              <td><span class="pill info">{{ b.off_host_status || 'unavailable' }}</span></td>
+              <td><div>{{ b.size_bytes == null ? 'No backup artifact' : bytes(b.size_bytes) }}</div><div class="mono muted">{{ b.artifact_sha256 || 'No artifact digest' }}</div></td>
+              <td><span class="pill info">{{ b.integrity_status || 'not_available' }}</span></td>
+              <td class="muted">{{ ago(b.created_at) }}</td>
             </tr>
           </tbody>
         </table>
-        <div v-else class="empty">No backups recorded for this project yet — schedules will populate the catalog on their first run.</div>
+        <div v-else class="empty">No backup metadata records for this project.</div>
       </div>
 
-      <!-- Snapshots (per replica) -->
-      <div class="card" style="padding:0;margin-top:14px;overflow-x:auto">
-        <div class="row" style="justify-content:space-between;padding:14px 16px;flex-wrap:wrap;gap:8px">
+      <div class="card catalog">
+        <div class="section-head">
+          <div><h2>Project snapshots</h2><span class="muted">Capture status, operation links, and verified integrity metadata</span></div>
+        </div>
+        <table v-if="projectSnapshots.length">
+          <thead><tr><th>Snapshot</th><th>Service / instance</th><th>Capture / restore</th><th>Artifact</th><th>Integrity</th><th>Created</th></tr></thead>
+          <tbody>
+            <tr v-for="s in projectSnapshots" :key="s.id">
+              <td class="mono">{{ short(s.id) }}</td>
+              <td><div>{{ s.service_id || '—' }}</div><div class="mono muted">{{ s.instance_id || '—' }}</div></td>
+              <td><span class="pill info">{{ s.capture_status || 'unavailable' }}</span><div class="muted">restore: {{ s.restore_status || 'not_requested' }}</div></td>
+              <td>{{ s.size_bytes == null ? 'Not captured' : bytes(s.size_bytes) }}<div class="mono muted">{{ s.artifact_sha256 || 'No artifact digest' }}</div></td>
+              <td><span class="pill info">{{ s.integrity_status || 'not_available' }}</span></td>
+              <td class="muted">{{ ago(s.created_at) }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-else class="empty">No snapshots for this project.</div>
+      </div>
+
+      <div class="card catalog">
+        <div class="section-head">
           <div>
-            <h2 style="margin:0">MicroVM Snapshots</h2>
-            <span class="muted" style="font-size:12px">Firecracker state + memory snapshots per replica.</span>
+            <h2>Instance snapshots</h2>
+            <span class="muted">Capture requires a running Instance. Restore requires a stopped or failed Instance and a verified snapshot on the same node.</span>
           </div>
-          <select v-model="replicaId" style="width:auto">
-            <option value="">Select replica…</option>
-            <option v-for="r in replicas" :key="r.id" :value="r.id">
-              {{ r.service_name || r.name || 'vm' }} · #{{ r.replica_index ?? '?' }}
-            </option>
+          <select v-model="instanceId" style="width:auto" @change="loadInstanceSnapshots">
+            <option value="">Select instance…</option>
+            <option v-for="i in instances" :key="i.id" :value="i.id">{{ i.service_id || 'Unknown service' }} · {{ i.id }} ({{ i.state }})</option>
           </select>
         </div>
-        <div v-if="snapErr" class="error-bar" style="margin:0 16px 12px">{{ snapErr }}</div>
-        <table v-if="snapshots.length">
-          <thead>
-            <tr>
-              <th>Snapshot ID</th>
-              <th>Type</th>
-              <th>State Object</th>
-              <th>Size</th>
-              <th>Created</th>
-              <th>Verified</th>
-            </tr>
-          </thead>
+
+        <div v-if="actionMessage" class="notice action-message">{{ actionMessage }}</div>
+        <div v-if="actionError" class="error-bar">{{ actionError }}</div>
+        <div v-if="snapErr" class="error-bar">{{ snapErr }}</div>
+        <div v-if="instanceId" class="action-row">
+          <div class="muted">Selected Instance state: {{ selectedInstance?.state || 'unknown' }} · node {{ selectedInstance?.node_id || 'unassigned' }}</div>
+          <button class="ghost" :disabled="busy || !canCapture" @click="captureSnapshot">
+            {{ busy === 'capture' ? 'Queueing capture…' : 'Capture crash-consistent snapshot' }}
+          </button>
+        </div>
+
+        <table v-if="instanceSnapshots.length">
+          <thead><tr><th>Snapshot</th><th>Capture / restore</th><th>Artifact</th><th>Integrity</th><th>Created</th><th>Action</th></tr></thead>
           <tbody>
-            <tr v-for="s in snapshots" :key="s.ID || s.id">
-              <td class="mono">{{ short(s.ID || s.id) }}</td>
-              <td><span class="pill info">{{ s.Type || s.type || 'full' }}</span></td>
-              <td class="mono muted">{{ s.StateObject || s.state_object || '—' }}</td>
-              <td>{{ bytes(s.SizeBytes || s.size_bytes) }}</td>
-              <td class="muted">{{ ago(s.CreatedAt || s.created_at) }}</td>
+            <tr v-for="s in instanceSnapshots" :key="s.id">
+              <td class="mono">{{ short(s.id) }}</td>
+              <td><span class="pill info">{{ s.capture_status || 'unavailable' }}</span><div class="muted">restore: {{ s.restore_status || 'not_requested' }}</div></td>
+              <td>{{ s.size_bytes == null ? 'Not captured' : bytes(s.size_bytes) }}<div class="mono muted">{{ s.artifact_sha256 || 'No artifact digest' }}</div></td>
+              <td><span class="pill info">{{ s.integrity_status || 'not_available' }}</span></td>
+              <td class="muted">{{ ago(s.created_at) }}</td>
               <td>
-                <span class="pill" :class="(s.Verified ?? s.verified) ? 'ok' : 'warn'">
-                  {{ (s.Verified ?? s.verified) ? 'Verified' : 'Pending' }}
-                </span>
+                <button class="ghost" :disabled="busy || !canRestore(s)" @click="restoreSnapshot(s)">
+                  {{ busy === `restore:${s.id}` ? 'Queueing restore…' : 'Restore' }}
+                </button>
+                <div v-if="!canRestore(s)" class="muted action-hint">Restore needs a stopped/failed Instance and a verified snapshot on its assigned node.</div>
               </td>
             </tr>
           </tbody>
         </table>
-        <div v-else-if="replicaId && !snapErr" class="empty">No snapshots for this replica yet — take one from the replica controls on the application page.</div>
-        <div v-else-if="!replicaId" class="empty">Pick a replica to inspect its snapshots.</div>
+        <div v-else-if="instanceId && !snapErr" class="empty">No snapshots recorded for this Instance.</div>
+        <div v-else-if="!instanceId" class="empty">Select an Instance to view snapshots and available actions.</div>
       </div>
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { get, post, ago } from '../lib/api.js'
+import { computed, onMounted, ref } from 'vue'
+import { ago, listAll, post } from '../lib/api.js'
 
 const projects = ref([])
 const projectId = ref('')
-const schedules = ref([])
 const backups = ref([])
-const replicas = ref([])
-const replicaId = ref('')
-const snapshots = ref([])
+const projectSnapshots = ref([])
+const instances = ref([])
+const instanceId = ref('')
+const instanceSnapshots = ref([])
 const error = ref('')
 const snapErr = ref('')
-const schedOpen = ref(false)
-const busy = ref(false)
-const sched = ref({ workload: '', cron: '0 2 * * *', retention: 3 })
-const schedMsg = ref('')
-const schedErr = ref(false)
+const actionMessage = ref('')
+const actionError = ref('')
+const busy = ref('')
 
-let poll = null
-const list = (d) => (Array.isArray(d) ? d : d?.schedules || d?.backups || d?.snapshots || d?.items || [])
-const short = (s) => (String(s).length > 18 ? `${String(s).slice(0, 15)}…` : s)
-const bytes = (n) => {
-  if (!n) return '—'
-  if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(1)} GB`
-  if (n >= 1024 ** 2) return `${(n / 1024 ** 2).toFixed(1)} MB`
-  return `${n} B`
+const selectedInstance = computed(() => instances.value.find((item) => item.id === instanceId.value) || null)
+const canCapture = computed(() => selectedInstance.value?.state === 'running' && !!selectedInstance.value?.node_id)
+
+const short = (value) => {
+  const text = String(value || '—')
+  return text.length > 24 ? `${text.slice(0, 20)}…` : text
 }
-const enabled = (s) => s.Enabled ?? s.enabled ?? true
-const lastRun = (s) => {
-  const t = s.LastRun || s.last_run
-  return t ? ago(t) : 'never'
+const bytes = (value) => {
+  if (value == null) return '—'
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(1)} MB`
+  return `${value} B`
 }
+const idempotencyKey = () => `ui-${globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`}`
+const canRestore = (snapshot) => ['stopped', 'failed'].includes(selectedInstance.value?.state) &&
+  !!selectedInstance.value?.node_id && snapshot.node_affinity_id === selectedInstance.value.node_id &&
+  snapshot.capture_status === 'captured' && snapshot.integrity_status === 'verified' && !!snapshot.artifact_sha256 && snapshot.size_bytes > 0 &&
+  !['queued', 'running'].includes(snapshot.restore_status)
 
 async function load() {
   if (!projectId.value) return
   error.value = ''
-  try {
-    const [s, b, r] = await Promise.all([
-      get(`/projects/${projectId.value}/backups/schedules`),
-      get(`/projects/${projectId.value}/backups`),
-      get(`/projects/${projectId.value}/replicas?limit=200`).catch(() => []),
-    ])
-    schedules.value = list(s)
-    backups.value = list(b)
-    replicas.value = Array.isArray(r) ? r : []
-    if (replicaId.value && !replicas.value.some((x) => x.id === replicaId.value)) {
-      replicaId.value = ''
-      snapshots.value = []
-    }
-    if (replicaId.value) await loadSnapshots()
-  } catch (e) {
-    error.value = e.message || 'failed to load backups'
-  }
-}
-
-async function loadSnapshots() {
   snapErr.value = ''
+  actionMessage.value = ''
+  actionError.value = ''
+  instanceSnapshots.value = []
   try {
-    const d = await get(`/vms/${replicaId.value}/snapshots`)
-    snapshots.value = list(d)
-  } catch (e) {
-    snapshots.value = []
-    snapErr.value = e.message || 'failed to load snapshots'
+    const pid = encodeURIComponent(projectId.value)
+    const [backupRows, snapshotRows, instanceRows] = await Promise.all([
+      listAll(`/projects/${pid}/backups`),
+      listAll(`/projects/${pid}/snapshots`),
+      listAll(`/projects/${pid}/instances`),
+    ])
+    backups.value = backupRows
+    projectSnapshots.value = snapshotRows
+    instances.value = instanceRows
+    if (instanceId.value && !instanceRows.some((item) => item.id === instanceId.value)) instanceId.value = ''
+    if (instanceId.value) await loadInstanceSnapshots()
+  } catch (err) {
+    error.value = err.message || 'Failed to load PostgreSQL backup metadata'
   }
 }
 
-async function createSchedule() {
-  schedMsg.value = ''
-  busy.value = true
+async function loadInstanceSnapshots() {
+  instanceSnapshots.value = []
+  snapErr.value = ''
+  actionMessage.value = ''
+  actionError.value = ''
+  if (!instanceId.value) return
   try {
-    await post(`/projects/${projectId.value}/backups/schedules`, {
-      workload: sched.value.workload.trim(),
-      cron: sched.value.cron.trim(),
-      retention: Math.max(1, sched.value.retention || 3),
+    instanceSnapshots.value = await listAll(`/instances/${encodeURIComponent(instanceId.value)}/snapshots`)
+  } catch (err) {
+    snapErr.value = err.message || 'Failed to load Instance snapshots'
+  }
+}
+
+async function captureSnapshot() {
+  if (!canCapture.value || busy.value) return
+  busy.value = 'capture'
+  actionMessage.value = ''
+  actionError.value = ''
+  try {
+    const result = await post(`/instances/${encodeURIComponent(instanceId.value)}/snapshots/capture`, {
+      consistency: 'crash_consistent',
+      idempotency_key: idempotencyKey(),
     })
-    schedMsg.value = 'Schedule saved.'
-    schedErr.value = false
-    sched.value = { workload: '', cron: '0 2 * * *', retention: 3 }
-    const s = await get(`/projects/${projectId.value}/backups/schedules`)
-    schedules.value = list(s)
-  } catch (e) {
-    schedMsg.value = e.message || 'failed to save schedule'
-    schedErr.value = true
-  } finally { busy.value = false }
+    await load()
+    actionMessage.value = `Snapshot capture queued as operation ${result.operation.id}. The artifact remains on node ${result.snapshot.node_affinity_id || 'assigned agent'}.`
+  } catch (err) {
+    actionError.value = err.message || 'Could not queue snapshot capture'
+  } finally {
+    busy.value = ''
+  }
+}
+
+async function restoreSnapshot(snapshot) {
+  if (!canRestore(snapshot) || busy.value) return
+  const confirmed = window.confirm(`Restore snapshot ${snapshot.id} to this stopped/failed Instance? Current VM state will be replaced. This local snapshot is not an off-host backup.`)
+  if (!confirmed) return
+  busy.value = `restore:${snapshot.id}`
+  actionMessage.value = ''
+  actionError.value = ''
+  try {
+    const result = await post(`/instances/${encodeURIComponent(instanceId.value)}/snapshots/${encodeURIComponent(snapshot.id)}/restore`, {
+      idempotency_key: idempotencyKey(),
+    })
+    await load()
+    actionMessage.value = `Snapshot restore queued as operation ${result.operation.id}. The agent will verify the artifact before restoring.`
+  } catch (err) {
+    actionError.value = err.message || 'Could not queue snapshot restore'
+  } finally {
+    busy.value = ''
+  }
 }
 
 onMounted(async () => {
   try {
-    const d = await get('/projects?limit=200')
-    projects.value = Array.isArray(d) ? d : []
+    projects.value = await listAll('/projects')
     if (projects.value.length) {
       projectId.value = projects.value[0].id
       await load()
     } else {
-      error.value = 'No projects yet — schedules and backups are scoped per project.'
+      error.value = 'No projects yet — snapshots and backup metadata are scoped per project.'
     }
-  } catch (e) { error.value = e.message || 'failed to load projects' }
-  poll = setInterval(() => { if (projectId.value) load() }, 15000)
+  } catch (err) {
+    error.value = err.message || 'Failed to load projects'
+  }
 })
-
-onUnmounted(() => { if (poll) clearInterval(poll) })
 </script>
 
 <style scoped>
-.sched-form { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; padding: 0 16px 14px }
-.fld { display: flex; flex-direction: column; font-size: 12px; color: var(--ink2); gap: 4px }
-.error-bar { padding: 10px 12px; border-radius: var(--r2); background: rgba(255, 69, 58, .09); color: #C22A22; font-size: 13px }
-.bad { color: #C22A22; font-size: 12px }
-.oktext { color: #1B873B; font-size: 12px }
-h2 { font-size: 15px }
+.notice { margin-top:16px;padding:14px 16px;font-size:13px;color:var(--ink2);line-height:1.55 }
+.notice strong { color:var(--ink) }
+.catalog { padding:0;margin-top:14px;overflow-x:auto }
+.section-head { display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 16px }
+.section-head h2 { margin:0 0 4px;font-size:15px }
+.section-head .muted { font-size:12px }
+.error-bar { margin:12px 16px;padding:10px 12px;border-radius:var(--r2);background:rgba(255,69,58,.09);color:#C22A22;font-size:13px }
+.action-message { margin:10px 16px }
+.action-row { display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:0 16px 14px }
+.action-hint { max-width:220px;font-size:11px;margin-top:4px }
 </style>

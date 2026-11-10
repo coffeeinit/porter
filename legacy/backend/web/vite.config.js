@@ -14,7 +14,10 @@ export default defineConfig({
     host: process.env.PORTER_WEB_HOST || '127.0.0.1',
     port,
     strictPort: true,
-    proxy: { '/api': { target, changeOrigin: true } },
+    proxy: {
+      '/api': { target, changeOrigin: true },
+      '/internal': { target, changeOrigin: true },
+    },
     // The repo lives on a Windows drive mounted in WSL (/mnt/d), where
     // inotify does not fire — poll for changes so HMR actually triggers.
     watch: { usePolling: true, interval: 400 },

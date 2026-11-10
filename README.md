@@ -1,4 +1,4 @@
-﻿# Porter
+# Porter
 
 Porter is a self-hosted, MicroVM-native application platform.
 
@@ -52,24 +52,13 @@ Porter is built around:
 
 See [`docs/CONTROLLER_MODEL.md`](docs/CONTROLLER_MODEL.md).
 
-## V1.0.0 scope
+## Product target (not a completion claim)
 
-- one-command agent install / first-node bootstrap
-- Porter as unprivileged host service (default) or optional MicroVM mode
-- agent-managed persistent Porter data
-- one-command fleet join
-- per-agent SQLite actual-state store
-- nodes, heartbeat, cordon/drain, agent upgrades
-- projects -> apps -> deployments -> previews -> replicas -> microVMs
-- Vercel-style preview URL per pull request
-- immutable deployments, promote/rollback
-- image catalog + OCI/rootfs deploy path
-- Git build path
-- scheduling, reconciliation, autoscaling, canary
-- logs, metrics, doctor
-- domains, gateway, TLS
-- persistent volumes + snapshots
-- embedded admin UI + CLI
+Projects/groups contain apps/workloads; each workload has immutable releases and one or more Firecracker microVM replicas, scheduled and reconciled across agent-managed hosts. Porter aims to provide healthy replica failover, autoscaling and wake-on-request, previews and release promotion/rollback, an inbuilt reverse proxy/load balancer, custom domains and DNS-provider/TLS lifecycle, and scoped MCP access. Inbuilt OpenTelemetry-style metrics, logs and traces must render in Porter’s own UI; Grafana is optional, not a prerequisite.
+
+Docker/OCI/Compose are build/import inputs only; the customer runtime is Firecracker. Porter does not provide hosted starter templates or managed databases. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) for verified slices and open release blockers. The root [`porternew_observability.html`](porternew_observability.html) is a mock UI concept, not a live feature list; the active UI is `porter/web/index.html`.
+
+Planned self-hosted deployment includes an operator UI/CLI, first-node bootstrap, joined agent nodes, SQLite-backed state, and host-installed control plane. Do not treat the plan as a claim that every listed capability is implemented or production-verified.
 
 **Deferred:** customers, billing, marketplace, AI operator, compliance audit,
 Kubernetes API compatibility, HA/multi-region control plane.
@@ -89,6 +78,10 @@ curl -fsSL https://porter.example.com/install-agent.sh | sh -s -- \
   --server https://porter.example.com \
   --token <join-token>
 ```
+
+Remote agent connections require HTTPS; the agent rejects plaintext HTTP except to loopback addresses for local development. Standard TLS certificate verification is enabled. Mutual TLS is not implemented yet, so don't expose the control-plane API without a trusted HTTPS endpoint and appropriate network controls.
+
+Image API/MCP builds and GitHub webhook builds are disabled by default because the current builder invokes host Docker/Git and is not isolated. `PORTER_ENABLE_UNISOLATED_BUILDS=true` is a temporary operator override for trusted sources only; do not use it as a security boundary for untrusted code.
 
 ## Repository layout
 
@@ -122,7 +115,7 @@ legacy/          # archived old implementation/prototypes/images
 2. Only `porter-agent` touches host resources.
 3. Porter can run as a host service or optional MicroVM.
 4. `porter.db` is persistent; `porter-agent.db` is local actual state.
-5. Agent connects outbound over mTLS WebSocket.
+5. Remote agent links require verified HTTPS; outbound mTLS WebSocket remains the target and is not implemented yet.
 6. WireGuard is optional; WSS is the control baseline.
 7. Every command is idempotent with an operation ID.
 8. Previews are deployment-scoped and ephemeral.

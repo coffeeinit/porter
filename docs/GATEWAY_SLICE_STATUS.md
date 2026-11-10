@@ -1,4 +1,4 @@
-﻿# Gateway Slice — Status
+# Gateway Slice — Status
 
 ## Completed
 
@@ -10,6 +10,7 @@
 - domain management and auto `<app>.<base-domain>`
 - automatic preview domain API (`pr-<n>-<app>.<base-domain>`)
 - optional TLS listener via `PORTER_TLS_CERT` / `PORTER_TLS_KEY`
+- optional HTTP-01 autocert listener with database-backed active-route authorization; enable with `PORTER_ACME_ENABLED=true` and optionally restrict with `PORTER_ACME_DOMAINS` (not publicly validated)
 - gateway stats and request-log APIs
 - MCP tools for domains, previews, gateway stats, and fleet detail
 - fleet node detail APIs: node, metrics, logs, VMs, cordon/drain
@@ -20,8 +21,8 @@
 
 ## Still required
 
-- real ACME/Let's Encrypt automation (TLS cert files are supported now)
-- wildcard certificate/DNS-01
+- public HTTP-01 ACME issuance/renewal acceptance; the local autocert path exists but is not publicly validated
+- DNS-01, wildcard certificates, and provider-managed DNS integration
 - health checks driven by guest HTTP/TCP probes
 - canary by deployment version (weights exist per replica)
 - WebSocket/gRPC gateway support

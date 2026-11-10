@@ -1,4 +1,4 @@
-﻿# Plan Audit — Old Plans vs Current Reality
+# Plan Audit — Old Plans vs Current Reality
 
 **Date:** 2026-10-18  
 **Scope:** planning/docs only. No code changes.
@@ -76,8 +76,12 @@ Host
 Do not say:
 
 - "Porter is complete."
-- "ACME is done." Only cert/key TLS listener exists.
-- "Full GitHub integration is done." Local git clone build exists; GitHub App/webhooks do not.
+- "ACME is complete." Static cert/key TLS and an HTTP-01 autocert path exist,
+  but public-domain acceptance is unverified; DNS-provider, DNS-01, and wildcard
+  support are not complete.
+- "Full GitHub integration is done." Signed push webhooks pin and deduplicate
+  commits, but their build path is default-off pending isolation; GitHub App auth
+  and private-registry workflows are not complete.
 - "Full Compose is supported." Primary service only.
 - "GUI is finished." Single page only.
 - "Backups/restore verified." Not yet.
@@ -90,7 +94,7 @@ Do not say:
 | Single-page UI becomes unmaintainable | UX debt | move to routed pages now |
 | Host Docker is build runtime | security/isolation | move builder into MicroVM |
 | Guest app startup unverified | no real traffic | guest-init + MMDS + health checks |
-| ACME absent | no public TLS | implement ACME next |
+| Public ACME path unverified; DNS-01/provider support absent | public TLS may fail or lack renewal proof | run opt-in HTTP-01 acceptance and add provider-backed DNS-01/wildcard tests |
 | Volume resize metadata-only | data risk | implement host file resize safely |
 | Restore untested | recovery risk | E2E snapshot restore test |
-| No CI/meaningful tests | regressions | add test gates |
+| No KVM/provider acceptance lane | hardware/provider behavior remains unverified | add KVM and opt-in provider release gates before beta readiness |

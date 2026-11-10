@@ -2,7 +2,10 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+
+	"porter/controlplane/internal/store"
 )
 
 func (s *Server) listDomains(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +50,14 @@ func (s *Server) createDomain(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) verifyDomain(w http.ResponseWriter, r *http.Request) {
 	if err := s.Store.VerifyDomain(r.Context(), r.PathValue("id")); err != nil {
+		if errors.Is(err, store.ErrDomainNotFound) {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		if errors.Is(err, store.ErrDomainProofMissing) {
+			writeError(w, http.StatusConflict, err.Error())
+			return
+		}
 		writeError(w, 500, err.Error())
 		return
 	}

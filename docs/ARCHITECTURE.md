@@ -1,4 +1,4 @@
-﻿# Porter V1 Architecture
+# Porter V1 Architecture
 
 ## 1. Design goals
 
@@ -12,6 +12,8 @@ Porter V1 must be easier to operate than the legacy backend:
 - The host agent stores local actual state and is safe to restart.
 - Every long-running action becomes a durable operation with observable state.
 - Porter owns global desired state; each agent owns host-local actual state.
+
+> **Status:** This is the intended V1 architecture, not a claim that every listed capability is complete. For the current agent transport—HTTPS polling with optional operator-managed mTLS and no WebSocket stream—see [`PROTOCOL.md`](PROTOCOL.md) and [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md).
 
 ## 2. Two deployable Go projects + shared protocol
 

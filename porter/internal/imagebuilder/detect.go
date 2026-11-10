@@ -198,14 +198,9 @@ func (b *Builder) BuildFromGit(ctx context.Context, repo, branch, subdir, name s
 		return Result{}, err
 	}
 	defer os.RemoveAll(dir)
-	clone := dir + "/src"
-	args := []string{"clone", "--depth", "1"}
-	if branch != "" {
-		args = append(args, "--branch", branch)
-	}
-	args = append(args, repo, clone)
-	if out, err := execCommand(ctx, "git", args...); err != nil {
-		return Result{}, fmt.Errorf("git clone: %w: %s", err, out)
+	clone := filepath.Join(dir, "src")
+	if err := checkoutGitSource(ctx, repo, branch, clone); err != nil {
+		return Result{}, err
 	}
 	ctxDir := clone
 	if subdir != "" {
@@ -223,6 +218,49 @@ func (b *Builder) BuildFromGit(ctx context.Context, repo, branch, subdir, name s
 		return Result{}, err
 	}
 	return b.BuildDockerfile(ctx, d.ContextDir, df, name, sizeMB)
+}
+
+func checkoutGitSource(ctx context.Context, repo, ref, clone string) error {
+	args := []string{"clone", "--depth", "1"}
+	commitRef := isGitCommitSHA(ref)
+	if commitRef {
+		args = append(args, "--no-checkout")
+	} else if ref != "" {
+		args = append(args, "--branch", ref)
+	}
+	args = append(args, repo, clone)
+	if out, err := execCommand(ctx, "git", args...); err != nil {
+		return fmt.Errorf("git clone: %w: %s", err, out)
+	}
+	if !commitRef {
+		return nil
+	}
+	if out, err := execCommand(ctx, "git", "-C", clone, "fetch", "--depth", "1", "origin", ref); err != nil {
+		return fmt.Errorf("git fetch commit %s: %w: %s", ref, err, out)
+	}
+	if out, err := execCommand(ctx, "git", "-C", clone, "checkout", "--detach", ref); err != nil {
+		return fmt.Errorf("git checkout commit %s: %w: %s", ref, err, out)
+	}
+	actual, err := execCommand(ctx, "git", "-C", clone, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("verify checked out commit: %w: %s", err, actual)
+	}
+	if !strings.EqualFold(strings.TrimSpace(actual), ref) {
+		return fmt.Errorf("checked out commit %s does not match requested commit %s", actual, ref)
+	}
+	return nil
+}
+
+func isGitCommitSHA(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, c := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", c) {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *Builder) BuildCompose(ctx context.Context, composePath, name string, sizeMB int) (Result, error) {

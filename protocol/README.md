@@ -1,4 +1,4 @@
-﻿# `protocol` — shared Porter/Fleet contract
+# `protocol` — shared Porter/Fleet contract
 
 Small shared Go module for wire types used by both `porter` and `porter-agent`.
 
@@ -19,12 +19,12 @@ No business logic belongs here.
 See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md).
 This module should stay tiny. It is the contract, not the implementation.
 
-Transport baseline:
+Transport status:
 
-- enrollment over HTTPS
-- control channel over outbound mTLS WebSocket
-- optional WireGuard overlay metadata
+- current binaries use JSON request/response over HTTPS; loopback HTTP is for development only
+- agents use bearer node tokens; optional operator-managed mTLS can protect the fleet routes
+- there is no WebSocket stream or automatic certificate issuance/rotation in the current implementation
+- the `Envelope` type is for shared/future protocol design and is not the current HTTP framing
 
-See [`../docs/CONNECTIVITY.md`](../docs/CONNECTIVITY.md).
-
+See [`../docs/PROTOCOL.md`](../docs/PROTOCOL.md) for the implemented routes and the future stream proposal. [`../docs/CONNECTIVITY.md`](../docs/CONNECTIVITY.md) describes the target network design.
 
