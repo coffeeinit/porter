@@ -2,11 +2,13 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"porter/protocol"
 )
@@ -39,35 +41,44 @@ func TestValidateControlPlaneURL(t *testing.T) {
 	}
 }
 
-func TestJoinRejectsRemotePlainHTTPBeforeConnecting(t *testing.T) {
-	_, err := Join(context.Background(), "http://control.example.com:8080", protocol.EnrollRequest{Token: "join-token"})
-	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
-		t.Fatalf("Join error = %v, want remote HTTP rejected with HTTPS guidance", err)
+func TestLegacyJoinIsDisabledWithoutSendingToken(t *testing.T) {
+	const secret = "legacy-join-secret"
+	_, err := Join(context.Background(), "http://control.example.com:8080", protocol.EnrollRequest{Token: secret})
+	if !errors.Is(err, ErrLegacyV1EnrollmentDisabled) {
+		t.Fatalf("Join error = %v, want legacy enrollment disabled", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatal("legacy join error included the enrollment secret")
 	}
 }
 
 func TestClientRejectsRemotePlainHTTPBeforeSendingNodeToken(t *testing.T) {
 	cl := New("http://control.example.com:8080", "node-1", "node-secret")
-	err := cl.Heartbeat(context.Background(), protocol.Heartbeat{NodeID: "node-1"})
+	err := cl.Heartbeat(context.Background(), protocol.AgentHeartbeatV2{ProtocolVersion: protocol.VersionV2, At: time.Now().UTC()})
 	if err == nil || !strings.Contains(err.Error(), "HTTPS") {
-		t.Fatalf("Heartbeat error = %v, want remote HTTP rejected with HTTPS guidance", err)
+		t.Fatalf("Heartbeat error = %v, want HTTPS rejection", err)
 	}
 }
 
 func TestResultReturnsTypedHTTPStatusError(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusConflict)
 	}))
 	defer server.Close()
-	cl := New(server.URL, "node-1", "node-token")
-	err := cl.Result(context.Background(), protocol.CommandResult{
-		CommandID: "cmd-1", OperationID: "op-1", NodeID: "node-1", Attempt: 1,
+	cl, err := NewWithTLS(server.URL, "node-1", "node-token", TLSOptions{ServerCAFile: testServerCA(t, server)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaseToken := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	err = cl.Result(context.Background(), protocol.CommandResultV2{
+		ProtocolVersion: protocol.VersionV2, CommandID: "cmd-1", OperationID: "op-1", NodeID: "node-1", Attempt: 1,
+		Kind: "vm.start", LeaseToken: leaseToken, Success: true, State: "running",
 	})
 	var statusErr *HTTPStatusError
 	if !errors.As(err, &statusErr) {
 		t.Fatalf("Result error = %v, want *HTTPStatusError", err)
 	}
-	if statusErr.HTTPStatusCode() != http.StatusConflict || statusErr.Path != "/v1/fleet/result" {
-		t.Fatalf("HTTP status error = %+v, want conflict on result endpoint", statusErr)
+	if statusErr.HTTPStatusCode() != http.StatusConflict || statusErr.Path != "/internal/agent/results" {
+		t.Fatalf("HTTP status error = %+v, want conflict on v2 results endpoint", statusErr)
 	}
 }

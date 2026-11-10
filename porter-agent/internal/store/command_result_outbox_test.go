@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/base64"
 	"path/filepath"
 	"testing"
 
@@ -20,15 +21,7 @@ func openOutboxTestStore(t *testing.T, path string) *Store {
 func TestCommandResultOutboxPersistsAcrossReopenAndAcknowledges(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "porter-agent.db")
 	st := openOutboxTestStore(t, path)
-	want := protocol.CommandResult{
-		CommandID:   "cmd-1",
-		OperationID: "op-1",
-		NodeID:      "node-1",
-		Attempt:     2,
-		Success:     false,
-		Error:       "temporary runtime failure",
-		State:       "failed",
-	}
+	want := validOutboxResult("cmd-1", "op-1", 2, false, "failed", "temporary runtime failure")
 	if err := st.QueueCommandResult(want); err != nil {
 		t.Fatalf("queue result: %v", err)
 	}
@@ -71,13 +64,14 @@ func TestCommandResultOutboxPersistsAcrossReopenAndAcknowledges(t *testing.T) {
 
 func TestCommandResultOutboxRejectsConflictingDuplicate(t *testing.T) {
 	st := openOutboxTestStore(t, filepath.Join(t.TempDir(), "porter-agent.db"))
-	first := protocol.CommandResult{CommandID: "cmd-2", OperationID: "op-2", NodeID: "node-1", Attempt: 1, Success: true, State: "running"}
+	first := validOutboxResult("cmd-2", "op-2", 1, true, "running", "")
 	if err := st.QueueCommandResult(first); err != nil {
 		t.Fatalf("queue first result: %v", err)
 	}
 	conflict := first
 	conflict.Success = false
 	conflict.Error = "different outcome"
+	conflict.State = "failed"
 	if err := st.QueueCommandResult(conflict); err == nil {
 		t.Fatal("conflicting result for the same attempt was accepted")
 	}
@@ -92,8 +86,8 @@ func TestCommandResultOutboxRejectsConflictingDuplicate(t *testing.T) {
 
 func TestCommandResultOutboxRequiresCompleteIdentity(t *testing.T) {
 	st := openOutboxTestStore(t, filepath.Join(t.TempDir(), "porter-agent.db"))
-	valid := protocol.CommandResult{CommandID: "cmd-3", OperationID: "op-3", NodeID: "node-1", Attempt: 1}
-	invalid := []protocol.CommandResult{
+	valid := validOutboxResult("cmd-3", "op-3", 1, true, "running", "")
+	invalid := []protocol.CommandResultV2{
 		{},
 		{OperationID: valid.OperationID, NodeID: valid.NodeID, Attempt: valid.Attempt},
 		{CommandID: valid.CommandID, NodeID: valid.NodeID, Attempt: valid.Attempt},
@@ -104,5 +98,14 @@ func TestCommandResultOutboxRequiresCompleteIdentity(t *testing.T) {
 		if err := st.QueueCommandResult(result); err == nil {
 			t.Errorf("invalid identity case %d was accepted", i)
 		}
+	}
+}
+
+func validOutboxResult(commandID, operationID string, attempt int, success bool, state, resultError string) protocol.CommandResultV2 {
+	return protocol.CommandResultV2{
+		ProtocolVersion: protocol.VersionV2,
+		CommandID:       commandID, OperationID: operationID, NodeID: "node-1", Attempt: attempt,
+		Kind: "vm.start", LeaseToken: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		Success: success, State: state, Error: resultError,
 	}
 }

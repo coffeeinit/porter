@@ -1189,6 +1189,47 @@ func netmask(cidr string) string {
 	return net.IP(n.Mask).String()
 }
 
+// RestoreSnapshotV2 resolves the path-free controller command to a verified
+// node-local record, then delegates to the existing confined restore path.
+func (e *Engine) RestoreSnapshotV2(ctx context.Context, vm store.VM, command protocol.SnapshotRestoreCommand) (store.VM, protocol.SnapshotArtifactReceipt, error) {
+	var empty protocol.SnapshotArtifactReceipt
+	if err := command.Validate(); err != nil {
+		return vm, empty, err
+	}
+	if command.VMID != vm.ID {
+		return vm, empty, fmt.Errorf("snapshot restore command VM does not match the local VM")
+	}
+	dir, err := e.vmDir(vm.ID, false)
+	if err != nil {
+		return vm, empty, fmt.Errorf("resolve VM snapshot directory: %w", err)
+	}
+	manifest, err := e.readManifest(vm.ID)
+	if err != nil {
+		return vm, empty, fmt.Errorf("read local VM runtime configuration: %w", err)
+	}
+	record, found, err := e.loadSnapshotRecord(dir, vm.ID, command.SnapshotID, manifest)
+	if err != nil {
+		return vm, empty, fmt.Errorf("verify local snapshot record: %w", err)
+	}
+	if !found {
+		return vm, empty, fmt.Errorf("requested snapshot is not present on this node")
+	}
+	receipt, err := protocol.SnapshotArtifactReceiptFor(record)
+	if err != nil {
+		return vm, empty, err
+	}
+	if receipt.Consistency != command.Consistency || receipt.ArtifactSHA256 != command.ArtifactSHA256 || receipt.SizeBytes != command.SizeBytes {
+		return vm, empty, fmt.Errorf("local snapshot artifact does not match the control-plane receipt")
+	}
+	spec := protocol.SnapshotRestoreSpec{
+		SnapshotID: record.ID, VMID: record.VMID, StatePath: record.StatePath, MemPath: record.MemPath,
+		SizeBytes: record.SizeBytes, StateSHA256: record.StateSHA256, MemSHA256: record.MemSHA256,
+		DiskFiles: append([]protocol.SnapshotFile(nil), record.DiskFiles...),
+	}
+	restored, err := e.RestoreSnapshot(ctx, vm, spec)
+	return restored, receipt, err
+}
+
 func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, spec protocol.SnapshotRestoreSpec) (store.VM, error) {
 	if !validVMID(vm.ID) || spec.VMID != vm.ID || !safeSnapshotID(spec.SnapshotID) {
 		return vm, fmt.Errorf("invalid VM or snapshot identity")

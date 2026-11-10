@@ -16,12 +16,15 @@ import (
 type Store struct{ db *sql.DB }
 
 type Config struct {
-	Server    string `json:"server"`
-	NodeID    string `json:"node_id"`
-	NodeToken string `json:"node_token"`
-	DataDir   string `json:"data_dir"`
-	Kernel    string `json:"kernel"`
-	Rootfs    string `json:"rootfs"`
+	Server         string `json:"server_url"`
+	NodeID         string `json:"node_id"`
+	CredentialPath string `json:"credential_path"`
+}
+
+type JoinAttempt struct {
+	Server    string
+	StartedAt time.Time
+	Outcome   string
 }
 
 type VM struct {
@@ -51,9 +54,16 @@ func Open(path string) (*Store, error) {
 	s := &Store{db: db}
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS config(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vms(id TEXT PRIMARY KEY, replica_id TEXT, state TEXT NOT NULL, pid INTEGER NOT NULL DEFAULT 0, socket TEXT NOT NULL DEFAULT '', tap_name TEXT NOT NULL DEFAULT '', guest_ip TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0, health TEXT NOT NULL DEFAULT 'checking', error TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP NOT NULL);
-CREATE TABLE IF NOT EXISTS command_result_outbox(command_id TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt > 0), result_json TEXT NOT NULL, created_at_ns INTEGER NOT NULL, PRIMARY KEY(command_id,attempt));`); err != nil {
-		db.Close()
+CREATE TABLE IF NOT EXISTS command_result_outbox(command_id TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt > 0), result_json TEXT NOT NULL, created_at_ns INTEGER NOT NULL, PRIMARY KEY(command_id,attempt));
+CREATE TABLE IF NOT EXISTS enrollment_attempt(id INTEGER PRIMARY KEY CHECK(id=1), server TEXT NOT NULL, started_at TIMESTAMP NOT NULL, outcome TEXT NOT NULL);`); err != nil {
+		_ = db.Close()
 		return nil, err
+	}
+	// This table is only the local node identity pointer. Remove every legacy
+	// or unsupported setting, including secrets and installer/runtime paths.
+	if _, err := db.Exec(`DELETE FROM config WHERE k NOT IN ('node_id','server_url','credential_path')`); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("remove unsupported identity config entries: %w", err)
 	}
 	return s, nil
 }
@@ -61,9 +71,22 @@ CREATE TABLE IF NOT EXISTS command_result_outbox(command_id TEXT NOT NULL, attem
 func (s *Store) Close() error { return s.db.Close() }
 
 func (s *Store) SaveConfig(c Config) error {
-	_, err := s.db.Exec(`INSERT INTO config(k,v) VALUES('server',?),('node_id',?),('node_token',?),('data_dir',?),('kernel',?),('rootfs',?)
-ON CONFLICT(k) DO UPDATE SET v=excluded.v`, c.Server, c.NodeID, c.NodeToken, c.DataDir, c.Kernel, c.Rootfs)
-	return err
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if c.Server == "" || c.NodeID == "" || c.CredentialPath == "" {
+		return fmt.Errorf("agent identity config is incomplete")
+	}
+	if _, err := tx.Exec(`INSERT INTO config(k,v) VALUES('server_url',?),('node_id',?),('credential_path',?)
+ON CONFLICT(k) DO UPDATE SET v=excluded.v`, c.Server, c.NodeID, c.CredentialPath); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM config WHERE k NOT IN ('node_id','server_url','credential_path')`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) LoadConfig() (Config, error) {
@@ -79,21 +102,41 @@ func (s *Store) LoadConfig() (Config, error) {
 			return c, err
 		}
 		switch k {
-		case "server":
+		case "server_url":
 			c.Server = v
 		case "node_id":
 			c.NodeID = v
-		case "node_token":
-			c.NodeToken = v
-		case "data_dir":
-			c.DataDir = v
-		case "kernel":
-			c.Kernel = v
-		case "rootfs":
-			c.Rootfs = v
+		case "credential_path":
+			c.CredentialPath = v
 		}
 	}
 	return c, rows.Err()
+}
+
+func (s *Store) SaveJoinAttempt(attempt JoinAttempt) error {
+	if attempt.Server == "" || attempt.StartedAt.IsZero() || attempt.Outcome == "" {
+		return fmt.Errorf("join attempt recovery metadata is incomplete")
+	}
+	_, err := s.db.Exec(`INSERT INTO enrollment_attempt(id,server,started_at,outcome) VALUES(1,?,?,?)
+ON CONFLICT(id) DO UPDATE SET server=excluded.server,started_at=excluded.started_at,outcome=excluded.outcome`,
+		attempt.Server, attempt.StartedAt.UTC(), attempt.Outcome)
+	return err
+}
+
+func (s *Store) UpdateJoinAttemptOutcome(outcome string) error {
+	if outcome == "" {
+		return fmt.Errorf("join attempt outcome is required")
+	}
+	result, err := s.db.Exec(`UPDATE enrollment_attempt SET outcome=? WHERE id=1`, outcome)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n != 1 {
+		return fmt.Errorf("join attempt recovery metadata is missing")
+	}
+	return nil
 }
 
 func (s *Store) UpsertVM(v VM) error {
@@ -134,9 +177,9 @@ func (s *Store) ListVMs() []VM {
 // QueueCommandResult durably stores a result before it is sent to the control plane.
 // Re-queueing the identical result is harmless; a different result for the same
 // command attempt is rejected rather than replacing the first outcome.
-func (s *Store) QueueCommandResult(result protocol.CommandResult) error {
-	if result.CommandID == "" || result.OperationID == "" || result.NodeID == "" || result.Attempt <= 0 {
-		return fmt.Errorf("command result identity is incomplete")
+func (s *Store) QueueCommandResult(result protocol.CommandResultV2) error {
+	if err := result.Validate(); err != nil {
+		return fmt.Errorf("invalid v2 command result: %w", err)
 	}
 	payload, err := json.Marshal(result)
 	if err != nil {
@@ -162,21 +205,24 @@ func (s *Store) QueueCommandResult(result protocol.CommandResult) error {
 }
 
 // PendingCommandResults returns queued results in durable insertion order.
-func (s *Store) PendingCommandResults() ([]protocol.CommandResult, error) {
+func (s *Store) PendingCommandResults() ([]protocol.CommandResultV2, error) {
 	rows, err := s.db.Query(`SELECT result_json FROM command_result_outbox ORDER BY created_at_ns,command_id,attempt`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := make([]protocol.CommandResult, 0)
+	out := make([]protocol.CommandResultV2, 0)
 	for rows.Next() {
 		var payload string
 		if err := rows.Scan(&payload); err != nil {
 			return nil, err
 		}
-		var result protocol.CommandResult
+		var result protocol.CommandResultV2
 		if err := json.Unmarshal([]byte(payload), &result); err != nil {
 			return nil, fmt.Errorf("decode pending command result: %w", err)
+		}
+		if err := result.Validate(); err != nil {
+			return nil, fmt.Errorf("pending command result is not a valid v2 lease receipt: %w", err)
 		}
 		out = append(out, result)
 	}

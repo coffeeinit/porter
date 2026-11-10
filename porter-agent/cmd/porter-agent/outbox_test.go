@@ -4,38 +4,37 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"porter/agent/internal/store"
 	"porter/protocol"
 )
 
 type fakeOutboxControlPlane struct {
-	commands     []protocol.Command
+	commands     []protocol.CommandV2
 	commandErr   error
 	resultErr    error
 	commandCalls int
-	results      []protocol.CommandResult
-	onResult     func(protocol.CommandResult)
+	results      []protocol.CommandResultV2
+	onResult     func(protocol.CommandResultV2)
 }
 
-func (f *fakeOutboxControlPlane) Commands(context.Context) ([]protocol.Command, error) {
+func (f *fakeOutboxControlPlane) Commands(context.Context) ([]protocol.CommandV2, error) {
 	f.commandCalls++
 	return f.commands, f.commandErr
 }
 
-func (f *fakeOutboxControlPlane) Result(_ context.Context, result protocol.CommandResult) error {
+func (f *fakeOutboxControlPlane) Result(_ context.Context, result protocol.CommandResultV2) error {
 	f.results = append(f.results, result)
 	if f.onResult != nil {
 		f.onResult(result)
 	}
 	return f.resultErr
-}
-
-func (f *fakeOutboxControlPlane) RecordSnapshot(context.Context, protocol.SnapshotRecord) error {
-	return nil
 }
 
 type fakeHTTPStatusError int
@@ -56,12 +55,12 @@ func openOutboxAgentStore(t *testing.T, path string) *store.Store {
 func TestPollCommandsRetriesDurableResultBeforeFetching(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "porter-agent.db")
 	st := openOutboxAgentStore(t, path)
-	want := protocol.CommandResult{CommandID: "cmd-1", OperationID: "op-1", NodeID: "node-1", Attempt: 1, Success: true, State: "running"}
+	want := outboxV2Result("cmd-1", "op-1", "node-1", 1, true, "running", "")
 	if err := st.QueueCommandResult(want); err != nil {
 		t.Fatalf("queue command result: %v", err)
 	}
 	fake := &fakeOutboxControlPlane{
-		commands:  []protocol.Command{{ID: "cmd-2", NodeID: "node-1", OperationID: "op-2", Attempt: 1}},
+		commands:  []protocol.CommandV2{outboxV2Command("cmd-2", "op-2", "node-1")},
 		resultErr: errors.New("connection lost after result POST"),
 	}
 	if _, err := pollCommands(context.Background(), fake, st); err == nil {
@@ -98,12 +97,12 @@ func TestPollCommandsRetriesDurableResultBeforeFetching(t *testing.T) {
 
 func TestPermanentResultRejectionRetainsOutboxAndStopsPolling(t *testing.T) {
 	st := openOutboxAgentStore(t, filepath.Join(t.TempDir(), "porter-agent.db"))
-	want := protocol.CommandResult{CommandID: "cmd-5", OperationID: "op-5", NodeID: "node-1", Attempt: 1, Success: false, Error: "rejected"}
+	want := outboxV2Result("cmd-5", "op-5", "node-1", 1, false, "failed", "rejected")
 	if err := st.QueueCommandResult(want); err != nil {
 		t.Fatalf("queue result: %v", err)
 	}
 	fake := &fakeOutboxControlPlane{
-		commands:  []protocol.Command{{ID: "cmd-next", NodeID: "node-1", OperationID: "op-next", Attempt: 1}},
+		commands:  []protocol.CommandV2{outboxV2Command("cmd-next", "op-next", "node-1")},
 		resultErr: fakeHTTPStatusError(400),
 	}
 	if _, err := pollCommands(context.Background(), fake, st); err == nil || !isPermanentCommandResultError(err) {
@@ -141,7 +140,7 @@ func TestResultHTTPStatusRetryClassification(t *testing.T) {
 func TestHandlePersistsResultBeforePosting(t *testing.T) {
 	st := openOutboxAgentStore(t, filepath.Join(t.TempDir(), "porter-agent.db"))
 	fake := &fakeOutboxControlPlane{resultErr: errors.New("server unavailable")}
-	fake.onResult = func(result protocol.CommandResult) {
+	fake.onResult = func(result protocol.CommandResultV2) {
 		pending, err := st.PendingCommandResults()
 		if err != nil {
 			t.Errorf("read outbox during POST: %v", err)
@@ -151,12 +150,12 @@ func TestHandlePersistsResultBeforePosting(t *testing.T) {
 			t.Errorf("result was posted before durable enqueue: pending=%+v posted=%+v", pending, result)
 		}
 	}
-	command := protocol.Command{ID: "cmd-3", OperationID: "op-3", NodeID: "node-1", Attempt: 1, Kind: "unsupported"}
+	command := outboxV2Command("cmd-3", "op-3", "node-1")
 	if err := handle(context.Background(), fake, nil, st, command); err != nil {
-		t.Fatalf("handle unsupported command: %v", err)
+		t.Fatalf("handle idempotent delete command: %v", err)
 	}
-	if len(fake.results) != 1 || fake.results[0].Success || fake.results[0].CommandID != command.ID {
-		t.Fatalf("posted results = %+v, want durable failure result for %s", fake.results, command.ID)
+	if len(fake.results) != 1 || !fake.results[0].Success || fake.results[0].CommandID != command.ID || fake.results[0].State != "deleted" {
+		t.Fatalf("posted results = %+v, want durable v2 result for %s", fake.results, command.ID)
 	}
 	pending, err := st.PendingCommandResults()
 	if err != nil || len(pending) != 1 || pending[0] != fake.results[0] {
@@ -170,11 +169,28 @@ func TestHandleDoesNotPostWhenOutboxPersistenceFails(t *testing.T) {
 		t.Fatalf("close agent store: %v", err)
 	}
 	fake := &fakeOutboxControlPlane{}
-	command := protocol.Command{ID: "cmd-4", OperationID: "op-4", NodeID: "node-1", Attempt: 1, Kind: "unsupported"}
+	command := outboxV2Command("cmd-4", "op-4", "node-1")
 	if err := handle(context.Background(), fake, nil, st, command); err == nil {
 		t.Fatal("handle succeeded after local outbox write failed")
 	}
 	if len(fake.results) != 0 {
 		t.Fatalf("posted %d results despite outbox persistence failure", len(fake.results))
+	}
+}
+
+func outboxV2Command(id, operationID, nodeID string) protocol.CommandV2 {
+	payload, _ := json.Marshal(protocol.VMApplySpec{VMID: "missing-vm"})
+	return protocol.CommandV2{
+		ProtocolVersion: protocol.VersionV2, ID: id, NodeID: nodeID, OperationID: operationID,
+		Attempt: 1, Kind: "vm.delete", LeaseToken: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		LeaseExpiresAt: time.Now().UTC().Add(time.Minute), Payload: payload, State: "leased", CreatedAt: time.Now().UTC(),
+	}
+}
+
+func outboxV2Result(commandID, operationID, nodeID string, attempt int, success bool, state, resultError string) protocol.CommandResultV2 {
+	return protocol.CommandResultV2{
+		ProtocolVersion: protocol.VersionV2, CommandID: commandID, OperationID: operationID, NodeID: nodeID,
+		Attempt: attempt, Kind: "vm.start", LeaseToken: base64.RawURLEncoding.EncodeToString(make([]byte, 32)),
+		Success: success, State: state, Error: resultError,
 	}
 }
