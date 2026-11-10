@@ -1,4 +1,4 @@
--- Porter PostgreSQL foundation, version 6. Hashed, rotation-safe node credentials for opt-in v2 agent transport.
+-- Porter PostgreSQL foundation, version 6. Hashed, rotation-safe node credentials for the PostgreSQL agent API.
 -- Applied explicitly by the migration runner; no startup migration is performed.
 
 CREATE TABLE porter_control_plane.agent_node_credentials (

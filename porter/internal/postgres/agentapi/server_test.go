@@ -291,6 +291,23 @@ func TestCredentialProvisioningRequiresAdminAndNoStore(t *testing.T) {
 	}
 }
 
+func TestCredentialProvisioningAcceptsOnlyEmptyJSONObject(t *testing.T) {
+	repo := &agentRepoStub{issue: pgstore.NodeCredentialIssue{NodeID: "node-a", Token: "one-time", Generation: 1}}
+	_, ts := newAgentTestServer(t, repo)
+	path := "/internal/admin/fleet/nodes/node-a/credentials"
+	headers := map[string]string{"Authorization": "Bearer operator-secret", "Content-Type": "application/json"}
+	resp := doAgentTLS(t, ts, http.MethodPost, path, `{"unexpected":true}`, headers)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest || repo.issueCalls != 0 {
+		t.Fatalf("credential provisioning with fields status=%d calls=%d", resp.StatusCode, repo.issueCalls)
+	}
+	resp = doAgentTLS(t, ts, http.MethodPost, path, `{}`, headers)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated || resp.Header.Get("Cache-Control") != "no-store" || repo.issueCalls != 1 {
+		t.Fatalf("empty-object credential provisioning status=%d cache=%q calls=%d", resp.StatusCode, resp.Header.Get("Cache-Control"), repo.issueCalls)
+	}
+}
+
 func TestAgentAPIStrictlyRejectsUnknownKindsAndBadIdentity(t *testing.T) {
 	repo := &agentRepoStub{authenticated: true, commands: []protocol.CommandV2{func() protocol.CommandV2 { c := validAgentV2Command(); c.Kind = "shell.exec"; return c }()}}
 	_, ts := newAgentTestServer(t, repo)
@@ -322,15 +339,14 @@ func TestAgentAPIReturnsStableRepositoryErrors(t *testing.T) {
 	}
 }
 
-
 func TestTelemetryEndpointAuthenticatesAndBindsBatchToNode(t *testing.T) {
 	repo := &agentRepoStub{authenticated: true}
 	_, ts := newAgentTestServer(t, repo)
 	batch := protocol.TelemetryBatchV2{
 		ProtocolVersion: protocol.VersionV2,
 		NodeID:          "node-a",
-		Logs: []protocol.TelemetryLogV2{{RecordID: "log-1", ReportedAt: agentTestNow(), Level: "info", Message: "agent started"}},
-		Metrics: []protocol.TelemetryMetricV2{{RecordID: "metric-1", ReportedAt: agentTestNow(), Name: "node.cpu.user_ticks", Value: 12, Unit: "ticks"}},
+		Logs:            []protocol.TelemetryLogV2{{RecordID: "log-1", ReportedAt: agentTestNow(), Level: "info", Message: "agent started"}},
+		Metrics:         []protocol.TelemetryMetricV2{{RecordID: "metric-1", ReportedAt: agentTestNow(), Name: "node.cpu.user_ticks", Value: 12, Unit: "ticks"}},
 	}
 	body, err := json.Marshal(batch)
 	if err != nil {

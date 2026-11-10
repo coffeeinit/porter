@@ -2,7 +2,7 @@
 
 ## Status
 
-This is the target contract for the Vue/PostgreSQL migration, not a claim of full API parity. The root server mounts PostgreSQL-backed `/api/v1` only when `PORTER_POSTGRES_API_DSN` is explicitly set and migrations 0001–0007 already exist. Without that setting, `/api/v1` returns `503 failed_precondition`; it never falls back to SQLite. Legacy `/v1` routes continue using SQLite during this phase. The Vue Overview, Projects, Services, Fleet, Domains, Storage, Backups, and Operations/Events pages use the implemented PostgreSQL flow; other routes remain unmigrated.
+The beta server is PostgreSQL-only. It reads `/etc/porter/porter-postgres-dsn` and `/etc/porter/porter-admin-token` only through systemd `LoadCredential` (systemd 247+); both source files must be root-owned mode `0600`. It has no DSN/admin-token environment or argv fallback and requires migrations through version 12 before startup. It never applies migrations or opens SQLite. All legacy `/v1` routes return explicit `410 Gone`. The panel root returns `503` until the embedded Vue bundle passes the PG-only/no-mock contract. This does not claim full API parity or KVM acceptance.
 
 The Go wire types are in [`porter/contract/v1`](../porter/contract/v1/types.go). The browser calls the Go API only; PostgreSQL credentials stay server-side.
 
@@ -29,22 +29,27 @@ For Git-backed Releases, `source.ref` is selection metadata only (for example, t
 
 ## Authentication and scope
 
-When the PostgreSQL adapter is enabled, every `/api/v1` route requires `Authorization: Bearer <control-plane-admin-token>`. When it is disabled, the prefix returns the documented 503 envelope. This first contract defines one operator/admin capability set; it does not add customer accounts, reseller accounts, organizations, or multi-tenant RBAC. Legacy agent enrollment and `/v1/fleet/*` SQLite routes remain unchanged.
+Every `/api/v1` route requires bearer authentication. Operator routes use the in-memory UI token in `Authorization: Bearer <control-plane-admin-token>`; `POST /api/v1/fleet/enroll` uses only its one-time enrollment token. `GET /api/v1/fleet/capabilities` is HTTPS-only, admin-authenticated, returns `200` with exactly three booleans and `Cache-Control: no-store`, or `401` for missing/invalid auth. The UI enables controls only when all flags are true. This contract does not add customer accounts, reseller accounts, organizations, or multi-tenant RBAC. PostgreSQL is the only control-plane source of truth.
 
-## Separate internal agent v2 transport
+## Fleet enrollment and internal agent v2 transport
 
-The following routes are internal agent plumbing, not `/api/v1` product routes. They mount only when `PORTER_AGENT_V2_ENABLED=true`, the API listener has `PORTER_API_TLS_CERT` and `PORTER_API_TLS_KEY`, `PORTER_POSTGRES_API_DSN` points to the control-plane database, and migration 0007 has already been applied explicitly. Startup never runs migrations. V2 always requires HTTPS, including loopback.
+Fleet provisioning is exposed through the frozen public aliases below; internal handler paths are implementation details, not UI or operator-script contracts. Join-token issuance, Fleet reads, and credential rotation use the operator bearer token. Enrollment uses the one-time join token. Issuance, enrollment, and credential rotation require HTTPS and return secrets only once with `Cache-Control: no-store`. Plaintext requests to those routes return `426 Upgrade Required`. All legacy `/v1` paths return `410 Gone` with a `req_…` request ID.
 
 | Method and path | Purpose | Authentication |
 | --- | --- | --- |
-| `POST /internal/admin/fleet/enrollment-tokens` | Issue a one-time token for an operator-selected same-host or remote-agent target; returns it once with `Cache-Control: no-store` | Operator Bearer token |
-| `POST /internal/agent/enroll` | Redeem a short-lived token and atomically create/bind a Fleet node plus its v2 credential | One-time enrollment Bearer token |
-| `POST /internal/admin/fleet/nodes/{node_id}/credentials` | Provision or rotate a per-node credential; returns the plaintext once with `Cache-Control: no-store` | Operator Bearer token |
+| `POST /api/v1/fleet/join-tokens` | Issue a ten-minute, single-use enrollment token for a selected topology and HTTPS control-plane origin | Operator Bearer token |
+| `POST /api/v1/fleet/enroll` | Redeem a one-time token and atomically create a Fleet node and its generation-1 credential | One-time enrollment Bearer token |
+| `GET /api/v1/fleet/nodes` | Read PostgreSQL-backed Fleet rows, including offline enrollment state | Operator Bearer token |
+| `GET /api/v1/fleet/capabilities` | Protected PG route probe; flags reflect mounted issue/enroll/rotation handlers | Operator Bearer token |
+| `POST /api/v1/fleet/nodes/{node_id}/credentials` | Provision or rotate a node credential, returned once; previous token grace is five minutes by default, maximum thirty | Operator Bearer token |
 | `POST /internal/agent/heartbeat` | Update last-seen time; an offline node may become ready | Node Bearer token and `X-Porter-Node-ID` |
 | `GET /internal/agent/commands?limit=1` | Requeue that node's expired leases and lease typed VM lifecycle commands | Node Bearer token and `X-Porter-Node-ID` |
+| `POST /internal/agent/telemetry` | Ingest bounded, node-bound logs and numeric metrics | Node Bearer token and `X-Porter-Node-ID` |
 | `POST /internal/agent/results` | Submit a node-, operation-, kind-, attempt-, and lease-fenced result | Node Bearer token and `X-Porter-Node-ID` |
 
-Only SHA-256 hashes of random enrollment and node tokens are stored in PostgreSQL. Enrollment tokens expire after ten minutes, are single-use, and bind the selected topology and HTTPS control-plane origin to the newly created node. The response includes the node token once; the opt-in agent `join --protocol-version v2` stores it in a local owner-only file and saves no secret in local SQLite config. V1 `join` remains the default and unchanged. Credential rotation can retain the previous node token for a bounded grace period (five minutes by default). The agent must explicitly select `run --protocol-version v2` and enable `--enable-v2-dispatch true` or `PORTER_AGENT_V2_DISPATCH=true`. The v2 client accepts only `vm.apply`, `vm.delete`, `vm.start`, `vm.stop`, and `vm.restart`; it has no shell-command executor. Dispatch also requires Linux, an accessible KVM API v12 device, and a Firecracker binary. Automated tests use a fake runtime; no real Firecracker/KVM acceptance is claimed. The Fleet UI never installs or starts agents or runs a remote command; the Firecracker API socket remains local to each agent host.
+Credential rotation has no request fields: it accepts no body or exactly `{}` with `Content-Type: application/json` for browser-client compatibility. Unknown fields and query parameters are rejected.
+
+The internal agent heartbeat/command/telemetry/result routes are agent transport only, not UI or operator provisioning routes. PostgreSQL stores only SHA-256 hashes of enrollment and node tokens. Enrollment atomically consumes the token, creates the node, and persists the node-token hash. Unknown, expired, and replayed tokens return the same generic `401`; clients must not automatically retry an ambiguous or lost enrollment `201`. Manual recovery is to find exactly one offline Fleet row by hostname and creation time, rotate the credential for that exact node ID, and confirm an authenticated heartbeat. The returned node credential must be kept in a protected local file and never logged or placed in command-line arguments. If `PORTER_AGENT_CLIENT_CA` is configured, post-enrollment routes additionally require a verified certificate with a node-bound `spiffe://porter/node/<node_id>` URI. The agent join client prompts through hidden `/dev/tty` input by default; optional `--token-stdin` reads one token line. No token argv/file flags are allowed. The embedded panel at `porter/web/index.html` stays unavailable with `503` until its Vue-owned bundle is verified as PostgreSQL-only and mock-free. Tests use a fake runtime; no real Firecracker/KVM acceptance is claimed.
 
 ## Routes
 
@@ -76,7 +81,10 @@ When enabled, the root server exposes Project/Service list, get, and create rout
 | `GET /api/v1/snapshots/{snapshot_id}/backup-records` | List backup metadata linked to a snapshot | `200 Page[BackupMetadata]` |
 | `POST /api/v1/snapshots/{snapshot_id}/backup-records` | Create crash-consistent backup metadata only; off-host copy remains unavailable | `201 BackupMetadata` |
 | `GET /api/v1/backups/{backup_id}` | Read a backup metadata record | `200 BackupMetadata` |
+| `POST /api/v1/fleet/join-tokens` | Issue a one-time join token (operator Bearer; HTTPS; `no-store`) | `201 AgentEnrollmentTokenIssue` |
+| `POST /api/v1/fleet/enroll` | Redeem a one-time token over HTTPS; creates an offline node and returns its credential once | `201 AgentEnrollmentResponseV2` |
 | `GET /api/v1/fleet/nodes` | List operator fleet nodes, including recorded `enrollment_target` (`same_host`, `remote_host`, or `unspecified`) | `200 Page[FleetNode]` |
+| `POST /api/v1/fleet/nodes/{node_id}/credentials` | Provision or rotate that node credential; returns the new secret once over HTTPS | `201 NodeCredentialIssue` |
 | `GET /api/v1/operations` | Read persisted operation and safe command status summaries, newest first | `200 Page[Operation]` |
 | `GET /api/v1/operations/{operation_id}` | Read one operation summary without command payload or lease token | `200 Operation` |
 | `POST /api/v1/operations/{operation_id}/retry` | Retry is disabled until agent protocol/auth and worker delivery are integrated | `412 failed_precondition` |
@@ -93,7 +101,7 @@ When enabled, the root server exposes Project/Service list, get, and create rout
 | `GET /api/v1/gateway-routes/{route_id}` | Read saved route intent | `200 GatewayRoute` |
 | `PATCH /api/v1/gateway-routes/{route_id}` | Set `{ "desired_enabled": true/false }`; enabling requires persisted TXT proof | `200 GatewayRoute`; `412` before proof |
 
-`POST /api/v1/services/{service_id}/releases` validates the request but currently returns `412 failed_precondition`; it does not insert a queued Release or start a build. It stays disabled until the isolated Firecracker builder, queue, and rollout worker are ready. Fleet nodes, operations, and events are read-only in `/api/v1` except that unsupported operation retry/cancel/dispatch paths return explicit `412 failed_precondition`. `/api/v1` does not expose operation creation, enrollment, heartbeat, agent polling, result submission, or event writes; the separate internal v2 transport is described above. New Fleet-node rows start `offline` with no `last_seen_at`; a persisted row is not proof that an agent is connected.
+`POST /api/v1/services/{service_id}/releases` validates the request but currently returns `412 failed_precondition`; it does not insert a queued Release or start a build. It stays disabled until the isolated Firecracker builder, queue, and rollout worker are ready. Fleet, operations, and event reads are PostgreSQL-backed; unsupported operation retry/cancel/dispatch paths return explicit `412 failed_precondition`. Fleet provisioning is available only through the public enrollment and credential routes above. Heartbeat, agent polling, result submission, and event writes remain on the separate internal agent transport. New Fleet-node rows start `offline` with no `last_seen_at`; a persisted row is not proof that an agent is connected.
 
 A successful resource creation response includes a `Location` header. Collection responses always use `{ "items": [...], "next_cursor": "..." }`; `next_cursor` is omitted on the last page. Lists accept `page_size` and an opaque, signed cursor scoped to its collection and parent resource. The default page size is 50, the maximum is 100, and pages use database keyset pagination: most resource collections use `(created_at ASC, id ASC)`, Releases use `(sequence DESC, id ASC)`, and events and operations use descending time/ID order. Cursors become invalid if the operator token changes. Invalid page sizes or cursors fail with `400 bad_request`.
 
@@ -155,7 +163,7 @@ Migration `0005_operations_command_leases.sql` persists operation, command-lease
 
 The command kind is a closed allowlist: `vm.apply`, `vm.delete`, `vm.start`, `vm.stop`, `vm.restart`, `snapshot.create`, `snapshot.restore`, and `volume.resize`. Store methods accept kind-specific Go payload types; unknown kinds, raw command strings, and arbitrary shell commands are rejected. A lease attempt gets a fresh random token, but only its SHA-256 hash is persisted. An expired lease returns to `queued` without changing the attempt; the next lease increments it. A result is accepted only for the current node, operation, attempt, matching command kind, unexpired token, and kind-specific result state. Identical duplicate results are idempotent; stale attempts/tokens and conflicting duplicates are rejected. Result receipts and matching operation/command events commit atomically and are append-only.
 
-Operation creation and retry/cancel/dispatch are not exposed as `/api/v1` product routes. Authenticated enrollment and agent poll/result routes exist separately under the internal v2 transport, but mount only behind its explicit HTTPS, PostgreSQL, migration, and opt-in gates above. The active `/v1/fleet/commands` and `/v1/fleet/result` endpoints still use the unchanged v1 messages; they do not accept or dispatch v2 commands. The UI exposes safe operation summaries and a manual v2 enrollment flow only; it never runs a remote install/start command. Tests use a fake runtime, so real Firecracker/KVM acceptance and remote production operation remain unverified. Storage capture/restore and other unsupported side effects remain unavailable.
+Operation creation and retry/cancel/dispatch are not exposed as `/api/v1` product routes. Public enrollment and credential routes are mounted in the PostgreSQL server; agent heartbeat, poll, and result routes remain on the internal v2 transport and require HTTPS. The PostgreSQL-only mux never routes `/v1/fleet/commands` or `/v1/fleet/result` to SQLite; legacy Fleet join/enroll/list paths return `410 Gone`. Tests use a fake runtime, so real Firecracker/KVM acceptance and remote production operation remain unverified. Storage capture/restore and other unsupported side effects remain unavailable.
 
 ## Lifecycle rules
 

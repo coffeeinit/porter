@@ -1,16 +1,22 @@
 VERSION ?= v1.0.0-dev
 BIN := bin
 
-.PHONY: all build test vet fmt clean porter agent
+.PHONY: all build test vet fmt clean porter agent porter-migrate
 
 all: build
 
-build: porter agent
+build: porter agent porter-migrate
 
 porter:
+	mkdir -p $(BIN)
 	cd porter && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter ./cmd/porter
 
+porter-migrate:
+	mkdir -p $(BIN)
+	cd porter && go build -trimpath -o ../$(BIN)/porter-migrate ./cmd/porter-migrate
+
 agent:
+	mkdir -p $(BIN)
 	cd porter-agent && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter-agent ./cmd/porter-agent
 	cd porter-agent && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter-guest-init ./cmd/porter-guest-init
 

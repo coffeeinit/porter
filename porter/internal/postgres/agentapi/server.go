@@ -1,6 +1,6 @@
-// Package agentapi implements the opt-in, TLS-only v2 Fleet agent transport.
-// It is mounted only when the control plane explicitly enables v2 and migration
-// 0008 is already applied.
+// Package agentapi implements the TLS-only v2 Fleet agent transport and
+// PostgreSQL-backed enrollment and credential handlers. The PostgreSQL-only
+// server mounts it after verifying the required migration schema.
 package agentapi
 
 import (
@@ -113,6 +113,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeError(w, http.StatusNotFound, v1.ErrorNotFound, "route not found")
 	}
+}
+
+// FleetCapabilitiesHandler returns an operator-authenticated probe for the
+// public mux's actual route registrations. The caller supplies flags computed
+// from handlers that were successfully mounted.
+func (s *Server) FleetCapabilitiesHandler(capabilities v1.FleetCapabilities) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.TLS == nil {
+			writeError(w, http.StatusUpgradeRequired, v1.ErrorFailedPrecondition, "fleet capability probe requires HTTPS")
+			return
+		}
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w, http.MethodGet)
+			return
+		}
+		if r.URL.RawQuery != "" {
+			writeError(w, http.StatusBadRequest, v1.ErrorBadRequest, "fleet capability probe does not accept query parameters")
+			return
+		}
+		if !s.authorizedAdmin(r.Header.Get("Authorization")) {
+			writeError(w, http.StatusUnauthorized, v1.ErrorUnauthenticated, "operator bearer token required")
+			return
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("Pragma", "no-cache")
+		writeJSON(w, http.StatusOK, capabilities)
+	})
 }
 
 func (s *Server) handleEnrollmentTokenIssue(w http.ResponseWriter, r *http.Request) {
@@ -324,9 +351,20 @@ func (s *Server) handleCredentialProvisioning(w http.ResponseWriter, r *http.Req
 		methodNotAllowed(w, http.MethodPost)
 		return
 	}
-	if r.URL.RawQuery != "" || r.ContentLength != 0 {
-		writeError(w, http.StatusBadRequest, v1.ErrorBadRequest, "credential provisioning accepts no query parameters or body")
+	if r.URL.RawQuery != "" {
+		writeError(w, http.StatusBadRequest, v1.ErrorBadRequest, "credential provisioning accepts no query parameters")
 		return
+	}
+	if r.ContentLength != 0 {
+		if !isJSONContentType(r.Header.Get("Content-Type")) {
+			writeError(w, http.StatusBadRequest, v1.ErrorBadRequest, "Content-Type must be application/json")
+			return
+		}
+		var emptyRequest struct{}
+		if err := decodeStrictJSON(w, r, &emptyRequest); err != nil {
+			writeError(w, http.StatusBadRequest, v1.ErrorBadRequest, "credential provisioning accepts no request fields")
+			return
+		}
 	}
 	const prefix = "/internal/admin/fleet/nodes/"
 	path := strings.TrimPrefix(r.URL.Path, prefix)

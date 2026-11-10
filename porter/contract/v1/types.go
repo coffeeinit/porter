@@ -249,6 +249,14 @@ type AgentEnrollmentTokenIssue struct {
 	ExpiresAt       time.Time             `json:"expires_at"`
 }
 
+// FleetCapabilities reports which PostgreSQL-backed provisioning operations
+// are mounted. The capability endpoint requires an operator Bearer.
+type FleetCapabilities struct {
+	JoinTokenIssuance      bool `json:"join_token_issuance"`
+	AgentEnrollment        bool `json:"agent_enrollment"`
+	NodeCredentialRotation bool `json:"node_credential_rotation"`
+}
+
 type DomainClaimState string
 
 const (

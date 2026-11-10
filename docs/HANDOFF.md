@@ -1,10 +1,12 @@
 # PORTER HANDOFF — 2026-11-05
 
+> **Historical note:** this 2026-11-05 handoff describes an earlier branch and pre-PostgreSQL code. Its branch/status, feature, and backlog snapshots—and its old `PORTER_DB`, environment-token, token-URL, `/v1`, and MCP examples—are historical, not current instructions. The stop-work note below applied only to that prior task. Current contracts are [`INSTALLATION_CONTRACT.md`](INSTALLATION_CONTRACT.md), [`API_V1_CONTRACT.md`](API_V1_CONTRACT.md), and [`AGENT_ENROLLMENT_API.md`](AGENT_ENROLLMENT_API.md). The shell installer still needs its owning track's update, and the embedded panel is withheld until the Vue bundle passes the PostgreSQL-only gate.
+
 **v1.0.0-beta status: blocked.** No real KVM recovery acceptance or full API-to-agent release E2E has passed on the current integration.
 
-## Current handoff — 2026-11-05, 20:15 IST
+## Archived handoff snapshot — 2026-11-05, 20:15 IST
 
-This section is the authoritative resume point. The owner said **stop all** work; implementation and tests are stopped. Do not resume coding, commit, push, or open a PR unless the owner asks again. This documentation update is the only work performed after that stop request.
+This section records the stop-work instruction and repository state for the 2026-11-05 task only. It is not the current resume point; follow the active task and the PostgreSQL-only contracts linked above.
 
 ### Branch and published state
 
@@ -36,7 +38,7 @@ The snapshot/restore work now validates that authenticated snapshot metadata bel
 
 Other uncommitted changes include agent result-outbox behavior and strengthened fail-closed image-build tests. Treat these as separate review units; do not publish them as a single undifferentiated patch.
 
-## 1. What this repository is now
+## 1. Historical architecture snapshot
 
 Porter is a host-installed Firecracker platform with two Go projects:
 
@@ -52,7 +54,7 @@ component that touches host KVM, Firecracker, TAP, NAT, volumes, or guest IPs.
 The old implementation, old docs, old prototypes, and old image catalog are in
 `legacy/` and must not be imported.
 
-## 2. Current implemented features
+## 2. Historical feature snapshot
 
 ### Control plane
 - SQLite store and migrations
@@ -129,39 +131,19 @@ bin/porter-guest-init
 
 ### Run Porter
 
-```bash
-PORTER_ADMIN_TOKEN=testadmin \
-PORTER_DB=/tmp/porter/porter.db \
-PORTER_ADDR=127.0.0.1:8080 \
-PORTER_GATEWAY_ADDR=:8081 \
-PORTER_BASE_DOMAIN=porter.local \
-./bin/porter server
-```
+The historical environment/SQLite startup command is retired. The current server requires the PostgreSQL DSN and operator Bearer through systemd `LoadCredential`, and an explicit migration run before service startup. Do not start it with `PORTER_DB`, `PORTER_ADMIN_TOKEN`, or `PORTER_POSTGRES_DSN` environment values. Follow [`INSTALLATION_CONTRACT.md`](INSTALLATION_CONTRACT.md); `scripts/install-porter.sh` is not yet acceptance-ready.
 
-Open:
-
-```text
-http://127.0.0.1:8080/?token=testadmin
-```
+The listener must use HTTPS for remote access. The embedded panel root intentionally returns `503` until the Vue-owned bundle passes the PostgreSQL-only/no-mock check; do not use the legacy dashboard as a fallback.
 
 ### Join a node
 
-```bash
-# create a join token through the UI/API first
-sudo ./bin/porter-agent join \
-  --server http://127.0.0.1:8080 \
-  --token <join-token> \
-  --name my-node \
-  --data-dir /var/lib/porter-agent \
-  --kernel /path/to/vmlinux \
-  --rootfs /path/to/rootfs.ext4
+The agent client track's intended contract is:
 
-sudo ./bin/porter-agent run \
-  --data-dir /var/lib/porter-agent \
-  --network on
+```bash
+sudo porter-agent join --server https://<control-plane>
 ```
 
-TAP/bridge/NAT requires root or `CAP_NET_ADMIN`.
+It prompts for the short-lived join token through hidden `/dev/tty` input, or may use the explicitly supported `--token-stdin` path. Never put a token in an argument, URL, environment variable, log, or shell history. Use the protected Fleet API contract and recovery flow in [`AGENT_ENROLLMENT_API.md`](AGENT_ENROLLMENT_API.md).
 
 ### WSL test assets
 
@@ -170,131 +152,44 @@ TAP/bridge/NAT requires root or `CAP_NET_ADMIN`.
 /mnt/d/github/porter/legacy/porter-images/bases/alpine/3.21/out/rootfs.ext4
 ```
 
-## 4. Code map
+## 4. Current implementation map
 
 ```text
-porter/cmd/porter/main.go              server startup, tick loop, gateway listener
-porter/internal/api/                  REST + MCP endpoints
-porter/internal/store/store.go        SQLite schema and all persistence
-porter/internal/gateway/gateway.go    host routing + weighted reverse proxy
-porter/internal/imagebuilder/         Dockerfile/OCI/Git/Compose -> rootfs
-porter/web/index.html                 embedded dashboard
-porter/migrations?                    none yet; schema lives in store.go
-
-porter-agent/cmd/porter-agent/        join/run agent
-porter-agent/cmd/porter-guest-init/   guest network + entrypoint starter
-porter-agent/internal/runtime/        Firecracker/TAP/NAT/snapshot
-porter-agent/internal/store/          local SQLite
-porter-agent/internal/client/         Porter API client
-
-protocol/types.go                     shared wire structs
+porter/cmd/porter/main.go                  PostgreSQL-only server startup and credential loading
+porter/cmd/porter-migrate/main.go          explicit PostgreSQL migration CLI
+porter/internal/systemdcred/               systemd LoadCredential readers; no env/argv fallback
+porter/internal/postgres/migrations/       explicit, versioned PostgreSQL migrations
+porter/internal/postgres/store/            PostgreSQL-backed Fleet and control-plane persistence
+porter/internal/postgres/httpapi/           PostgreSQL-backed public API
+porter/internal/postgres/agentapi/          enrollment, node auth, heartbeat, commands, telemetry, results
+porter/contract/v1/                         typed HTTP and enrollment contract
+porter/web/web.go                           guarded embedded root; legacy bundle is withheld
+porter/internal/store/                      legacy SQLite package; not imported by active PG server
+porter-agent/internal/store/                agent-local state, separate from server truth
 ```
 
-## 5. API map (current)
+## 5. PostgreSQL Fleet API map
 
 ```text
-GET  /healthz
-GET  /mcp
+GET  /api/v1/fleet/capabilities
+POST /api/v1/fleet/join-tokens
+POST /api/v1/fleet/enroll
+GET  /api/v1/fleet/nodes
+POST /api/v1/fleet/nodes/{node_id}/credentials
 
-POST /v1/fleet/join-tokens
-POST /v1/fleet/enroll
-POST /v1/fleet/heartbeat
-GET  /v1/fleet/commands
-POST /v1/fleet/result
-POST /v1/fleet/logs
-POST /v1/fleet/snapshot
-POST /v1/fleet/vmstate
-
-GET  /v1/nodes
-GET  /v1/fleet/nodes/{id}
-GET  /v1/fleet/nodes/{id}/metrics
-GET  /v1/fleet/nodes/{id}/logs
-GET  /v1/fleet/nodes/{id}/vms
-POST /v1/fleet/nodes/{id}/cordon
-POST /v1/fleet/nodes/{id}/uncordon
-POST /v1/fleet/nodes/{id}/drain
-
-GET/POST /v1/projects
-GET/POST /v1/projects/{id}/apps
-GET  /v1/apps
-POST /v1/apps/{id}/deployments
-POST /v1/apps/{id}/scale
-GET/PUT /v1/apps/{id}/autoscale
-POST /v1/apps/{id}/activity
-POST /v1/apps/{id}/wake
-POST /v1/apps/{id}/previews
-
-GET/POST /v1/projects/{id}/volumes
-POST /v1/volumes/{id}/attach
-POST /v1/volumes/{id}/resize
-
-GET/POST /v1/snapshots
-POST /v1/snapshots/{id}/restore
-GET  /v1/logs
-GET  /v1/metrics
-
-GET/POST /v1/domains
-GET/POST /v1/routes
-GET  /v1/gateway/stats
-GET  /v1/gateway/requests
-
-GET/POST /v1/images
-POST /v1/images/build
-POST /v1/images/detect
+POST /internal/agent/heartbeat
+GET  /internal/agent/commands
+POST /internal/agent/telemetry
+POST /internal/agent/results
 ```
+
+All agent transport routes require a node Bearer and matching `X-Porter-Node-ID` over HTTPS. Details, DTOs, error behavior, expiry, and replay handling are in [`API_V1_CONTRACT.md`](API_V1_CONTRACT.md) and [`AGENT_ENROLLMENT_API.md`](AGENT_ENROLLMENT_API.md). Legacy `/v1` routes return `410 Gone`; the panel root remains `503` until its Vue bundle passes the PG-only gate.
 
 ## 6. MCP
 
-Endpoint:
+The PostgreSQL-only beta server does not mount the historical `/mcp` endpoint. Old MCP examples and tool lists from this handoff are not current routes or acceptance evidence.
 
-```text
-POST /mcp
-Authorization: Bearer <admin-token>
-```
-
-Implemented tools include:
-
-```text
-porter_list_nodes
-porter_list_projects
-porter_create_project
-porter_create_app
-porter_deploy
-porter_scale_app
-porter_list_operations
-porter_list_volumes
-porter_create_volume
-porter_attach_volume
-porter_resize_volume
-porter_list_snapshots
-porter_create_snapshot
-porter_restore_snapshot
-porter_list_logs
-porter_list_metrics
-porter_get_autoscale
-porter_set_autoscale
-porter_touch_app
-porter_wake_app
-porter_list_domains
-porter_create_domain
-porter_gateway_stats
-porter_gateway_requests
-porter_create_preview
-porter_get_node
-porter_node_metrics
-porter_node_logs
-porter_node_vms
-porter_cordon_node
-porter_uncordon_node
-porter_drain_node
-porter_set_replica_weight
-porter_list_images
-porter_create_image
-porter_build_image
-porter_detect_framework
-```
-
-## 7. Current known limitations
+## 7. Historical limitation snapshot
 
 - UI is still one large page, not routed pages.
 - No live log streaming (only query).
@@ -322,7 +217,7 @@ porter_detect_framework
 - GitHub Actions runs portable tests, vet, race checks, the beta build, and UI
   JavaScript syntax validation; it does not cover KVM/provider acceptance.
 
-## 8. Next tasks in order
+## 8. Historical backlog snapshot
 
 1. Multi-page UI restructure
    - Projects list
