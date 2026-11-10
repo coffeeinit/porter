@@ -12,7 +12,7 @@
       <div class="card"><div class="muted">vCPU total / allocated</div><div style="font-size:22px;font-weight:700">{{ d.capacity?.vcpu_total ?? '—' }} / {{ d.capacity?.vcpu_allocated ?? '—' }}</div></div>
       <div class="card"><div class="muted">RAM total / allocated</div><div style="font-size:22px;font-weight:700">{{ fmtMiB(d.capacity?.mem_total_mib) }} / {{ fmtMiB(d.capacity?.mem_allocated_mib) }}</div></div>
       <div class="card"><div class="muted">Free (agent-reported)</div><div style="font-size:22px;font-weight:700">{{ d.heartbeat?.vcpu_free ?? '—' }} vCPU · {{ fmtMiB(d.heartbeat?.mem_free_mib) }}</div></div>
-      <div class="card"><div class="muted">VMs on node</div><div style="font-size:22px;font-weight:700">{{ d.vm_counts ? Object.values(d.vm_counts).reduce((a, b) => a + b, 0) : '—' }}</div></div>
+      <div class="card"><div class="muted">Instances on node</div><div style="font-size:22px;font-weight:700">{{ d.vm_counts ? Object.values(d.vm_counts).reduce((a, b) => a + b, 0) : '—' }}</div></div>
     </div>
 
     <div class="row" style="justify-content:space-between">
@@ -40,10 +40,10 @@
       </div>
     </div>
 
-    <h2>Placed VMs</h2>
+    <h2>Instances on this node</h2>
     <div class="card">
       <table v-if="d.vms?.length">
-        <thead><tr><th>VM</th><th>Project</th><th>State</th><th>Health</th><th>IP</th><th>vCPU/RAM</th></tr></thead>
+        <thead><tr><th>Instance</th><th>Project</th><th>State</th><th>Health</th><th>IP</th><th>vCPU/RAM</th></tr></thead>
         <tbody>
           <tr v-for="v in d.vms" :key="v.id">
             <td class="mono">{{ v.name }}</td>
@@ -55,7 +55,7 @@
           </tr>
         </tbody>
       </table>
-      <div v-else class="empty">No VMs placed on this node.</div>
+      <div v-else class="empty">No instances are placed on this node.</div>
     </div>
 
     <h2>Firewall <span class="muted" style="font-weight:400">(project rules for workloads placed here)</span></h2>

@@ -2,88 +2,71 @@
   <div>
     <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
       <div>
-        <h1>Tasks &amp; Operations</h1>
-        <p class="muted">Durable workflow tasks from the operations ledger — non-terminal work the reconciler is converging.</p>
+        <h1>Operations &amp; Events</h1>
+        <p class="muted">Persisted operation status and the durable event stream.</p>
       </div>
-      <button class="ghost" @click="load">Refresh</button>
+      <button class="ghost" :disabled="loading" @click="load">{{ loading ? 'Refreshing…' : 'Refresh' }}</button>
     </div>
 
-    <div v-if="error" class="error-bar">{{ error }}</div>
+    <div class="card notice">
+      This is a read-only record view. Agent enrollment, authentication, command polling, retry, cancel, and dispatch are unavailable. Lease tokens and command payloads are never shown here.
+    </div>
+    <div v-if="error" class="error-bar" role="alert">{{ error }}</div>
     <template v-else>
       <div class="grid kpis">
-        <div class="card kpi">
-          <span class="kpi-label">Active Operations</span>
-          <div class="kpi-value">{{ ops.length }}</div>
-          <span class="muted">queued · running · waiting · retrying</span>
-        </div>
-        <div class="card kpi">
-          <span class="kpi-label">Retrying</span>
-          <div class="kpi-value">{{ count('RETRYING') }}</div>
-          <span class="muted">backed off, will re-drive</span>
-        </div>
-        <div class="card kpi">
-          <span class="kpi-label">Running</span>
-          <div class="kpi-value">{{ count('RUNNING') }}</div>
-          <span class="muted">locked by a worker now</span>
-        </div>
-        <div class="card kpi">
-          <span class="kpi-label">Queued / Waiting</span>
-          <div class="kpi-value">{{ count('QUEUED') + count('WAITING') }}</div>
-          <span class="muted">pending scheduler pickup</span>
-        </div>
+        <div class="card kpi"><span class="kpi-label">Recent operations</span><div class="kpi-value">{{ operations.length }}</div><span class="muted">latest page · maximum 50</span></div>
+        <div class="card kpi"><span class="kpi-label">Queued</span><div class="kpi-value">{{ count('queued') }}</div><span class="muted">persisted, not dispatched</span></div>
+        <div class="card kpi"><span class="kpi-label">Running / leased</span><div class="kpi-value">{{ count('running') }}</div><span class="muted">stored operation state</span></div>
+        <div class="card kpi"><span class="kpi-label">Failed</span><div class="kpi-value">{{ count('failed') }}</div><span class="muted">terminal operation state</span></div>
       </div>
 
-      <div class="card" style="padding:0;margin-top:14px;overflow-x:auto">
-        <table v-if="ops.length">
-          <thead>
-            <tr>
-              <th>Task ID</th>
-              <th>Kind</th>
-              <th>Resource</th>
-              <th>Attempt</th>
-              <th>Status</th>
-              <th>Updated</th>
-              <th style="text-align:right">Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template v-for="o in ops" :key="o.ID || o.id">
-              <tr>
-                <td class="mono">{{ short(o.ID || o.id) }}</td>
-                <td><span class="pill info">{{ o.Kind || o.kind }}</span></td>
-                <td class="mono muted">
-                  {{ field(o, 'ResourceKind') || '?' }}<template v-if="field(o, 'ResourceID')"> · {{ short(field(o, 'ResourceID')) }}</template>
-                </td>
-                <td>{{ field(o, 'Attempt') ?? 0 }}</td>
-                <td>
-                  <span class="pill" :class="pillClass(state(o))">{{ state(o) }}</span>
-                </td>
-                <td class="muted">{{ ago(field(o, 'UpdatedAt')) }}</td>
-                <td style="text-align:right">
-                  <button class="ghost mini" @click="toggle(o.ID || o.id)">{{ open === (o.ID || o.id) ? 'Hide' : 'Inspect' }}</button>
-                </td>
-              </tr>
-              <tr v-if="open === (o.ID || o.id)" class="detail-row">
-                <td colspan="7">
-                  <div class="detail">
-                    <div><span class="k">Full task ID</span><span class="mono">{{ field(o, 'ID') }}</span></div>
-                    <div><span class="k">Idempotency key</span><span class="mono">{{ field(o, 'IdempotencyKey') || '—' }}</span></div>
-                    <div><span class="k">Resource</span><span class="mono">{{ field(o, 'ResourceKind') || '—' }} / {{ field(o, 'ResourceID') || '—' }}</span></div>
-                    <div><span class="k">Error</span><span :class="field(o, 'Error') ? 'err-txt' : 'muted'">{{ field(o, 'Error') || 'none recorded' }}</span></div>
-                    <div><span class="k">Updated</span><span>{{ field(o, 'UpdatedAt') || '—' }}</span></div>
-                  </div>
-                </td>
-              </tr>
-            </template>
-          </tbody>
-        </table>
-        <div v-else class="empty">
-          No active operations — the ledger only lists non-terminal tasks. Succeeded and failed tasks are pruned to the terminal states.
+      <section class="card section" aria-labelledby="operations-title">
+        <div class="section-head"><div><h2 id="operations-title">Recent operations</h2><p class="muted">Newest first. Command detail is limited to safe status metadata.</p></div></div>
+        <div v-if="operations.length" class="table-wrap">
+          <table>
+            <thead><tr><th>Operation</th><th>Kind</th><th>Instance</th><th>Attempt</th><th>Command</th><th>Status</th><th>Updated</th></tr></thead>
+            <tbody>
+              <template v-for="operation in operations" :key="operation.id">
+                <tr>
+                  <td class="mono">{{ short(operation.id) }}</td>
+                  <td><span class="pill info">{{ operation.kind }}</span></td>
+                  <td class="mono muted">{{ short(operation.instance_id) }}</td>
+                  <td>{{ operation.attempt }}</td>
+                  <td><span class="pill" :class="pillClass(operation.command_state)">{{ operation.command_state }}</span></td>
+                  <td><span class="pill" :class="pillClass(operation.state)">{{ operation.state }}</span></td>
+                  <td class="muted">{{ ago(operation.updated_at) }}</td>
+                  <td class="action"><button class="ghost mini" @click="toggle(operation.id)">{{ open === operation.id ? 'Hide' : 'Inspect' }}</button></td>
+                </tr>
+                <tr v-if="open === operation.id" class="detail-row">
+                  <td colspan="8">
+                    <div class="detail">
+                      <div><span class="k">Project / Service</span><span class="mono">{{ operation.project_id }} / {{ operation.service_id }}</span></div>
+                      <div><span class="k">Instance / Command</span><span class="mono">{{ operation.instance_id }} / {{ operation.command_id }}</span></div>
+                      <div><span class="k">Lease expiry</span><span>{{ formatTime(operation.lease_expires_at) }}</span></div>
+                      <div><span class="k">Error</span><span :class="operation.error ? 'err-txt' : 'muted'">{{ operation.error || 'none recorded' }}</span></div>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
         </div>
-      </div>
-      <p class="muted" style="font-size:12px;margin-top:8px">
-        Source: GET /operations · polled every 5s. Terminal (succeeded/failed) operations are not retained by this endpoint.
-      </p>
+        <div v-else class="empty">No operations have been recorded in PostgreSQL yet.</div>
+        <p class="muted source">Source: <code>GET /api/v1/operations?page_size=50</code> · refreshed every 5 seconds.</p>
+      </section>
+
+      <section class="card section" aria-labelledby="events-title">
+        <div class="section-head"><div><h2 id="events-title">Recent events</h2><p class="muted">Operation and command events are linked to their persisted resource IDs.</p></div></div>
+        <div v-if="events.length" class="event-list">
+          <div v-for="event in events" :key="event.id" class="event-row">
+            <span class="event-dot"></span>
+            <div class="event-body"><strong>{{ event.type }}</strong><small>{{ eventSummary(event) }}</small></div>
+            <time class="muted">{{ ago(event.occurred_at) }}</time>
+          </div>
+        </div>
+        <div v-else class="empty">No events have been recorded yet.</div>
+        <p class="muted source">Source: <code>GET /api/v1/events?page_size=50</code>.</p>
+      </section>
     </template>
   </div>
 </template>
@@ -92,28 +75,44 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import { get, ago, pillClass } from '../lib/api.js'
 
-const ops = ref([])
+const operations = ref([])
+const events = ref([])
 const error = ref('')
+const loading = ref(false)
 const open = ref('')
-
 let timer = null
 
-// The store's Operation struct has no json tags, so wire format uses Go
-// field names (ID, Kind, State, …). Field helper keeps that in one place.
-const field = (o, k) => o?.[k] ?? o?.[k.toLowerCase()] ?? ''
-const state = (o) => String(field(o, 'State') || 'unknown').toLowerCase()
-const short = (s) => (String(s).length > 18 ? `${String(s).slice(0, 15)}…` : s)
-const count = (st) => ops.value.filter((o) => String(field(o, 'State')).toUpperCase() === st).length
-
+const short = (value) => {
+  const text = String(value || '—')
+  return text.length > 22 ? `${text.slice(0, 19)}…` : text
+}
+const count = (state) => operations.value.filter((operation) => operation.state === state).length
+const formatTime = (value) => value ? new Date(value).toLocaleString() : '—'
 function toggle(id) { open.value = open.value === id ? '' : id }
+function eventSummary(event) {
+  const refs = [
+    event.operation_id && `operation ${short(event.operation_id)}`,
+    event.command_id && `command ${short(event.command_id)}`,
+    event.instance_id && `instance ${short(event.instance_id)}`,
+  ].filter(Boolean)
+  const detail = event.data?.attempt ? `attempt ${event.data.attempt}` : (event.data?.result_state || '')
+  return [refs.join(' · ') || 'Resource event', detail].filter(Boolean).join(' · ')
+}
 
 async function load() {
+  loading.value = true
   error.value = ''
   try {
-    const d = await get('/operations')
-    ops.value = d?.operations || []
+    const [operationPage, eventPage] = await Promise.all([
+      get('/operations?page_size=50'),
+      get('/events?page_size=50'),
+    ])
+    operations.value = Array.isArray(operationPage?.items) ? operationPage.items : []
+    events.value = Array.isArray(eventPage?.items) ? eventPage.items : []
   } catch (e) {
-    error.value = e.message || 'failed to load operations'
+    error.value = e.message || 'Failed to load PostgreSQL operations and events.'
+  } finally {
+    loading.value = false
   }
 }
 
@@ -125,14 +124,8 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
 </script>
 
 <style scoped>
-.kpis { grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); margin-top: 16px }
-.kpi { display: flex; flex-direction: column; gap: 4px }
-.kpi-label { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink3) }
-.kpi-value { font-size: 24px; font-weight: 600; letter-spacing: -.02em }
-button.ghost.mini { padding: 4px 10px; font-size: 12px }
-.detail-row td { background: var(--solid); border-bottom: 1px solid var(--soft) }
-.detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; padding: 6px 2px; font-size: 12.5px }
-.detail .k { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink3); margin-bottom: 2px }
-.err-txt { color: #C22A22 }
-.error-bar { margin-top: 12px; padding: 10px 12px; border-radius: var(--r2); background: rgba(255, 69, 58, .09); color: #C22A22; font-size: 13px }
+.notice{margin:14px 0;padding:12px 14px;font-size:12px;color:var(--ink2);border-color:rgba(230,159,0,.3);background:rgba(230,159,0,.06)}
+.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr));margin-top:14px}.kpi{display:flex;flex-direction:column;gap:4px}.kpi-label{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3)}.kpi-value{font-size:24px;font-weight:600;letter-spacing:-.02em}
+.section{margin-top:16px;padding:14px 16px}.section-head{margin-bottom:10px}.section-head h2{font-size:14px;margin:0 0 3px}.section-head p{font-size:11px;margin:0}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--soft);font-size:12px}th{color:var(--ink3);font-size:10px;text-transform:uppercase;letter-spacing:.05em}td.action{text-align:right}button.ghost.mini{padding:4px 10px;font-size:12px}.detail-row td{background:var(--solid)}.detail{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;padding:5px 2px;font-size:12px}.detail .k{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink3);margin-bottom:2px}
+.event-list{display:flex;flex-direction:column}.event-row{display:flex;align-items:center;gap:10px;padding:10px 2px;border-bottom:1px solid var(--soft)}.event-row:last-child{border:0}.event-dot{width:7px;height:7px;border-radius:50%;background:#77869a;flex:none}.event-body{min-width:0;flex:1}.event-body strong,.event-body small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.event-body strong{font-size:11px}.event-body small,.event-row time{font-size:10px;color:var(--ink3);margin-top:2px}.source{font-size:11px;margin:10px 2px 0}.empty{padding:20px;text-align:center;color:var(--ink3);font-size:12px}.mono{font-family:var(--mono,ui-monospace,monospace)}.err-txt{color:#C22A22}.error-bar{margin-top:12px;padding:10px 12px;border-radius:var(--r2);background:rgba(255,69,58,.09);color:#C22A22;font-size:13px}
 </style>

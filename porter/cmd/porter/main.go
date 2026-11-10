@@ -215,10 +215,15 @@ func main() {
 		log.Fatalf("configure OpenTelemetry tracing: %v", err)
 	}
 	baseDomain := env("PORTER_BASE_DOMAIN", "porter.local")
-	apiHandler := api.New(st, admin, baseDomain).Handler()
+	legacyAPIHandler := api.New(st, admin, baseDomain).Handler()
 	if requireAgentMTLS {
-		apiHandler = api.RequireAgentMTLS(apiHandler)
+		legacyAPIHandler = api.RequireAgentMTLS(legacyAPIHandler)
 	}
+	apiHandler, closePostgresAPI, err := configureAPIRoutes(legacyAPIHandler, admin, os.Getenv(postgresAPIDSNEnv))
+	if err != nil {
+		log.Fatalf("configure PostgreSQL v1 API: %v", err)
+	}
+	defer closePostgresAPI()
 	srv := &http.Server{Addr: addr, Handler: trackRequests.Wrap(telemetry.HTTPHandler(apiHandler, "porter.api")), TLSConfig: apiTLSConfig, ReadHeaderTimeout: 10 * time.Second, BaseContext: baseContext}
 	go func() {
 		var serveErr error
