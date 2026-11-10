@@ -16,7 +16,8 @@ Target: `coffeeinit/porter:work/porter-0.0.1-beta`
 - Implementing agent: Porter Agent (branch bootstrap).
 - Reviewer: not yet reviewed; documentation-only branch setup.
 - Owner approval: owner authorized this single branch to be created and pushed as an in-progress candidate; it is not beta-ready.
-- Checks: `git diff --check` and `git show --check` passed; the separate bootstrap worktree was clean. Remote creation/push verification is pending.
+- First published branch tip: `6b8fb7a4b02c46f21e1aeefd5bcd1fc9db745143`; GitHub reported the new ref and `git ls-remote` matched this exact SHA. Branch URL: `https://github.com/coffeeinit/porter/tree/work/porter-0.0.1-beta`.
+- Checks: `git diff --check` and `git show --check` passed; the separate bootstrap worktree was clean. The remote ref was absent before creation, and the first push was non-forced. This changelog update will advance the same branch normally.
 
 ## 2026-11-10 — BuildKit boundary candidate review (not integrated)
 
