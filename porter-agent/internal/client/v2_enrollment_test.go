@@ -125,69 +125,56 @@ func TestEnrollV2MarksTransportFailureUnknownAndDoesNotRetry(t *testing.T) {
 	}
 }
 
-func TestEnrollV2Classifies404AsKnownNotConsumedWithoutRetry(t *testing.T) {
-	calls := 0
-	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		calls++
-		if request.Method != http.MethodPost || request.URL.Path != "/api/v1/fleet/enroll" {
-			t.Errorf("request = %s %s, want POST /api/v1/fleet/enroll", request.Method, request.URL.String())
-		}
-		return &http.Response{StatusCode: http.StatusNotFound, Status: "404 Not Found", Header: make(http.Header), Body: io.NopCloser(strings.NewReader("not found")), Request: request}, nil
-	})}
-	_, err := enrollV2WithClient(context.Background(), "https://control.example", testJoinToken(), protocol.AgentEnrollmentRequestV2{
-		ProtocolVersion: protocol.VersionV2, Hostname: "agent-01",
-	}, httpClient)
-	var notConsumed *EnrollmentOutcomeNotConsumedError
-	if !errors.As(err, &notConsumed) {
-		t.Fatalf("404 enrollment error = %v, want known-not-consumed", err)
-	}
-	var statusErr *HTTPStatusError
-	if !errors.As(err, &statusErr) || statusErr.Code != http.StatusNotFound {
-		t.Fatalf("404 error chain = %v, want HTTP 404 status", err)
-	}
-	if calls != 1 {
-		t.Fatalf("client sent %d requests, want no automatic retry", calls)
-	}
-}
-
-func TestEnrollV2RequiresHandlerGuaranteeFor503RetryClassification(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		status   int
-		marker   []string
-		wantSafe bool
-	}{
-		{name: "marked pre-consumption 503", status: http.StatusServiceUnavailable, marker: []string{"not-consumed"}, wantSafe: true},
-		{name: "bare 503", status: http.StatusServiceUnavailable},
-		{name: "wrong marker", status: http.StatusServiceUnavailable, marker: []string{"unknown"}},
-		{name: "duplicate marker", status: http.StatusServiceUnavailable, marker: []string{"not-consumed", "not-consumed"}},
-		{name: "401 may indicate consumed or replayed token", status: http.StatusUnauthorized},
+func TestEnrollV2ClassifiesEveryNon201ResponseAsUnknownWithoutRetry(t *testing.T) {
+	for _, status := range []int{
+		http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden,
+		http.StatusNotFound, http.StatusConflict, http.StatusGone,
+		http.StatusTooManyRequests, http.StatusInternalServerError,
+		http.StatusBadGateway, http.StatusServiceUnavailable,
 	} {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(http.StatusText(status), func(t *testing.T) {
 			calls := 0
 			httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 				calls++
-				header := make(http.Header)
-				for _, value := range tc.marker {
-					header.Add(EnrollmentNotConsumedHeader, value)
-				}
-				return &http.Response{StatusCode: tc.status, Status: http.StatusText(tc.status), Header: header, Body: io.NopCloser(strings.NewReader("unavailable")), Request: request}, nil
+				return &http.Response{StatusCode: status, Status: http.StatusText(status), Header: make(http.Header), Body: io.NopCloser(strings.NewReader("error")), Request: request}, nil
 			})}
 			_, err := enrollV2WithClient(context.Background(), "https://control.example", testJoinToken(), protocol.AgentEnrollmentRequestV2{
 				ProtocolVersion: protocol.VersionV2, Hostname: "agent-01",
 			}, httpClient)
-			var safe *EnrollmentOutcomeNotConsumedError
 			var unknown *EnrollmentOutcomeUnknownError
-			if tc.wantSafe && !errors.As(err, &safe) {
-				t.Fatalf("enrollment error = %v, want known-not-consumed", err)
+			if !errors.As(err, &unknown) {
+				t.Fatalf("HTTP %d enrollment error = %v, want unknown outcome", status, err)
 			}
-			if !tc.wantSafe && !errors.As(err, &unknown) {
-				t.Fatalf("enrollment error = %v, want unknown outcome", err)
+			var statusErr *HTTPStatusError
+			if !errors.As(err, &statusErr) || statusErr.Code != status {
+				t.Fatalf("HTTP %d error chain = %v, want matching status", status, err)
 			}
 			if calls != 1 {
-				t.Fatalf("client sent %d requests, want exactly one", calls)
+				t.Fatalf("client sent %d requests for HTTP %d, want exactly one", calls, status)
 			}
 		})
+	}
+}
+
+func TestEnrollV2ClassifiesLocalValidationAsRejectedBeforeRequest(t *testing.T) {
+	calls := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		calls++
+	}))
+	defer server.Close()
+	_, err := EnrollV2(context.Background(), server.URL, "invalid-local-token", protocol.AgentEnrollmentRequestV2{
+		ProtocolVersion: protocol.VersionV2, Hostname: "agent-01",
+	}, TLSOptions{})
+	var rejected *EnrollmentOutcomeRejectedError
+	if !errors.As(err, &rejected) {
+		t.Fatalf("local validation error = %v, want rejected before transmission", err)
+	}
+	var unknown *EnrollmentOutcomeUnknownError
+	if errors.As(err, &unknown) {
+		t.Fatalf("local validation error = %v, must not be marked outcome_unknown", err)
+	}
+	if calls != 0 {
+		t.Fatalf("local validation sent %d requests, want none", calls)
 	}
 }
 

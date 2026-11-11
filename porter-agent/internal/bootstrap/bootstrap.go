@@ -114,18 +114,14 @@ func Prepare(options Options) (*Prepared, error) {
 		_ = st.Close()
 		return nil, fmt.Errorf("agent already has node identity %q; refusing duplicate enrollment", cfg.NodeID)
 	}
-	priorServer, priorOutcome, hasAttempt, err := st.JoinAttemptOutcome()
+	_, priorOutcome, hasAttempt, err := st.JoinAttemptOutcome()
 	if err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("check prior enrollment attempt: %w", err)
 	}
-	if hasAttempt && priorOutcome != "retryable_not_consumed" {
+	if hasAttempt && priorOutcome != "rejected" {
 		_ = st.Close()
-		return nil, fmt.Errorf("a prior enrollment attempt may have reached the handler; do not replay its token. An operator must identify the exact Fleet node by the previous hostname and enrollment time, verify its exact node ID, and rotate credentials through admin Fleet; stop if the match is missing or ambiguous")
-	}
-	if hasAttempt && priorServer != options.Server {
-		_ = st.Close()
-		return nil, fmt.Errorf("the previous attempt was confirmed not consumed; retry only by manually invoking join against the same control-plane URL")
+		return nil, fmt.Errorf("a prior enrollment attempt has outcome %q and may have reached the handler; do not replay its token. Use the exact hostname and enrollment time printed by the original join attempt to find the Fleet row, verify the exact node ID, then rotate credentials through admin Fleet; stop if the match is missing or ambiguous", priorOutcome)
 	}
 	serviceConfig := localstate.ServiceConfig{
 		State:          "pending",
@@ -177,19 +173,18 @@ func (p *Prepared) Close() error {
 	return closeErr
 }
 
-// Enroll sends at most one request for this invocation. Possibly-consumed
-// outcomes stay fenced; only a known-not-consumed result permits a later manual
-// join invocation to retry with the same token.
+// Enroll sends at most one request for this invocation. Every post-send failure
+// remains fenced; only a local pre-send rejection can be corrected and retried.
 func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.AgentEnrollmentResponseV2, error) {
 	var empty protocol.AgentEnrollmentResponseV2
 	if p == nil || p.store == nil {
 		return empty, fmt.Errorf("agent join is not prepared")
 	}
-		if p.submitted {
-			return empty, fmt.Errorf("this join invocation has already submitted its one request; a retry requires a later user-invoked join and an explicitly confirmed not-consumed result")
+	if p.submitted {
+		return empty, fmt.Errorf("this join invocation has already submitted its one enrollment request; do not retry a sent token")
 	}
 	if err := client.ValidateJoinToken(joinToken); err != nil {
-		return empty, err
+		return empty, client.NewEnrollmentOutcomeRejectedError(err)
 	}
 	started := time.Now().UTC()
 	p.serviceConfig.State = "recovery_required"
@@ -208,14 +203,15 @@ func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.Agent
 	request := protocol.AgentEnrollmentRequestV2{ProtocolVersion: protocol.VersionV2, Hostname: p.options.Hostname}
 	response, err := client.EnrollV2(ctx, p.options.Server, joinToken, request, p.options.TLS)
 	if err != nil {
-		var notConsumed *client.EnrollmentOutcomeNotConsumedError
-		if errors.As(err, &notConsumed) {
+		var rejected *client.EnrollmentOutcomeRejectedError
+		if errors.As(err, &rejected) {
 			if removeErr := os.Remove(p.configPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				return empty, p.markOutcomeUnknown(started, fmt.Errorf("server confirmed non-consumption but local recovery state could not be cleared: %w", removeErr))
+				return empty, fmt.Errorf("enrollment was rejected before transmission, but local pending state could not be cleared: %w", removeErr)
 			}
-			if updateErr := p.store.UpdateJoinAttemptOutcome("retryable_not_consumed"); updateErr != nil {
-				return empty, p.markOutcomeUnknown(started, fmt.Errorf("server confirmed non-consumption but retry state could not be persisted: %w", updateErr))
+			if updateErr := p.store.UpdateJoinAttemptOutcome("rejected"); updateErr != nil {
+				return empty, fmt.Errorf("enrollment was rejected before transmission, but the rejected outcome could not be persisted: %w", updateErr)
 			}
+			p.submitted = false
 			return empty, err
 		}
 		var unknown *client.EnrollmentOutcomeUnknownError
@@ -250,8 +246,10 @@ func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.Agent
 }
 
 func (p *Prepared) markOutcomeUnknown(started time.Time, cause error) error {
-	_ = p.store.UpdateJoinAttemptOutcome("outcome_unknown")
 	unknown := client.NewEnrollmentOutcomeUnknownError(cause)
+	if err := p.store.UpdateJoinAttemptOutcome("outcome_unknown"); err != nil {
+		return fmt.Errorf("join attempt for hostname %q started at %s: %w; failed to persist outcome_unknown (%v); recovery-required service config remains to block replay", p.options.Hostname, started.Format(time.RFC3339), unknown, err)
+	}
 	return fmt.Errorf("join attempt for hostname %q started at %s: %w", p.options.Hostname, started.Format(time.RFC3339), unknown)
 }
 

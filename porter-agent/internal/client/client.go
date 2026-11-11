@@ -43,24 +43,26 @@ func (e *EnrollmentOutcomeUnknownError) Error() string {
 }
 func (e *EnrollmentOutcomeUnknownError) Unwrap() error { return e.cause }
 
-// EnrollmentOutcomeNotConsumedError is returned only for an explicit 404 or a
-// 503 whose handler response guarantees the one-time token was not consumed.
-// The client never retries; a later user-invoked join may use the same token.
-type EnrollmentOutcomeNotConsumedError struct{ cause error }
+// EnrollmentOutcomeRejectedError means local validation rejected the request
+// before it was sent, so the control plane could not have consumed the token.
+type EnrollmentOutcomeRejectedError struct{ cause error }
 
-func (e *EnrollmentOutcomeNotConsumedError) Error() string {
-	return "enrollment handler confirmed the join token was not consumed; no automatic retry was made. A later user-invoked join may retry with the same token"
+func (e *EnrollmentOutcomeRejectedError) Error() string {
+	if e.cause == nil {
+		return "enrollment request was rejected before transmission; no server-side token consumption occurred"
+	}
+	return fmt.Sprintf("enrollment request was rejected before transmission; no server-side token consumption occurred: %v", e.cause)
 }
-func (e *EnrollmentOutcomeNotConsumedError) Unwrap() error { return e.cause }
-
-// EnrollmentNotConsumedHeader is the explicit 503 safety signal. A handler may
-// set it only when it can guarantee that this request did not consume the token.
-const EnrollmentNotConsumedHeader = "X-Porter-Enrollment-Outcome"
-
-const enrollmentNotConsumedValue = "not-consumed"
+func (e *EnrollmentOutcomeRejectedError) Unwrap() error { return e.cause }
 
 func NewEnrollmentOutcomeUnknownError(cause error) *EnrollmentOutcomeUnknownError {
 	return &EnrollmentOutcomeUnknownError{cause: cause}
+}
+
+// NewEnrollmentOutcomeRejectedError marks a failure proven to occur before the
+// enrollment request was transmitted.
+func NewEnrollmentOutcomeRejectedError(cause error) *EnrollmentOutcomeRejectedError {
+	return &EnrollmentOutcomeRejectedError{cause: cause}
 }
 
 var ErrLegacyV1EnrollmentDisabled = errors.New("legacy v1 agent enrollment is disabled; use the PostgreSQL-backed v2 join flow")
@@ -181,22 +183,22 @@ func ValidateJoinToken(token string) error {
 	return nil
 }
 
-// EnrollV2 makes exactly one POST to the public PostgreSQL-backed route. Only
-// 404 or a handler-marked pre-consumption 503 is safe for a later manual retry;
-// all other unsuccessful or undecodable outcomes are unknown. This never retries.
+// EnrollV2 makes exactly one POST to the public PostgreSQL-backed route. Local
+// validation failures are rejected before sending; every response other than
+// 201 and every post-send failure has an unknown outcome. This never retries.
 func EnrollV2(ctx context.Context, server, joinToken string, request protocol.AgentEnrollmentRequestV2, options TLSOptions) (protocol.AgentEnrollmentResponseV2, error) {
 	if err := ValidateEnrollmentURL(server); err != nil {
-		return protocol.AgentEnrollmentResponseV2{}, err
+		return protocol.AgentEnrollmentResponseV2{}, NewEnrollmentOutcomeRejectedError(err)
 	}
 	if err := ValidateJoinToken(joinToken); err != nil {
-		return protocol.AgentEnrollmentResponseV2{}, err
+		return protocol.AgentEnrollmentResponseV2{}, NewEnrollmentOutcomeRejectedError(err)
 	}
 	if err := request.Validate(); err != nil {
-		return protocol.AgentEnrollmentResponseV2{}, err
+		return protocol.AgentEnrollmentResponseV2{}, NewEnrollmentOutcomeRejectedError(err)
 	}
 	httpClient, err := NewHTTPClient(options)
 	if err != nil {
-		return protocol.AgentEnrollmentResponseV2{}, err
+		return protocol.AgentEnrollmentResponseV2{}, NewEnrollmentOutcomeRejectedError(err)
 	}
 	return enrollV2WithClient(ctx, server, joinToken, request, httpClient)
 }
@@ -205,12 +207,12 @@ func enrollV2WithClient(ctx context.Context, server, joinToken string, request p
 	var out protocol.AgentEnrollmentResponseV2
 	body, err := json.Marshal(request)
 	if err != nil {
-		return out, fmt.Errorf("encode enrollment request: %w", err)
+		return out, NewEnrollmentOutcomeRejectedError(fmt.Errorf("encode enrollment request: %w", err))
 	}
 	endpoint := strings.TrimRight(server, "/") + "/api/v1/fleet/enroll"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return out, fmt.Errorf("create enrollment request: %w", err)
+		return out, NewEnrollmentOutcomeRejectedError(fmt.Errorf("create enrollment request: %w", err))
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+joinToken)
@@ -221,9 +223,6 @@ func enrollV2WithClient(ctx context.Context, server, joinToken string, request p
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		statusErr := &HTTPStatusError{Method: http.MethodPost, Path: "/api/v1/fleet/enroll", Code: resp.StatusCode, Status: resp.Status}
-		if resp.StatusCode == http.StatusNotFound || (resp.StatusCode == http.StatusServiceUnavailable && len(resp.Header.Values(EnrollmentNotConsumedHeader)) == 1 && resp.Header.Get(EnrollmentNotConsumedHeader) == enrollmentNotConsumedValue) {
-			return out, &EnrollmentOutcomeNotConsumedError{cause: statusErr}
-		}
 		return out, NewEnrollmentOutcomeUnknownError(statusErr)
 	}
 	decoder := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))

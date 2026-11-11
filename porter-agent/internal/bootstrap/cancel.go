@@ -6,8 +6,7 @@ import (
 )
 
 // CancelBeforeSubmission removes the pending service config only when no HTTP
-// enrollment request has been attempted. A later manual retry after an explicit
-// not-consumed response uses a new Prepared instance, never this cancellation.
+// enrollment request has been sent. Ambiguous post-send outcomes stay fenced.
 func (p *Prepared) CancelBeforeSubmission() error {
 	if p == nil || p.submitted {
 		return fmt.Errorf("cannot cancel a submitted enrollment attempt")
