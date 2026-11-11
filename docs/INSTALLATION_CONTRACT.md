@@ -19,14 +19,15 @@ LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn
 UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN
 ```
 
-`porter-migrate.service` must run as `User=porter` and load the DSN with:
+`porter-migrate.service` must run as `User=porter` and load both credentials:
 
 ```ini
+LoadCredential=porter-admin-token:/etc/porter/porter-admin-token
 LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn
 UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN
 ```
 
-The processes read the secret bytes only from `$CREDENTIALS_DIRECTORY/porter-postgres-dsn` and, for the server, `$CREDENTIALS_DIRECTORY/porter-admin-token`. Keep `/etc/porter/porter.env` for non-secret settings only. Do not put either credential in an environment file, process environment, command arguments, logs, URLs, or shell history. Errors must remain generic and must not echo secret contents.
+Both services receive both secret files only through `$CREDENTIALS_DIRECTORY`; the server and migrator read the PostgreSQL DSN there, and the server also reads the admin token there. The migrator is supplied the admin token as part of this service contract. Keep `/etc/porter/porter.env` for non-secret settings only. Do not put either credential in an environment file, process environment, command arguments, logs, URLs, or shell history. Errors must remain generic and must not echo secret contents.
 
 ## Install and start order
 

@@ -82,7 +82,7 @@ Credential rotation increments the generation and returns the new token once. Th
 
 ## PostgreSQL and systemd requirements
 
-The server reads `/etc/porter/porter-postgres-dsn` and `/etc/porter/porter-admin-token` only through systemd `LoadCredential` (systemd 247+). Source files must be `root:root`, mode `0600`. `porter.service` loads both credentials; `porter-migrate.service` loads only the DSN. Runtime processes have no `PORTER_POSTGRES_DSN` or `PORTER_ADMIN_TOKEN` environment/argv fallback. Keep `porter.env` for non-secret settings only. See [`INSTALLATION_CONTRACT.md`](INSTALLATION_CONTRACT.md) for exact installer order and unit contents.
+The server and migrator receive `/etc/porter/porter-postgres-dsn` and `/etc/porter/porter-admin-token` only through systemd `LoadCredential` (systemd 247+). Source files must be `root:root`, mode `0600`. Both `porter.service` and `porter-migrate.service` load both credentials. Runtime processes have no `PORTER_POSTGRES_DSN` or `PORTER_ADMIN_TOKEN` environment/argv fallback. Keep `porter.env` for non-secret settings only. See [`INSTALLATION_CONTRACT.md`](INSTALLATION_CONTRACT.md) for exact installer order and unit contents.
 
 Build and run `porter-migrate.service` before `porter.service`. The server verifies the complete schema through migration 0012 and fails closed if any credential, connection, or migration is missing. It never applies migrations at startup. Remote listeners require API TLS. Plaintext enrollment, issue, rotation, and agent v2 requests return `426 Upgrade Required`.
 
