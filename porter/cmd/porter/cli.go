@@ -57,7 +57,12 @@ func runCLI(args []string) int {
 		return 2
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	do := func(method, path string, in interface{}) (interface{}, error) {
 		var body io.Reader
 		if in != nil {
@@ -125,6 +130,9 @@ func runCLI(args []string) int {
 }
 
 func isHTTPSOrigin(raw string) bool {
+	if strings.ContainsAny(raw, "?#") {
+		return false
+	}
 	parsed, err := url.Parse(raw)
 	return err == nil &&
 		parsed.Scheme == "https" &&

@@ -289,7 +289,12 @@ func TestRunCLIRejectsNonHTTPSOperatorURLBeforeRequest(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	t.Setenv("PORTER_TOKEN", cliTestOperatorToken)
 
-	for _, operatorURL := range []string{"http://remote.example.com", "http://127.0.0.1:8080"} {
+	for _, operatorURL := range []string{
+		"http://remote.example.com",
+		"http://127.0.0.1:8080",
+		"https://remote.example.com?",
+		"https://remote.example.com#",
+	} {
 		t.Setenv("PORTER_URL", operatorURL)
 		status, _, stderr := runCLIWithOutput(t, "status")
 		if status != 2 || !strings.Contains(stderr, "PORTER_URL must be an HTTPS origin") {
@@ -298,6 +303,49 @@ func TestRunCLIRejectsNonHTTPSOperatorURLBeforeRequest(t *testing.T) {
 		if requestCount != 0 {
 			t.Fatalf("plaintext URL %q caused %d outbound requests", operatorURL, requestCount)
 		}
+	}
+}
+
+func TestRunCLIDoesNotFollowHTTPRedirect(t *testing.T) {
+	var mu sync.Mutex
+	destinationRequests := 0
+	destinationAuthorization := ""
+	destination := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		destinationRequests++
+		destinationAuthorization = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(destination.Close)
+
+	originAuthorization := ""
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		originAuthorization = r.Header.Get("Authorization")
+		mu.Unlock()
+		http.Redirect(w, r, destination.URL+"/redirect-target", http.StatusFound)
+	}))
+	t.Cleanup(origin.Close)
+
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = origin.Client().Transport
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	t.Setenv("PORTER_URL", origin.URL)
+	t.Setenv("PORTER_TOKEN", cliTestOperatorToken)
+
+	status, _, stderr := runCLIWithOutput(t, "status")
+	if status != 1 || !strings.Contains(stderr, "302 Found") || strings.Contains(stderr, cliTestOperatorToken) {
+		t.Fatalf("CLI did not stop safely at the redirect response: code=%d stderr=%q", status, stderr)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if originAuthorization != "Bearer "+cliTestOperatorToken {
+		t.Errorf("HTTPS origin did not receive the configured operator Bearer")
+	}
+	if destinationRequests != 0 || destinationAuthorization != "" {
+		t.Errorf("redirect reached HTTP destination %d times with Authorization %q", destinationRequests, destinationAuthorization)
 	}
 }
 
@@ -320,10 +368,14 @@ func TestRunCLIRetiresLegacyCommandsWithoutNetwork(t *testing.T) {
 }
 
 func TestRunCLIValidatesJoinTokenArgumentsBeforeNetwork(t *testing.T) {
-	var requests int
-	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests++ }))
-	t.Cleanup(server.Close)
-	t.Setenv("PORTER_URL", server.URL)
+	requestCount := 0
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = cliRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		requestCount++
+		return nil, errors.New("unexpected HTTP request")
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	t.Setenv("PORTER_URL", "https://operator.example.com")
 	t.Setenv("PORTER_TOKEN", cliTestOperatorToken)
 
 	for _, args := range [][]string{
@@ -331,14 +383,16 @@ func TestRunCLIValidatesJoinTokenArgumentsBeforeNetwork(t *testing.T) {
 		{"join-token", "invalid", "https://porter.example.com"},
 		{"join-token", "remote_host", "http://porter.example.com"},
 		{"join-token", "remote_host", "https://porter.example.com/path"},
+		{"join-token", "remote_host", "https://porter.example.com?"},
+		{"join-token", "remote_host", "https://porter.example.com#"},
 	} {
 		status, _, stderr := runCLIWithOutput(t, args...)
 		if status != 2 || stderr == "" {
 			t.Errorf("invalid join-token args %q: code=%d stderr=%q", args, status, stderr)
 		}
 	}
-	if requests != 0 {
-		t.Fatalf("invalid join-token arguments sent %d network requests", requests)
+	if requestCount != 0 {
+		t.Fatalf("invalid join-token arguments sent %d network requests", requestCount)
 	}
 }
 
