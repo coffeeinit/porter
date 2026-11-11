@@ -20,6 +20,7 @@ MOCK_BIN="$WORK/mock-bin"
 FIXTURE_ROOT="$WORK/repo"
 mkdir -p "$MOCK_BIN" "$FIXTURE_ROOT/scripts" "$FIXTURE_ROOT/deploy/systemd" "$FIXTURE_ROOT/bin"
 TOKEN=$(python3 -c 'import secrets; print(secrets.token_urlsafe(36))')
+valid_input=$(printf '%s\n%s\n' "$TOKEN" "$TOKEN")
 LOCAL_DSN='host=/var/run/postgresql user=porter dbname=porter sslmode=disable'
 USER_MARKER="$WORK/porter-user-created"
 BAD_USER_MARKER="$WORK/bad-porter-user-created"
@@ -234,7 +235,7 @@ cat > "$MOCK_BIN/sudo" <<'SUDO'
 set -euo pipefail
 printf '%q ' "$@" >> "$PORTER_INSTALL_TEST_SUDO_ARGS_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_SUDO_ARGS_LOG"
-if [[ -n ${PORTER_ADMIN_TOKEN:-} || -n ${PORTER_POSTGRES_DSN:-} ||
+if [[ -v ADMIN_TOKEN || -v confirm || -n ${PORTER_ADMIN_TOKEN:-} || -n ${PORTER_POSTGRES_DSN:-} ||
       -n ${PORTER_POSTGRES_API_DSN:-} || -n ${DATABASE_URL:-} || -n ${DATABASE_DSN:-} ||
       -n ${PORTER_DATABASE_URL:-} || -n ${POSTGRES_URL:-} || -n ${POSTGRES_DSN:-} ||
       -n ${CUSTOM_DSN:-} || -n ${PGPASSWORD:-} || -n ${PGPASSFILE:-} || -n ${PGTARGETSESSIONATTRS:-} ]]; then
@@ -262,14 +263,16 @@ if [[ ${PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE:-0} == 1 ]]; then
         exit $?
       fi
       if [[ ${2:-} == -L && ${3:-} == /etc/porter/porter-agent.env ]]; then
-        exit 1
+        [[ ${PORTER_INSTALL_TEST_AGENT_ENV_SYMLINK:-0} == 1 ]]
+        exit $?
       fi
       if [[ ${3:-} == /etc/porter/porter-agent.env && ${2:-} == -e ]]; then
         [[ ${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0} == 1 ]]
         exit $?
       fi
       if [[ ${3:-} == /etc/porter/porter-agent.env && ${2:-} == -f ]]; then
-        [[ ${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0} == 1 ]]
+        [[ ${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0} == 1 &&
+           ${PORTER_INSTALL_TEST_AGENT_ENV_REGULAR:-1} == 1 ]]
         exit $?
       fi
       echo "blocked unexpected agent destination test" >&2
@@ -279,6 +282,14 @@ if [[ ${PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE:-0} == 1 ]]; then
       printf '%q ' "$@" >> "$PORTER_INSTALL_TEST_AGENT_INSTALL_LOG"
       printf '\n' >> "$PORTER_INSTALL_TEST_AGENT_INSTALL_LOG"
       exit 0
+      ;;
+    stat)
+      if [[ ${2:-} == -c && ${3:-} == '%u:%g:%a' && ${4:-} == /etc/porter/porter-agent.env ]]; then
+        printf '%s\n' "${PORTER_INSTALL_TEST_AGENT_ENV_META:-0:0:600}"
+        exit 0
+      fi
+      echo "blocked unexpected agent metadata check" >&2
+      exit 98
       ;;
     systemctl)
       exec "$PORTER_INSTALL_TEST_MOCK_BIN/systemctl" "${@:2}"
@@ -408,11 +419,10 @@ assert_event_before() {
 }
 assert_no_porter_writes() {
   local target_root=$1 output=$2
-  if grep -Eq 'Read the admin token|Admin token \(' "$output" ||
-     [[ -s "$USERADD_LOG" ]] ||
+  if [[ -s "$USERADD_LOG" ]] ||
      grep -Eq '(^|[[:space:]])(install|chown|chmod|useradd)([[:space:]]|$)' "$SUDO_ARGS_LOG" ||
      grep -Eq 'CREATE ROLE|ALTER ROLE|createdb|ALTER DATABASE|REVOKE|GRANT|DROP DATABASE' "$PG_LOG"; then
-    echo "local PostgreSQL startup failure proceeded to a Porter write or token prompt" >&2
+    echo "local PostgreSQL failure proceeded to a Porter write" >&2
     cat "$output" "$SUDO_ARGS_LOG" "$USERADD_LOG" "$PG_LOG" >&2
     return 1
   fi
@@ -648,15 +658,73 @@ fi
 assert_empty_target "$VERSION_ROOT"
 assert_preflight_side_effects_absent "$WORK/old-systemd.log"
 
+# A malformed or unconfirmed token must be rejected before package installation,
+# PostgreSQL service changes, role/database work, or any persistent Porter writes.
+for token_case in malformed mismatch; do
+  TOKEN_ROOT="$WORK/token-$token_case-root"
+  mkdir -p "$TOKEN_ROOT"
+  reset_logs
+  if [[ "$token_case" == malformed ]]; then
+    token_input=$'short-token\nshort-token\n'
+    expected_token_error='admin token must contain at least 32 URL-safe characters'
+  else
+    token_input=$(printf '%s\n%s\n' "$TOKEN" "${TOKEN}mismatch")
+    expected_token_error='admin token confirmation did not match'
+  fi
+  set +e
+  run_installer "$TOKEN_ROOT" "$token_input" "$WORK/token-$token_case.log"
+  token_status=$?
+  set -e
+  if [[ $token_status -eq 0 ]] || ! grep -Fq "$expected_token_error" "$WORK/token-$token_case.log" ||
+     [[ -s "$PACKAGE_LOG" || -s "$PG_LOG" || -s "$USERADD_LOG" ]] ||
+     grep -Eq '^enable |^start |^restart ' "$SYSTEMCTL_LOG"; then
+    echo "installer did not reject the $token_case admin token before local PostgreSQL changes" >&2
+    cat "$WORK/token-$token_case.log" "$PACKAGE_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" >&2
+    exit 1
+  fi
+  assert_empty_target "$TOKEN_ROOT"
+  if grep -Fq -- 'short-token' "$WORK/token-$token_case.log" "$SUDO_ARGS_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG" ||
+     [[ $(<"$WORK/token-$token_case.log") == *"$TOKEN"* ]]; then
+    echo "admin token input appeared in output or privileged-command logs" >&2
+    exit 1
+  fi
+done
+
+BAD_ADMIN_ROOT="$WORK/bad-admin-credential-root"
+mkdir -p "$BAD_ADMIN_ROOT/etc/porter"
+printf '%s\n' "$TOKEN" > "$BAD_ADMIN_ROOT/etc/porter/porter-admin-token"
+/usr/bin/sudo chown root:root "$BAD_ADMIN_ROOT/etc/porter/porter-admin-token"
+/usr/bin/sudo chmod 0644 "$BAD_ADMIN_ROOT/etc/porter/porter-admin-token"
+reset_logs
+set +e
+run_installer "$BAD_ADMIN_ROOT" "" "$WORK/bad-admin-credential.log"
+bad_admin_status=$?
+set -e
+if [[ $bad_admin_status -eq 0 ]] ||
+   ! grep -Fq 'existing admin credential must be root:root mode 0600' "$WORK/bad-admin-credential.log" ||
+   [[ -s "$PACKAGE_LOG" || -s "$PG_LOG" ]] ||
+   grep -Eq '^enable |^start |^restart ' "$SYSTEMCTL_LOG" ||
+   grep -Eq 'Read the admin token|Admin token \(' "$WORK/bad-admin-credential.log"; then
+  echo "installer did not fail closed on an unsafe existing admin credential before PostgreSQL changes" >&2
+  cat "$WORK/bad-admin-credential.log" "$PACKAGE_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" >&2
+  exit 1
+fi
+assert_no_secret_leaks "$WORK/bad-admin-credential.log" "$SUDO_ARGS_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
+
 PG_NOT_READY_ROOT="$WORK/postgres-not-ready-root"
 mkdir -p "$PG_NOT_READY_ROOT"
 reset_logs
 set +e
-PORTER_INSTALL_TEST_PG_READY=0 run_installer "$PG_NOT_READY_ROOT" "" "$WORK/postgres-not-ready.log"
+PORTER_INSTALL_TEST_PG_READY=0 run_installer "$PG_NOT_READY_ROOT" "$valid_input" "$WORK/postgres-not-ready.log"
 pg_ready_status=$?
 set -e
 if [[ $pg_ready_status -eq 0 ]] || ! grep -Fq 'local PostgreSQL is not ready after starting the service' "$WORK/postgres-not-ready.log"; then
   echo "installer did not fail closed when local PostgreSQL was unavailable" >&2
+  cat "$WORK/postgres-not-ready.log" >&2
+  exit 1
+fi
+if ! grep -Fq 'Read the admin token twice from test-only stdin' "$WORK/postgres-not-ready.log"; then
+  echo "installer did not collect the admin token before local PostgreSQL startup" >&2
   cat "$WORK/postgres-not-ready.log" >&2
   exit 1
 fi
@@ -674,7 +742,7 @@ for membership_case in member roleid; do
   reset_logs
   set +e
   PORTER_INSTALL_TEST_PG_MEMBERSHIP="$membership_case" \
-    run_installer "$PG_MEMBERSHIP_ROOT" "" "$WORK/postgres-membership-$membership_case.log"
+    run_installer "$PG_MEMBERSHIP_ROOT" "$valid_input" "$WORK/postgres-membership-$membership_case.log"
   pg_membership_status=$?
   set -e
   if [[ $pg_membership_status -eq 0 ]] ||
@@ -697,7 +765,7 @@ mkdir -p "$PG_UNSAFE_DB_ROOT"
 reset_logs
 set +e
 PORTER_INSTALL_TEST_PG_DATABASE=unsafe \
-  run_installer "$PG_UNSAFE_DB_ROOT" "" "$WORK/postgres-unsafe-database.log"
+  run_installer "$PG_UNSAFE_DB_ROOT" "$valid_input" "$WORK/postgres-unsafe-database.log"
 pg_database_status=$?
 set -e
 if [[ $pg_database_status -eq 0 ]] ||
@@ -719,7 +787,6 @@ fi
 TEST_ROOT="$WORK/valid-root"
 mkdir -p "$TEST_ROOT"
 reset_logs
-valid_input=$(printf '%s\n%s\n' "$TOKEN" "$TOKEN")
 set +e
 PORTER_POSTGRES_DSN=dsn-inherited-sentinel \
 PORTER_POSTGRES_API_DSN=dsn-inherited-sentinel \
@@ -813,6 +880,25 @@ assert_event_before 'd.datdba' 'CREATE ROLE porter LOGIN'
 assert_event_before 'CREATE ROLE porter LOGIN' 'createdb --owner=porter porter'
 assert_no_secret_leaks "$WORK/valid-install.log" "$SUDO_ARGS_LOG" "$USERADD_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
 assert_no_postgres_env_in_sudo
+
+TRACE_ROOT="$WORK/xtrace-root"
+mkdir -p "$TRACE_ROOT"
+reset_logs
+set +e
+PORTER_INSTALL_TEST_MODE=1 \
+PORTER_INSTALL_TEST_ROOT="$TRACE_ROOT" \
+PORTER_INSTALL_TEST_USER_MARKER="$USER_MARKER" \
+PATH="$MOCK_BIN:$PATH" \
+  bash -x "$FIXTURE_ROOT/scripts/install-porter.sh" "$FIXTURE_ROOT/bin/porter" \
+  >"$WORK/xtrace-install.log" 2>&1 <<<"$valid_input"
+xtrace_status=$?
+set -e
+if [[ $xtrace_status -ne 0 ]]; then
+  echo "traced fake installer run failed" >&2
+  cat "$WORK/xtrace-install.log" >&2
+  exit 1
+fi
+assert_no_secret_leaks "$WORK/xtrace-install.log" "$SUDO_ARGS_LOG" "$USERADD_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
 
 # Existing databases are changed only when the fake catalog validates the
 # porter name, porter owner, and non-template identity; do not recreate them.
@@ -937,9 +1023,13 @@ if [[ $agent_missing_template_status -ne 0 ]] ||
   cat "$WORK/agent-install-no-template.log" "$AGENT_INSTALL_LOG" >&2
   exit 1
 fi
-if ! grep -Fq -- '--state-dir /var/lib/porter-agent [--hostname <HOSTNAME>]' "$WORK/agent-install-no-template.log" ||
-   ! grep -Fq 'hidden-prompt join CLI' "$WORK/agent-install-no-template.log" ||
-   grep -Fq -- '--token' "$WORK/agent-install-no-template.log" ||
+if ! grep -Fq -- 'sudo porter-agent join --server https://<control-plane> --state-dir /var/lib/porter-agent' "$WORK/agent-install-no-template.log" ||
+   ! grep -Fq '/dev/tty with echo disabled by default' "$WORK/agent-install-no-template.log" ||
+   ! grep -Fq 'append --token-stdin' "$WORK/agent-install-no-template.log" ||
+   grep -Eq '(^|[[:space:]])--token([=[:space:]]|$)|--data-dir|--hostname' "$WORK/agent-install-no-template.log" ||
+   grep -Fq -- "$TOKEN" "$WORK/agent-install-no-template.log" ||
+   grep -Eiq '(kernel|rootfs).*(installed|provisioned)' "$WORK/agent-install-no-template.log" ||
+   grep -Fq '/var/lib/porter-agent' "$AGENT_INSTALL_LOG" ||
    grep -Eq '^enable |^start |^restart ' "$SYSTEMCTL_LOG"; then
   echo "agent installer printed an unsafe or activated join command" >&2
   cat "$WORK/agent-install-no-template.log" "$SYSTEMCTL_LOG" >&2
@@ -960,6 +1050,31 @@ if [[ $agent_template_status -ne 0 ]] ||
   cat "$WORK/agent-install-template.log" "$AGENT_INSTALL_LOG" >&2
   exit 1
 fi
+
+for agent_env_case in symlink nonregular mode owner; do
+  reset_logs
+  agent_env_override=()
+  case "$agent_env_case" in
+    symlink) agent_env_override=(PORTER_INSTALL_TEST_AGENT_ENV_SYMLINK=1); expected_agent_env_error='agent environment destination must not be a symbolic link' ;;
+    nonregular) agent_env_override=(PORTER_INSTALL_TEST_AGENT_ENV_REGULAR=0); expected_agent_env_error='agent environment destination must be a regular file' ;;
+    mode) agent_env_override=(PORTER_INSTALL_TEST_AGENT_ENV_META=0:0:644); expected_agent_env_error='must be root:root mode 0600' ;;
+    owner) agent_env_override=(PORTER_INSTALL_TEST_AGENT_ENV_META=1000:0:600); expected_agent_env_error='must be root:root mode 0600' ;;
+  esac
+  set +e
+  env "${agent_env_override[@]}" PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE=1 \
+    PORTER_INSTALL_TEST_AGENT_ENV_EXISTS=1 PATH="$MOCK_BIN:$PATH" \
+    bash "$FIXTURE_ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/bin/porter-agent" \
+    >"$WORK/agent-env-$agent_env_case.log" 2>&1
+  agent_env_status=$?
+  set -e
+  if [[ $agent_env_status -eq 0 ]] ||
+     ! grep -Fq "$expected_agent_env_error" "$WORK/agent-env-$agent_env_case.log" ||
+     [[ -s "$AGENT_INSTALL_LOG" || -s "$SYSTEMCTL_LOG" ]]; then
+    echo "agent installer did not fail safely for an existing $agent_env_case environment file" >&2
+    cat "$WORK/agent-env-$agent_env_case.log" "$AGENT_INSTALL_LOG" "$SYSTEMCTL_LOG" >&2
+    exit 1
+  fi
+done
 
 reset_logs
 set +e
@@ -1015,4 +1130,4 @@ if ! grep -Fq '# PORTER_AGENT_SERVER_CA=/etc/porter/tls/server-ca.pem' "$ROOT/de
   exit 1
 fi
 
-printf '%s\n' "install smoke passed: fail-fast preflight before package/user/config/token writes; synthetic unit fixtures only (not real Coder unit evidence); fake apt/systemd/PostgreSQL ordering and readiness retries; external-DSN bypass; inherited DSN cleanup; agent env template install gating and secret-free defaults; root:root 0600 credentials; no real DB/package/systemd operation, Porter activation, or migration"
+printf '%s\n' "install smoke passed: admin-token validation before fake local PostgreSQL changes; synthetic unit fixtures only (not real Coder unit evidence); fake apt/systemd/PostgreSQL ordering and readiness retries; trace/secret-leak checks; external-DSN bypass; agent env-file type/owner/mode gating and non-overwrite; safe join guidance; no real DB/package/systemd operation, Porter activation, or migration"

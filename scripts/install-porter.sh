@@ -2,7 +2,7 @@
 set -euo pipefail
 # Never allow caller-requested shell tracing to expose secrets read below.
 set +x
-unset PORTER_ADMIN_TOKEN PORTER_POSTGRES_DSN PORTER_POSTGRES_API_DSN \
+unset ADMIN_TOKEN confirm PORTER_ADMIN_TOKEN PORTER_POSTGRES_DSN PORTER_POSTGRES_API_DSN \
   DATABASE_URL DATABASE_DSN PORTER_DATABASE_URL POSTGRES_URL POSTGRES_DSN \
   PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER PGPASSWORD PGPASSFILE \
   PGSSLMODE PGREQUIRESSL PGCHANNELBINDING PGOPTIONS PGAPPNAME \
@@ -290,6 +290,14 @@ fi
 ADMIN_EXISTS=0
 if sudo test -e "$ADMIN_CREDENTIAL"; then
   ADMIN_EXISTS=1
+  ADMIN_META=$(sudo stat -c '%u:%g:%a' "$ADMIN_CREDENTIAL") || {
+    echo "could not verify admin credential ownership and mode; refusing installation" >&2
+    exit 1
+  }
+  if [[ "$ADMIN_META" != "0:0:600" ]]; then
+    echo "existing admin credential must be root:root mode 0600; refusing installation" >&2
+    exit 1
+  fi
   if ! sudo test -s "$ADMIN_CREDENTIAL" || \
      ! sudo awk 'END { if (NR != 1) exit 1 }' "$ADMIN_CREDENTIAL" || \
      ! sudo grep -Eq '^[A-Za-z0-9_-]{32,}$' "$ADMIN_CREDENTIAL"; then
@@ -422,10 +430,6 @@ provision_local_postgres() {
     --command 'REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO porter;'
 }
 
-if (( USE_LOCAL_POSTGRES )); then
-  prepare_local_postgres
-fi
-
 read_admin_token() {
   local confirm
   if [[ -r /dev/tty && -t 0 ]]; then
@@ -434,10 +438,13 @@ read_admin_token() {
     printf '\nConfirm admin token: ' >/dev/tty
     IFS= read -r -s confirm </dev/tty || return 1
     printf '\n' >/dev/tty
-  else
-    printf 'Read the admin token twice from protected stdin (two lines).\n' >&2
+  elif [[ ${PORTER_INSTALL_TEST_MODE:-0} == 1 ]]; then
+    printf 'Read the admin token twice from test-only stdin (two lines).\n' >&2
     IFS= read -r ADMIN_TOKEN || return 1
     IFS= read -r confirm || return 1
+  else
+    echo "a terminal is required to read the admin token with echo disabled" >&2
+    return 1
   fi
   if [[ ! "$ADMIN_TOKEN" =~ ^[A-Za-z0-9_-]{32,}$ ]]; then
     echo "admin token must contain at least 32 URL-safe characters" >&2
@@ -512,6 +519,7 @@ if (( ! ADMIN_EXISTS )); then
 fi
 
 if (( USE_LOCAL_POSTGRES )); then
+  prepare_local_postgres
   provision_local_postgres
 fi
 
