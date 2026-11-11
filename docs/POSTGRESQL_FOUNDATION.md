@@ -16,7 +16,7 @@ This applies the numbered migrations through version 12 (`0012_release_builder_r
 
 ## Version 1 tables
 
-All tables live under the new `porter_control_plane` schema so they do not collide with tables in the separate legacy PostgreSQL backend. IDs are `TEXT`, not native UUIDs: this keeps identifiers opaque and permits stable ID preservation in a later, separately approved import.
+All tables live under the new `porter_control_plane` schema so they do not collide with tables in a separate legacy PostgreSQL backend (that backend and its `legacy/` tree were removed on 2026-11-11). IDs are `TEXT`, not native UUIDs: this keeps identifiers opaque and permits stable ID preservation in a later, separately approved import.
 
 | Table | Purpose | Important rules |
 | --- | --- | --- |

@@ -51,8 +51,9 @@ protocol/        shared wire types
 Porter runs as an unprivileged host systemd service. The agent is the only
 component that touches host KVM, Firecracker, TAP, NAT, volumes, or guest IPs.
 
-The old implementation, old docs, old prototypes, and old image catalog are in
-`legacy/` and must not be imported.
+The old implementation, old docs, old prototypes, and old image catalog were
+archived under `legacy/` and must not be imported. That directory was deleted
+from the working tree on 2026-11-11; recover it from git history if needed.
 
 ## 2. Historical feature snapshot
 
@@ -147,10 +148,14 @@ It prompts for the short-lived join token through hidden `/dev/tty` input, or ma
 
 ### WSL test assets
 
+These paths pointed into the removed `legacy/` tree and are no longer present:
+
 ```text
 /mnt/d/github/porter/legacy/porter-images/bases/alpine/3.21/out/vmlinux
 /mnt/d/github/porter/legacy/porter-images/bases/alpine/3.21/out/rootfs.ext4
 ```
+
+Supply your own kernel and rootfs for local runs.
 
 ## 4. Current implementation map
 

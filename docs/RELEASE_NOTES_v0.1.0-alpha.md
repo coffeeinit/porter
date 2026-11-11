@@ -64,4 +64,5 @@ This is the first release of the new two-binary Porter architecture.
 ## Upgrade note
 This release is not a drop-in continuation of legacy `v0.0.1-alpha`. The new
 implementation lives in `porter/`, `porter-agent/`, and `protocol/`. The old
-code is archived under `legacy/`.
+code was archived under `legacy/`, which was deleted from the tree on
+2026-11-11; recover it from git history if needed.

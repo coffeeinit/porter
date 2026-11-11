@@ -65,4 +65,4 @@ Until Porter has an approval workflow, scoped AI tokens cannot create snapshots,
 
 Tokens can have an optional expiry and can be created, listed, and revoked in the operator Settings UI. The raw token is shown once at creation. The regular REST API still requires the operator admin token; MCP scopes do not authorize direct REST calls. Approval queues, direct REST scopes, and more granular snapshot/log resource mapping remain follow-up work.
 
-The existing `legacy/backend` RBAC resolver informed the capability-based approach, but Porter does not import its customer/reseller/team tenancy model or claim the legacy AI routes are active features.
+The removed `legacy/backend` RBAC resolver informed the capability-based approach, but Porter does not import its customer/reseller/team tenancy model or claim the legacy AI routes are active features.

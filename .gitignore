@@ -25,13 +25,6 @@ node_modules/
 dist/
 .vite/
 
-# Legacy/reference binaries and runtime artifacts
-legacy/**/bin/
-legacy/**/data/
-legacy/**/node_modules/
-legacy/**/web/dist/assets/
-legacy/**/web/dist/*.html
-!legacy/**/web/dist/index.html
 vms/rootfs.ext4
 vms/vmlinux
 *.ext4

@@ -90,7 +90,6 @@ porter/          # control plane
 porter-agent/    # privileged host agent
 protocol/        # shared wire types
 docs/            # SRS, architecture, UI spec, plans
-legacy/          # archived old implementation/prototypes/images
 ```
 
 ## Read first

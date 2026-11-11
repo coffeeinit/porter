@@ -1,7 +1,9 @@
 ﻿# Porter V1 UI Specification & Feature Inventory
 
-**Source:** extracted from `legacy/prototypes/porter-control-plane-refined(1).html`
-(the superset; `porternew.html` is the earlier smaller draft).
+**Source:** extracted from the archived prototype
+`porter-control-plane-refined(1).html` (the superset; `porternew.html` was the
+earlier smaller draft). Both lived under the removed `legacy/` tree; see git
+history.
 
 Priority: `P0` V1 required, `P1` next, `P2` preview, `LATER` planned.
 

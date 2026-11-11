@@ -14,7 +14,7 @@
 
 The active root control plane uses SQLite (`porter/internal/store/store.go`) and serves its embedded HTML (`porter/internal/api/api.go`, `porter/web`). Its image-build API is disabled unless the explicitly unsafe `PORTER_ENABLE_UNISOLATED_BUILDS` override is enabled (`porter/internal/api/build_safety.go`, `porter/internal/api/images_build.go`). Keep that gate closed.
 
-A separate Vue/Vite app lives at `legacy/backend/web`, uses `/api/v1` (`src/lib/api.js`), and is paired with a PostgreSQL-backed legacy backend (`legacy/backend/go.mod`, `legacy/backend/internal/store/store.go`). This is not yet the active root control plane. The two APIs and data models are not interchangeable: their route prefixes and resource shapes differ, and the legacy backend contains broader features outside the agreed Porter scope.
+A separate Vue/Vite app used to live at `legacy/backend/web`, using `/api/v1` (`src/lib/api.js`) and paired with a PostgreSQL-backed legacy backend. That tree was deleted on 2026-11-11 and is recoverable from git history. It was never the active root control plane. The two APIs and data models were not interchangeable: their route prefixes and resource shapes differed, and the legacy backend contained broader features outside the agreed Porter scope.
 
 The Vue refresh in this branch is a UI pass, not a production cutover. The service-source wizard, seeded Observability data, per-instance SSH preview, and Fleet control preview are explicitly marked as simulated; they do not start builds, execute guest commands, or mutate nodes.
 

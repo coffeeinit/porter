@@ -69,69 +69,6 @@ jobs:
           test "$(bin/porter version)" = "porter v1.0.0-beta"
           test "$(bin/porter-agent version)" = "v1.0.0-beta"
 
-  legacy-store-postgres:
-    name: Legacy backend PostgreSQL store integration
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: porter
-          POSTGRES_PASSWORD: porter
-          POSTGRES_DB: porter_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U porter -d porter_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    env:
-      GOWORK: off
-      PORTER_TEST_DATABASE_URL: postgres://porter:porter@127.0.0.1:5432/porter_test?sslmode=disable
-    steps:
-      - name: Check out source
-        uses: actions/checkout@v6
-
-      - name: Set up backend Go toolchain
-        uses: actions/setup-go@v6
-        with:
-          go-version: 1.26.6
-          cache: true
-          cache-dependency-path: legacy/backend/go.sum
-
-      - name: Verify integration-test configuration
-        run: |
-          test "$GOWORK" = "off"
-          test -n "$PORTER_TEST_DATABASE_URL"
-
-      - name: Run existing PostgreSQL domain-store test (fail on skip)
-        working-directory: legacy/backend
-        run: |
-          set -euo pipefail
-          result_file="$RUNNER_TEMP/legacy-store-postgres-test.jsonl"
-          go test -json -count=1 -run '^TestListOrgDomainsPG$' ./internal/store > "$result_file"
-          cat "$result_file"
-          python3 - "$result_file" <<'PY'
-          import json
-          import sys
-
-          test_name = "TestListOrgDomainsPG"
-          with open(sys.argv[1], encoding="utf-8") as result_file:
-              events = [json.loads(line) for line in result_file if line.strip()]
-          test_events = [event for event in events if event.get("Test") == test_name]
-          if not any(event.get("Action") == "run" for event in test_events):
-              raise SystemExit(f"{test_name} did not execute")
-          if any(event.get("Action") == "skip" for event in test_events):
-              raise SystemExit(f"{test_name} was skipped")
-          if any(event.get("Action") == "fail" for event in test_events):
-              raise SystemExit(f"{test_name} failed")
-          if not any(event.get("Action") == "pass" for event in test_events):
-              raise SystemExit(f"{test_name} did not pass")
-          print(f"confirmed: {test_name} ran and passed without skip")
-          PY
-
   kvm-acceptance:
     name: Firecracker KVM acceptance (release gate)
     if: (github.event_name == 'workflow_dispatch' && inputs.run_kvm_acceptance) || startsWith(github.ref, 'refs/tags/v')
