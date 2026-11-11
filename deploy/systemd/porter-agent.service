@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/local/bin/porter-agent run --data-dir /var/lib/porter-agent
+EnvironmentFile=-/etc/porter/porter-agent.env
+ExecStart=/usr/local/bin/porter-agent run
 Restart=always
 RestartSec=5
 KillMode=process

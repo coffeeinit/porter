@@ -1,16 +1,37 @@
 VERSION ?= v1.0.0-dev
 BIN := bin
+DESTDIR ?=
+SYSTEMD_UNIT_DIR ?= /etc/systemd/system
 
-.PHONY: all build test vet fmt clean porter agent
+.PHONY: all build install test vet fmt clean porter agent porter-migrate
 
 all: build
 
-build: porter agent
+build: porter agent porter-migrate
+
+install: porter porter-migrate
+	@if [ -z "$(DESTDIR)" ]; then \
+		command -v systemd >/dev/null || { echo "systemd >= 247 is required" >&2; exit 1; }; \
+		version="$$(systemd --version | awk 'NR == 1 {print $$2}')"; \
+		case "$$version" in ''|*[!0-9]*) echo "could not determine systemd version" >&2; exit 1;; esac; \
+		[ "$$version" -ge 247 ] || { echo "systemd >= 247 is required" >&2; exit 1; }; \
+	fi
+	install -D -m 0755 $(BIN)/porter $(DESTDIR)/usr/local/bin/porter
+	install -D -m 0755 $(BIN)/porter-migrate $(DESTDIR)/usr/local/bin/porter-migrate
+	install -D -m 0644 deploy/systemd/porter.service $(DESTDIR)$(SYSTEMD_UNIT_DIR)/porter.service
+	install -D -m 0644 deploy/systemd/porter-migrate.service $(DESTDIR)$(SYSTEMD_UNIT_DIR)/porter-migrate.service
+	@if [ -z "$(DESTDIR)" ]; then systemctl daemon-reload; fi
 
 porter:
+	mkdir -p $(BIN)
 	cd porter && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter ./cmd/porter
 
+porter-migrate:
+	mkdir -p $(BIN)
+	cd porter && go build -trimpath -o ../$(BIN)/porter-migrate ./cmd/porter-migrate
+
 agent:
+	mkdir -p $(BIN)
 	cd porter-agent && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter-agent ./cmd/porter-agent
 	cd porter-agent && go build -trimpath -ldflags "-X main.Version=$(VERSION)" -o ../$(BIN)/porter-guest-init ./cmd/porter-guest-init
 

@@ -100,12 +100,12 @@ func NewWithReleaseBuilder(repository Repository, adminToken string, resolver TX
 	return &Server{repository: repository, adminToken: adminToken, cursorKey: key[:], txtResolver: resolver, releaseBuilder: builder}, nil
 }
 
-// UnavailableHandler fails closed when the PostgreSQL API has not been enabled.
-// It never delegates v1 requests to the legacy SQLite API.
+// UnavailableHandler fails closed when the PostgreSQL API is unavailable.
+// It never delegates requests to the legacy SQLite API.
 func UnavailableHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusServiceUnavailable, v1.ErrorFailedPrecondition,
-			"PostgreSQL API is disabled; configure PORTER_POSTGRES_API_DSN and apply migrations separately")
+			"PostgreSQL API is unavailable; configure systemd credentials and apply migrations separately")
 	})
 }
 

@@ -3,14 +3,16 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
+	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"porter/controlplane/internal/postgres/migrations"
+	"porter/controlplane/internal/systemdcred"
 )
 
 func main() {
@@ -22,24 +24,29 @@ func main() {
 
 func run(args []string, getenv func(string) string) error {
 	if len(args) != 1 || args[0] != "apply" {
-		return fmt.Errorf("usage: porter-migrate apply")
+		return errors.New("usage: porter-migrate apply")
 	}
-	dsn := strings.TrimSpace(getenv("PORTER_POSTGRES_DSN"))
-	if dsn == "" {
-		return fmt.Errorf("PORTER_POSTGRES_DSN is required for the explicit apply command")
+	dsn, err := systemdcred.ReadPostgresDSN(getenv)
+	if err != nil {
+		return err
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
-		return fmt.Errorf("open PostgreSQL migration connection: %w", err)
+		return errors.New("open PostgreSQL migration connection failed")
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1)
 
+	pingContext, cancelPing := context.WithTimeout(ctx, 10*time.Second)
+	defer cancelPing()
+	if err := db.PingContext(pingContext); err != nil {
+		return errors.New("connect to PostgreSQL migration database failed")
+	}
 	if err := migrations.Apply(ctx, db); err != nil {
-		return fmt.Errorf("apply PostgreSQL migrations: %w", err)
+		return errors.New("apply PostgreSQL migrations failed")
 	}
 	return nil
 }

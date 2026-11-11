@@ -29,7 +29,7 @@ func TestAgentClientUsesMutualTLSAndServerCA(t *testing.T) {
 	}
 
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/fleet/heartbeat" {
+		if r.URL.Path != "/internal/agent/heartbeat" {
 			t.Errorf("path = %q, want heartbeat", r.URL.Path)
 		}
 		if r.Header.Get("X-Porter-Node-ID") != "node-1" || r.Header.Get("Authorization") != "Bearer node-token" {
@@ -62,7 +62,7 @@ func TestAgentClientUsesMutualTLSAndServerCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := agent.Heartbeat(context.Background(), protocol.Heartbeat{NodeID: "node-1"}); err != nil {
+	if err := agent.Heartbeat(context.Background(), protocol.AgentHeartbeatV2{ProtocolVersion: protocol.VersionV2, At: time.Now().UTC()}); err != nil {
 		t.Fatalf("mutual-TLS heartbeat failed: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestAgentClientUsesMutualTLSAndServerCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := withoutCertificate.Heartbeat(context.Background(), protocol.Heartbeat{NodeID: "node-1"}); err == nil {
+	if err := withoutCertificate.Heartbeat(context.Background(), protocol.AgentHeartbeatV2{ProtocolVersion: protocol.VersionV2, At: time.Now().UTC()}); err == nil {
 		t.Fatal("heartbeat without a client certificate succeeded")
 	}
 }

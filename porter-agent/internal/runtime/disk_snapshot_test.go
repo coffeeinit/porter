@@ -162,9 +162,20 @@ func TestSnapshotRestoresPrivateRootfsAndAttachedVolume(t *testing.T) {
 
 	supervisor := &fakeProcessSupervisor{}
 	fixture.engine.supervisor = supervisor
-	restored, err := fixture.engine.RestoreSnapshot(context.Background(), fixture.vm, restoreSpec(record))
+	receipt, err := protocol.SnapshotArtifactReceiptFor(record)
+	if err != nil {
+		t.Fatalf("build snapshot receipt: %v", err)
+	}
+	command := protocol.SnapshotRestoreCommand{
+		VMID: record.VMID, SnapshotID: record.ID, Consistency: protocol.SnapshotCrashConsistent,
+		ArtifactSHA256: receipt.ArtifactSHA256, SizeBytes: receipt.SizeBytes,
+	}
+	restored, gotReceipt, err := fixture.engine.RestoreSnapshotV2(context.Background(), fixture.vm, command)
 	if err != nil {
 		t.Fatalf("restore crash-consistent snapshot: %v", err)
+	}
+	if gotReceipt != receipt {
+		t.Fatalf("restore receipt = %+v, want %+v", gotReceipt, receipt)
 	}
 	if restored.State != "running" || !supervisor.active {
 		t.Fatalf("restored VM not running: vm=%+v active=%v", restored, supervisor.active)
