@@ -205,6 +205,7 @@ func EnrollV2(ctx context.Context, server, joinToken string, request protocol.Ag
 
 func enrollV2WithClient(ctx context.Context, server, joinToken string, request protocol.AgentEnrollmentRequestV2, httpClient *http.Client) (protocol.AgentEnrollmentResponseV2, error) {
 	var out protocol.AgentEnrollmentResponseV2
+	const maxEnrollmentResponseBytes = 1 << 20
 	body, err := json.Marshal(request)
 	if err != nil {
 		return out, NewEnrollmentOutcomeRejectedError(fmt.Errorf("encode enrollment request: %w", err))
@@ -225,8 +226,14 @@ func enrollV2WithClient(ctx context.Context, server, joinToken string, request p
 		statusErr := &HTTPStatusError{Method: http.MethodPost, Path: "/api/v1/fleet/enroll", Code: resp.StatusCode, Status: resp.Status}
 		return out, NewEnrollmentOutcomeUnknownError(statusErr)
 	}
-	decoder := json.NewDecoder(io.LimitReader(resp.Body, 1<<20))
-	if err := decoder.Decode(&out); err != nil {
+	responseBody, err := io.ReadAll(io.LimitReader(resp.Body, maxEnrollmentResponseBytes+1))
+	if err != nil {
+		return protocol.AgentEnrollmentResponseV2{}, &EnrollmentOutcomeUnknownError{cause: fmt.Errorf("read enrollment response: %w", err)}
+	}
+	if len(responseBody) > maxEnrollmentResponseBytes {
+		return protocol.AgentEnrollmentResponseV2{}, &EnrollmentOutcomeUnknownError{cause: fmt.Errorf("enrollment response exceeds %d bytes", maxEnrollmentResponseBytes)}
+	}
+	if err := json.Unmarshal(responseBody, &out); err != nil {
 		return protocol.AgentEnrollmentResponseV2{}, &EnrollmentOutcomeUnknownError{cause: err}
 	}
 	if err := out.Validate(); err != nil {

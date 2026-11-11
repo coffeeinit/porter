@@ -31,6 +31,14 @@ type Options struct {
 	TLS        client.TLSOptions
 }
 
+type crashPoint string
+
+const (
+	crashAfterPendingConfig   crashPoint = "after_pending_config"
+	crashAfterRecoveryConfig  crashPoint = "after_recovery_config"
+	crashAfterRejectedOutcome crashPoint = "after_rejected_outcome"
+)
+
 type Prepared struct {
 	options        Options
 	dataDir        string
@@ -40,11 +48,16 @@ type Prepared struct {
 	store          *store.Store
 	joinLock       *os.File
 	submitted      bool
+	crashInjector  func(crashPoint) error
 }
 
 // Prepare validates non-secret inputs and creates the protected service config
 // before the caller prompts for or reads any one-time enrollment credential.
 func Prepare(options Options) (*Prepared, error) {
+	return prepareWithCrashInjector(options, nil)
+}
+
+func prepareWithCrashInjector(options Options, inject func(crashPoint) error) (*Prepared, error) {
 	options.Server = strings.TrimRight(strings.TrimSpace(options.Server), "/")
 	if err := client.ValidateEnrollmentURL(options.Server); err != nil {
 		return nil, err
@@ -87,20 +100,6 @@ func Prepare(options Options) (*Prepared, error) {
 		options.Rootfs = filepath.Join(dataDir, "rootfs.ext4")
 	}
 	configPath := filepath.Join(dataDir, "agent-service.json")
-	if _, err := os.Lstat(configPath); err == nil {
-		if previous, readErr := localstate.ReadServiceConfigForJoin(configPath); readErr == nil && previous.State == "recovery_required" {
-			return nil, fmt.Errorf("a previous join may have reached the handler at %s; do not replay its token. Use the exact hostname printed by that join attempt and this time to find the Fleet row, verify the exact node ID, then rotate credentials through admin Fleet; stop if the match is missing or ambiguous", previous.EnrollmentStartedAt)
-		}
-		return nil, fmt.Errorf("agent service configuration already exists; refusing a second enrollment attempt")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect existing agent service configuration: %w", err)
-	}
-	credentialPath := localstate.CredentialPath(dataDir)
-	if _, err := os.Lstat(credentialPath); err == nil {
-		return nil, fmt.Errorf("agent node credential already exists; refusing to overwrite local identity")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("inspect existing agent credential: %w", err)
-	}
 	st, err := store.Open(filepath.Join(dataDir, "porter-agent.db"))
 	if err != nil {
 		return nil, fmt.Errorf("open agent state: %w", err)
@@ -110,18 +109,58 @@ func Prepare(options Options) (*Prepared, error) {
 		_ = st.Close()
 		return nil, fmt.Errorf("read existing agent identity: %w", err)
 	}
-	if cfg.NodeID != "" {
-		_ = st.Close()
-		return nil, fmt.Errorf("agent already has node identity %q; refusing duplicate enrollment", cfg.NodeID)
-	}
-	_, priorOutcome, hasAttempt, err := st.JoinAttemptOutcome()
+	priorAttempt, hasAttempt, err := st.JoinAttemptRecovery()
 	if err != nil {
 		_ = st.Close()
 		return nil, fmt.Errorf("check prior enrollment attempt: %w", err)
 	}
+	priorOutcome := priorAttempt.Outcome
+	if _, statErr := os.Lstat(configPath); statErr == nil {
+		previous, readErr := localstate.ReadServiceConfigForJoin(configPath)
+		if readErr != nil {
+			_ = st.Close()
+			return nil, fmt.Errorf("inspect existing agent service configuration: %w", readErr)
+		}
+		canClearPreSendConfig := cfg.NodeID == "" && (!hasAttempt || priorOutcome == "rejected")
+		if canClearPreSendConfig && (previous.State == "pending" || previous.State == "recovery_required") {
+			if err := os.Remove(configPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+				_ = st.Close()
+				return nil, fmt.Errorf("remove stale pre-send enrollment configuration: %w", err)
+			}
+		} else if previous.State == "recovery_required" {
+			_ = st.Close()
+			hostnameHint := "the exact hostname printed by that join attempt"
+			outcomeHint := ""
+			if priorAttempt.Hostname != "" {
+				hostnameHint = fmt.Sprintf("the exact hostname printed by that join attempt (%q)", priorAttempt.Hostname)
+			}
+			if hasAttempt {
+				outcomeHint = fmt.Sprintf(" with persisted outcome %q", priorOutcome)
+			}
+			return nil, fmt.Errorf("a previous join may have reached the handler at %s%s; do not replay its token. Use %s and this time to find the Fleet row, verify the exact node ID, then rotate credentials through admin Fleet; stop if the match is missing or ambiguous", previous.EnrollmentStartedAt, outcomeHint, hostnameHint)
+		} else {
+			_ = st.Close()
+			return nil, fmt.Errorf("agent service configuration already exists; refusing a second enrollment attempt")
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		_ = st.Close()
+		return nil, fmt.Errorf("inspect existing agent service configuration: %w", statErr)
+	}
+	credentialPath := localstate.CredentialPath(dataDir)
+	if _, err := os.Lstat(credentialPath); err == nil {
+		_ = st.Close()
+		return nil, fmt.Errorf("agent node credential already exists; refusing to overwrite local identity")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		_ = st.Close()
+		return nil, fmt.Errorf("inspect existing agent credential: %w", err)
+	}
+	if cfg.NodeID != "" {
+		_ = st.Close()
+		return nil, fmt.Errorf("agent already has node identity %q; refusing duplicate enrollment", cfg.NodeID)
+	}
 	if hasAttempt && priorOutcome != "rejected" {
 		_ = st.Close()
-		return nil, fmt.Errorf("a prior enrollment attempt has outcome %q and may have reached the handler; do not replay its token. Use the exact hostname and enrollment time printed by the original join attempt to find the Fleet row, verify the exact node ID, then rotate credentials through admin Fleet; stop if the match is missing or ambiguous", priorOutcome)
+		return nil, fmt.Errorf("%s", priorJoinReplayBlock(priorAttempt))
 	}
 	serviceConfig := localstate.ServiceConfig{
 		State:          "pending",
@@ -138,6 +177,12 @@ func Prepare(options Options) (*Prepared, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	if inject != nil {
+		if err := inject(crashAfterPendingConfig); err != nil {
+			_ = st.Close()
+			return nil, err
+		}
+	}
 	keepLock = true
 	return &Prepared{
 		options:        options,
@@ -147,6 +192,7 @@ func Prepare(options Options) (*Prepared, error) {
 		serviceConfig:  serviceConfig,
 		store:          st,
 		joinLock:       joinLock,
+		crashInjector:  inject,
 	}, nil
 }
 
@@ -192,8 +238,12 @@ func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.Agent
 	if err := localstate.WriteServiceConfig(p.configPath, p.serviceConfig); err != nil {
 		return empty, fmt.Errorf("persist pending enrollment state before network request: %w", err)
 	}
+	if err := p.injectCrash(crashAfterRecoveryConfig); err != nil {
+		return empty, err
+	}
 	if err := p.store.SaveJoinAttempt(store.JoinAttempt{
 		Server:    p.options.Server,
+		Hostname:  p.options.Hostname,
 		StartedAt: started,
 		Outcome:   "submitted",
 	}); err != nil {
@@ -205,11 +255,14 @@ func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.Agent
 	if err != nil {
 		var rejected *client.EnrollmentOutcomeRejectedError
 		if errors.As(err, &rejected) {
-			if removeErr := os.Remove(p.configPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-				return empty, fmt.Errorf("enrollment was rejected before transmission, but local pending state could not be cleared: %w", removeErr)
-			}
 			if updateErr := p.store.UpdateJoinAttemptOutcome("rejected"); updateErr != nil {
 				return empty, fmt.Errorf("enrollment was rejected before transmission, but the rejected outcome could not be persisted: %w", updateErr)
+			}
+			if err := p.injectCrash(crashAfterRejectedOutcome); err != nil {
+				return empty, err
+			}
+			if removeErr := os.Remove(p.configPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				return empty, fmt.Errorf("enrollment was rejected before transmission, but local pending state could not be cleared: %w", removeErr)
 			}
 			p.submitted = false
 			return empty, err
@@ -243,6 +296,21 @@ func (p *Prepared) Enroll(ctx context.Context, joinToken string) (protocol.Agent
 		return empty, fmt.Errorf("node %s was enrolled and credential metadata was saved, but the service config could not be finalized; the agent will not start until it is repaired", response.NodeID)
 	}
 	return response, nil
+}
+
+func priorJoinReplayBlock(attempt store.JoinAttempt) string {
+	details := "Use the exact hostname and enrollment time printed by the original join attempt"
+	if attempt.Hostname != "" && !attempt.StartedAt.IsZero() {
+		details = fmt.Sprintf("Use the exact hostname %q and enrollment time %s stored for the original join attempt", attempt.Hostname, attempt.StartedAt.UTC().Format(time.RFC3339Nano))
+	}
+	return fmt.Sprintf("a prior enrollment attempt has outcome %q and may have reached the handler; do not replay its token. %s to find the Fleet row, verify the exact node ID, then rotate credentials through admin Fleet; stop if the match is missing or ambiguous", attempt.Outcome, details)
+}
+
+func (p *Prepared) injectCrash(point crashPoint) error {
+	if p.crashInjector == nil {
+		return nil
+	}
+	return p.crashInjector(point)
 }
 
 func (p *Prepared) markOutcomeUnknown(started time.Time, cause error) error {

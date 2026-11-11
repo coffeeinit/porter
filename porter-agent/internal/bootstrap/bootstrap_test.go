@@ -131,8 +131,12 @@ func TestPortableBootstrapAndJoin(t *testing.T) {
 		t.Fatalf("SQLite identity config = %#v", configValues)
 	}
 	var hostnameColumns int
-	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('enrollment_attempt') WHERE name='hostname'`).Scan(&hostnameColumns); err != nil || hostnameColumns != 0 {
-		t.Fatalf("SQLite enrollment_attempt hostname columns=%d err=%v, want no hostname column", hostnameColumns, err)
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('enrollment_attempt') WHERE name='hostname'`).Scan(&hostnameColumns); err != nil || hostnameColumns != 1 {
+		t.Fatalf("SQLite enrollment_attempt hostname columns=%d err=%v, want one recovery-metadata column", hostnameColumns, err)
+	}
+	var storedHostname string
+	if err := db.QueryRow(`SELECT hostname FROM enrollment_attempt WHERE id=1`).Scan(&storedHostname); err != nil || storedHostname != "portable-agent" {
+		t.Fatalf("SQLite recovery hostname=%q err=%v, want portable-agent", storedHostname, err)
 	}
 	var outcome string
 	if err := db.QueryRow(`SELECT outcome FROM enrollment_attempt WHERE id=1`).Scan(&outcome); err != nil || outcome != "registered" {
@@ -179,6 +183,10 @@ func TestPortableLostEnrollmentResponseCannotBeRetried(t *testing.T) {
 	if stateErr != nil || !found || outcome != "outcome_unknown" {
 		t.Fatalf("lost-201 recovery outcome = (%q, %t, %v), want persisted outcome_unknown", outcome, found, stateErr)
 	}
+	attempt, found, stateErr := prepared.store.JoinAttemptRecovery()
+	if stateErr != nil || !found || attempt.Hostname != "portable-agent" || attempt.StartedAt.IsZero() || attempt.Outcome != "outcome_unknown" {
+		t.Fatalf("lost-201 recovery metadata = (%+v, %t, %v), want hostname/time/outcome persisted", attempt, found, stateErr)
+	}
 	if _, err := os.Stat(prepared.ServiceConfigPath()); err != nil {
 		t.Fatalf("recovery-required service config was removed: %v", err)
 	}
@@ -187,7 +195,7 @@ func TestPortableLostEnrollmentResponseCannotBeRetried(t *testing.T) {
 		t.Fatalf("recovery config = %+v err=%v, want recorded attempt time without hostname persistence", recovery, err)
 	}
 	_ = prepared.Close()
-	if _, err := Prepare(Options{Server: server.URL, Hostname: "portable-agent", StateDir: dataDir}); err == nil || !strings.Contains(err.Error(), "exact hostname printed") || !strings.Contains(err.Error(), "exact node ID") || !strings.Contains(err.Error(), "admin Fleet") || !strings.Contains(err.Error(), "ambiguous") {
+	if _, err := Prepare(Options{Server: server.URL, Hostname: "portable-agent", StateDir: dataDir}); err == nil || !strings.Contains(err.Error(), "exact hostname printed") || !strings.Contains(err.Error(), "portable-agent") || !strings.Contains(err.Error(), "exact node ID") || !strings.Contains(err.Error(), "admin Fleet") || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("Prepare with recovery config = %v, want exact Fleet lookup and rotation guidance", err)
 	}
 	if err := os.Remove(filepath.Join(dataDir, "agent-service.json")); err != nil {
@@ -351,6 +359,49 @@ func TestJoinEveryNon201ResponsePersistsUnknownAndBlocksReplay(t *testing.T) {
 	}
 }
 
+func TestMalformed201PersistsUnknownAndBlocksReplay(t *testing.T) {
+	joinToken := testJoinTokenForBootstrap()
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(protocol.AgentEnrollmentResponseV2{
+			ProtocolVersion: protocol.VersionV2, NodeID: "node_malformed", NodeToken: strings.Repeat("n", 43),
+			EnrollmentTarget: "remote_host", ControlPlaneURL: "https://" + r.Host,
+			CredentialGeneration: 1, State: "offline",
+		})
+		_, _ = io.WriteString(w, `{"second":"json value"}`)
+	}))
+	defer server.Close()
+	options := Options{
+		Server: server.URL, Hostname: "malformed-201-worker", StateDir: filepath.Join(t.TempDir(), "agent-state"),
+		TLS: client.TLSOptions{ServerCAFile: writeTestCA(t, server)},
+	}
+	prepared, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("prepare join: %v", err)
+	}
+	_, joinErr := prepared.Enroll(context.Background(), joinToken)
+	var unknown *client.EnrollmentOutcomeUnknownError
+	if !errors.As(joinErr, &unknown) || !strings.Contains(joinErr.Error(), "do not replay") {
+		t.Fatalf("malformed 201 join error = %v, want outcome_unknown/no-replay", joinErr)
+	}
+	attempt, found, err := prepared.store.JoinAttemptRecovery()
+	if err != nil || !found || attempt.Outcome != "outcome_unknown" || attempt.Hostname != options.Hostname || attempt.StartedAt.IsZero() {
+		t.Fatalf("malformed 201 recovery record = (%+v, %t, %v), want persisted unknown outcome/hostname/time", attempt, found, err)
+	}
+	if err := prepared.Close(); err != nil {
+		t.Fatalf("close recovery-required join: %v", err)
+	}
+	if _, err := Prepare(options); err == nil || !strings.Contains(err.Error(), "malformed-201-worker") || !strings.Contains(err.Error(), "outcome_unknown") || !strings.Contains(err.Error(), "do not replay") {
+		t.Fatalf("restart after malformed 201 = %v, want persisted replay block with hostname", err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("malformed 201 caused %d enrollment requests after restart, want exactly one", got)
+	}
+}
+
 func TestJoin503AfterRequestBeginsPersistsUnknownAndBlocksReplay(t *testing.T) {
 	joinToken := "ptenr_" + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x53}, 32))
 	var requests atomic.Int32
@@ -402,6 +453,113 @@ func TestJoin503AfterRequestBeginsPersistsUnknownAndBlocksReplay(t *testing.T) {
 	}
 	if got := requests.Load(); got != 1 {
 		t.Fatalf("restart/recovery sent another enrollment request: total=%d, want one", got)
+	}
+}
+
+func TestCrashAfterPendingConfigAllowsSafeRestart(t *testing.T) {
+	options := Options{Server: "https://control.example", Hostname: "pending-crash-worker", StateDir: filepath.Join(t.TempDir(), "agent-state")}
+	crashErr := errors.New("injected crash after pending config")
+	_, err := prepareWithCrashInjector(options, func(point crashPoint) error {
+		if point == crashAfterPendingConfig {
+			return crashErr
+		}
+		return nil
+	})
+	if !errors.Is(err, crashErr) {
+		t.Fatalf("prepare with pending-config crash = %v, want injected crash", err)
+	}
+	configPath := filepath.Join(options.StateDir, "agent-service.json")
+	if config, err := localstate.ReadServiceConfigPending(configPath); err != nil || config.State != "pending" {
+		t.Fatalf("persisted pre-send config = %+v, err=%v; want pending", config, err)
+	}
+
+	restarted, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("restart after pending-config crash: %v", err)
+	}
+	defer restarted.Close()
+	if config, err := localstate.ReadServiceConfigPending(configPath); err != nil || config.State != "pending" {
+		t.Fatalf("restarted config = %+v, err=%v; want fresh pending config", config, err)
+	}
+	_, outcome, found, err := restarted.store.JoinAttemptOutcome()
+	if err != nil || found {
+		t.Fatalf("join attempt after pre-send crash = (%q, %t, %v), want no recorded request", outcome, found, err)
+	}
+}
+
+func TestCrashAfterRecoveryConfigBeforeSendAllowsSafeRestart(t *testing.T) {
+	options := Options{Server: "https://control.example", Hostname: "recovery-config-crash-worker", StateDir: filepath.Join(t.TempDir(), "agent-state")}
+	prepared, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("prepare join: %v", err)
+	}
+	crashErr := errors.New("injected crash after recovery config")
+	prepared.crashInjector = func(point crashPoint) error {
+		if point == crashAfterRecoveryConfig {
+			return crashErr
+		}
+		return nil
+	}
+	_, err = prepared.Enroll(context.Background(), testJoinTokenForBootstrap())
+	if !errors.Is(err, crashErr) {
+		t.Fatalf("enroll with recovery-config crash = %v, want injected crash", err)
+	}
+	if config, err := localstate.ReadServiceConfigForJoin(prepared.ServiceConfigPath()); err != nil || config.State != "recovery_required" {
+		t.Fatalf("persisted recovery config = %+v, err=%v", config, err)
+	}
+	if _, outcome, found, err := prepared.store.JoinAttemptOutcome(); err != nil || found {
+		t.Fatalf("join attempt at pre-send crash = (%q, %t, %v), want none", outcome, found, err)
+	}
+	closeWithoutJoinCleanup(t, prepared)
+
+	restarted, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("restart after recovery-config crash: %v", err)
+	}
+	defer restarted.Close()
+	if config, err := localstate.ReadServiceConfigPending(restarted.ServiceConfigPath()); err != nil || config.State != "pending" {
+		t.Fatalf("restart config = %+v, err=%v; want pending", config, err)
+	}
+}
+
+func TestCrashAfterRejectedOutcomeIsReconciledOnRestart(t *testing.T) {
+	options := Options{Server: "https://control.example", Hostname: "rejected-crash-worker", StateDir: filepath.Join(t.TempDir(), "agent-state")}
+	prepared, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("prepare join: %v", err)
+	}
+	prepared.options.Hostname = strings.Repeat("x", 129)
+	crashErr := errors.New("injected crash after rejected outcome")
+	prepared.crashInjector = func(point crashPoint) error {
+		if point == crashAfterRejectedOutcome {
+			return crashErr
+		}
+		return nil
+	}
+	_, err = prepared.Enroll(context.Background(), testJoinTokenForBootstrap())
+	if !errors.Is(err, crashErr) {
+		t.Fatalf("enroll with rejected-outcome crash = %v, want injected crash", err)
+	}
+	_, outcome, found, err := prepared.store.JoinAttemptOutcome()
+	if err != nil || !found || outcome != "rejected" {
+		t.Fatalf("SQLite join outcome before injected crash = (%q, %t, %v), want rejected", outcome, found, err)
+	}
+	if config, err := localstate.ReadServiceConfigForJoin(prepared.ServiceConfigPath()); err != nil || config.State != "recovery_required" {
+		t.Fatalf("config before injected crash = %+v, err=%v; want recovery_required", config, err)
+	}
+	closeWithoutJoinCleanup(t, prepared)
+
+	restarted, err := Prepare(options)
+	if err != nil {
+		t.Fatalf("restart after rejected-outcome crash: %v", err)
+	}
+	defer restarted.Close()
+	if config, err := localstate.ReadServiceConfigPending(restarted.ServiceConfigPath()); err != nil || config.State != "pending" {
+		t.Fatalf("reconciled config = %+v, err=%v; want pending", config, err)
+	}
+	_, outcome, found, err = restarted.store.JoinAttemptOutcome()
+	if err != nil || !found || outcome != "rejected" {
+		t.Fatalf("persisted rejected outcome after restart = (%q, %t, %v)", outcome, found, err)
 	}
 }
 
@@ -500,5 +658,27 @@ func TestJoinIncludesLocalHostnameWhenNoExplicitHostnameIsSet(t *testing.T) {
 	_ = prepared.Close()
 	if calls.Load() != 1 {
 		t.Fatalf("enrollment requests=%d, want 1", calls.Load())
+	}
+}
+
+func testJoinTokenForBootstrap() string {
+	return "ptenr_" + base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{0x6d}, 32))
+}
+
+// closeWithoutJoinCleanup models process death: release OS resources without
+// running Prepared.Close, which would otherwise perform graceful cancellation.
+func closeWithoutJoinCleanup(t *testing.T, prepared *Prepared) {
+	t.Helper()
+	if prepared.store != nil {
+		if err := prepared.store.Close(); err != nil {
+			t.Errorf("close SQLite store after simulated crash: %v", err)
+		}
+		prepared.store = nil
+	}
+	if prepared.joinLock != nil {
+		if err := prepared.joinLock.Close(); err != nil {
+			t.Errorf("close join lock after simulated crash: %v", err)
+		}
+		prepared.joinLock = nil
 	}
 }

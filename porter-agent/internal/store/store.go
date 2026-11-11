@@ -23,6 +23,7 @@ type Config struct {
 
 type JoinAttempt struct {
 	Server    string
+	Hostname  string
 	StartedAt time.Time
 	Outcome   string
 }
@@ -55,9 +56,13 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS config(k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS vms(id TEXT PRIMARY KEY, replica_id TEXT, state TEXT NOT NULL, pid INTEGER NOT NULL DEFAULT 0, socket TEXT NOT NULL DEFAULT '', tap_name TEXT NOT NULL DEFAULT '', guest_ip TEXT NOT NULL DEFAULT '', port INTEGER NOT NULL DEFAULT 0, health TEXT NOT NULL DEFAULT 'checking', error TEXT NOT NULL DEFAULT '', updated_at TIMESTAMP NOT NULL);
 CREATE TABLE IF NOT EXISTS command_result_outbox(command_id TEXT NOT NULL, attempt INTEGER NOT NULL CHECK(attempt > 0), result_json TEXT NOT NULL, created_at_ns INTEGER NOT NULL, PRIMARY KEY(command_id,attempt));
-CREATE TABLE IF NOT EXISTS enrollment_attempt(id INTEGER PRIMARY KEY CHECK(id=1), server TEXT NOT NULL, started_at TIMESTAMP NOT NULL, outcome TEXT NOT NULL);`); err != nil {
+CREATE TABLE IF NOT EXISTS enrollment_attempt(id INTEGER PRIMARY KEY CHECK(id=1), server TEXT NOT NULL, hostname TEXT NOT NULL DEFAULT '', started_at TIMESTAMP NOT NULL, outcome TEXT NOT NULL);`); err != nil {
 		_ = db.Close()
 		return nil, err
+	}
+	if err := ensureEnrollmentAttemptHostnameColumn(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("ensure enrollment recovery hostname metadata: %w", err)
 	}
 	// This table is only the local node identity pointer. Remove every legacy
 	// or unsupported setting, including secrets and installer/runtime paths.
@@ -66,6 +71,18 @@ CREATE TABLE IF NOT EXISTS enrollment_attempt(id INTEGER PRIMARY KEY CHECK(id=1)
 		return nil, fmt.Errorf("remove unsupported identity config entries: %w", err)
 	}
 	return s, nil
+}
+
+func ensureEnrollmentAttemptHostnameColumn(db *sql.DB) error {
+	var columns int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('enrollment_attempt') WHERE name='hostname'`).Scan(&columns); err != nil {
+		return err
+	}
+	if columns != 0 {
+		return nil
+	}
+	_, err := db.Exec(`ALTER TABLE enrollment_attempt ADD COLUMN hostname TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
@@ -114,12 +131,12 @@ func (s *Store) LoadConfig() (Config, error) {
 }
 
 func (s *Store) SaveJoinAttempt(attempt JoinAttempt) error {
-	if attempt.Server == "" || attempt.StartedAt.IsZero() || attempt.Outcome == "" {
+	if attempt.Server == "" || attempt.Hostname == "" || attempt.StartedAt.IsZero() || attempt.Outcome == "" {
 		return fmt.Errorf("join attempt recovery metadata is incomplete")
 	}
-	_, err := s.db.Exec(`INSERT INTO enrollment_attempt(id,server,started_at,outcome) VALUES(1,?,?,?)
-ON CONFLICT(id) DO UPDATE SET server=excluded.server,started_at=excluded.started_at,outcome=excluded.outcome`,
-		attempt.Server, attempt.StartedAt.UTC(), attempt.Outcome)
+	_, err := s.db.Exec(`INSERT INTO enrollment_attempt(id,server,hostname,started_at,outcome) VALUES(1,?,?,?,?)
+ON CONFLICT(id) DO UPDATE SET server=excluded.server,hostname=excluded.hostname,started_at=excluded.started_at,outcome=excluded.outcome`,
+		attempt.Server, attempt.Hostname, attempt.StartedAt.UTC(), attempt.Outcome)
 	return err
 }
 

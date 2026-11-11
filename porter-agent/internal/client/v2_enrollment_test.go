@@ -156,6 +156,46 @@ func TestEnrollV2ClassifiesEveryNon201ResponseAsUnknownWithoutRetry(t *testing.T
 	}
 }
 
+func TestEnrollV2RejectsTrailingDataAfter201AsUnknownWithoutRetry(t *testing.T) {
+	valid, err := json.Marshal(protocol.AgentEnrollmentResponseV2{
+		ProtocolVersion: protocol.VersionV2, NodeID: "node_issued", NodeToken: strings.Repeat("n", 43),
+		EnrollmentTarget: "remote_host", ControlPlaneURL: "https://control.example",
+		CredentialGeneration: 1, State: "offline",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		suffix string
+	}{
+		{name: "trailing garbage", suffix: "garbage"},
+		{name: "second JSON value", suffix: ` {"extra":true}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			body := string(valid) + test.suffix
+			httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				return &http.Response{
+					StatusCode: http.StatusCreated, Status: "201 Created", Header: make(http.Header),
+					Body: io.NopCloser(strings.NewReader(body)), Request: request,
+				}, nil
+			})}
+			_, err := enrollV2WithClient(context.Background(), "https://control.example", testJoinToken(), protocol.AgentEnrollmentRequestV2{
+				ProtocolVersion: protocol.VersionV2, Hostname: "agent-01",
+			}, httpClient)
+			var unknown *EnrollmentOutcomeUnknownError
+			if !errors.As(err, &unknown) || !strings.Contains(err.Error(), "do not replay") {
+				t.Fatalf("malformed 201 error = %v, want outcome_unknown/no-replay", err)
+			}
+			if calls != 1 {
+				t.Fatalf("client sent %d requests for malformed 201, want exactly one", calls)
+			}
+		})
+	}
+}
+
 func TestEnrollV2ClassifiesLocalValidationAsRejectedBeforeRequest(t *testing.T) {
 	calls := 0
 	server := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

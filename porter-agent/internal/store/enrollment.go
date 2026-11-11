@@ -5,17 +5,27 @@ import (
 	"errors"
 )
 
-// JoinAttemptOutcome returns the last control-plane URL and enrollment outcome
-// without retaining the hostname or either enrollment/node token.
+// JoinAttemptOutcome returns the last control-plane URL and enrollment outcome.
 func (s *Store) JoinAttemptOutcome() (string, string, bool, error) {
-	var server string
-	var outcome string
-	err := s.db.QueryRow(`SELECT server,outcome FROM enrollment_attempt WHERE id=1`).Scan(&server, &outcome)
+	attempt, found, err := s.JoinAttemptRecovery()
+	if err != nil || !found {
+		return "", "", found, err
+	}
+	return attempt.Server, attempt.Outcome, true, nil
+}
+
+// JoinAttemptRecovery returns non-secret local recovery metadata. The join and
+// node bearer credentials are never persisted in this record.
+func (s *Store) JoinAttemptRecovery() (JoinAttempt, bool, error) {
+	var attempt JoinAttempt
+	err := s.db.QueryRow(`SELECT server,hostname,started_at,outcome FROM enrollment_attempt WHERE id=1`).Scan(
+		&attempt.Server, &attempt.Hostname, &attempt.StartedAt, &attempt.Outcome,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", false, nil
+		return JoinAttempt{}, false, nil
 	}
 	if err != nil {
-		return "", "", false, err
+		return JoinAttempt{}, false, err
 	}
-	return server, outcome, true, nil
+	return attempt, true, nil
 }
