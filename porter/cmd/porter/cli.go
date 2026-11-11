@@ -47,6 +47,10 @@ func runCLI(args []string) int {
 	if base == "" {
 		base = defaultOperatorURL
 	}
+	if !isHTTPSOrigin(base) {
+		fmt.Fprintln(os.Stderr, "PORTER_URL must be an HTTPS origin without a path, query, fragment, or user information")
+		return 2
+	}
 	token := os.Getenv("PORTER_TOKEN")
 	if token == "" {
 		fmt.Fprintln(os.Stderr, "PORTER_TOKEN is required")

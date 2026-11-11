@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,6 +26,12 @@ type cliObservedRequest struct {
 	contentType   string
 	tls           bool
 	body          []byte
+}
+
+type cliRoundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f cliRoundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }
 
 type cliContractBackend struct {
@@ -269,6 +276,28 @@ func TestRunCLIUsesPostgresFleetContract(t *testing.T) {
 	status, _, stderr = runCLIWithOutput(t, "status")
 	if status != 1 || !strings.Contains(stderr, "401 Unauthorized") || strings.Contains(stderr, "operator-token-for-cli-contract-test") {
 		t.Fatalf("invalid operator auth was not safely rejected: code=%d stderr=%q", status, stderr)
+	}
+}
+
+func TestRunCLIRejectsNonHTTPSOperatorURLBeforeRequest(t *testing.T) {
+	requestCount := 0
+	previousTransport := http.DefaultTransport
+	http.DefaultTransport = cliRoundTripperFunc(func(*http.Request) (*http.Response, error) {
+		requestCount++
+		return nil, errors.New("unexpected HTTP request")
+	})
+	t.Cleanup(func() { http.DefaultTransport = previousTransport })
+	t.Setenv("PORTER_TOKEN", cliTestOperatorToken)
+
+	for _, operatorURL := range []string{"http://remote.example.com", "http://127.0.0.1:8080"} {
+		t.Setenv("PORTER_URL", operatorURL)
+		status, _, stderr := runCLIWithOutput(t, "status")
+		if status != 2 || !strings.Contains(stderr, "PORTER_URL must be an HTTPS origin") {
+			t.Errorf("plaintext URL %q was not rejected clearly: code=%d stderr=%q", operatorURL, status, stderr)
+		}
+		if requestCount != 0 {
+			t.Fatalf("plaintext URL %q caused %d outbound requests", operatorURL, requestCount)
+		}
 	}
 }
 
