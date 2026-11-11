@@ -1,5 +1,6 @@
 [Unit]
 Description=Apply Porter PostgreSQL schema migrations
+Before=porter.service
 After=network-online.target
 Wants=network-online.target
 
@@ -8,6 +9,7 @@ Type=oneshot
 User=porter
 Group=porter
 LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn
+LoadCredential=porter-admin-token:/etc/porter/porter-admin-token
 UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN
 ExecStart=/usr/local/bin/porter-migrate apply
 NoNewPrivileges=true

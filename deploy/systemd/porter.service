@@ -1,13 +1,14 @@
 [Unit]
 Description=Porter control plane
 After=network-online.target
+Requires=porter-migrate.service
+After=porter-migrate.service
 Wants=network-online.target
 
 [Service]
 Type=simple
 User=porter
 Group=porter
-EnvironmentFile=/etc/porter/porter.env
 LoadCredential=porter-admin-token:/etc/porter/porter-admin-token
 LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn
 UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN

@@ -204,28 +204,44 @@ func TestPostgresPanelHandlerRequiresSafeContractMarker(t *testing.T) {
 func TestSystemdUnitsUseCredentialFilesForPorterUser(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
+		serviceType string
 		credentials []string
+		ordering    []string
 	}{
-		{name: "porter.service", credentials: []string{
+		{name: "porter.service", serviceType: "simple", credentials: []string{
 			"LoadCredential=porter-admin-token:/etc/porter/porter-admin-token",
 			"LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn",
-		}},
-		{name: "porter-migrate.service", credentials: []string{
+		}, ordering: []string{"Requires=porter-migrate.service", "After=porter-migrate.service"}},
+		{name: "porter-migrate.service", serviceType: "oneshot", credentials: []string{
 			"LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn",
-		}},
+			"LoadCredential=porter-admin-token:/etc/porter/porter-admin-token",
+		}, ordering: []string{"Before=porter.service"}},
 	} {
 		contents, err := os.ReadFile(filepath.Join("..", "..", "..", "deploy", "systemd", tc.name))
 		if err != nil {
 			t.Fatalf("read %s: %v", tc.name, err)
 		}
 		unit := string(contents)
-		for _, required := range append([]string{"User=porter", "Group=porter", "UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN"}, tc.credentials...) {
-			if !strings.Contains(unit, required) {
+		requiredSettings := append([]string{"Type=" + tc.serviceType, "User=porter", "Group=porter", "UnsetEnvironment=PORTER_POSTGRES_DSN PORTER_ADMIN_TOKEN"}, tc.credentials...)
+		requiredSettings = append(requiredSettings, tc.ordering...)
+		for _, required := range requiredSettings {
+			if !containsExactLine(unit, required) {
 				t.Errorf("%s missing %q", tc.name, required)
 			}
 		}
-		if tc.name == "porter-migrate.service" && strings.Contains(unit, "EnvironmentFile=") {
-			t.Error("migrator unit still reads an EnvironmentFile")
+		if strings.Contains(unit, "EnvironmentFile=") {
+			t.Errorf("%s still reads an EnvironmentFile", tc.name)
+		}
+		for _, line := range strings.Split(unit, "\n") {
+			line = strings.TrimSpace(line)
+			if !strings.HasPrefix(line, "Environment=") && !strings.HasPrefix(line, "SetEnvironment=") && !strings.HasPrefix(line, "PassEnvironment=") && !strings.HasPrefix(line, "Exec") {
+				continue
+			}
+			for _, secret := range []string{"PORTER_POSTGRES_DSN", "PORTER_ADMIN_TOKEN", "--dsn", "--admin-token"} {
+				if strings.Contains(line, secret) {
+					t.Errorf("%s contains forbidden secret fallback %q", tc.name, secret)
+				}
+			}
 		}
 		if tc.name == "porter.service" && (strings.Contains(unit, "ReadWritePaths=/var/lib/porter") || strings.Contains(unit, "StateDirectory=porter")) {
 			t.Error("PostgreSQL-only server unit grants legacy local database state writes")
@@ -235,7 +251,20 @@ func TestSystemdUnitsUseCredentialFilesForPorterUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read root Makefile: %v", err)
 	}
-	for _, required := range []string{"build: porter agent porter-migrate", "porter-migrate:", "-o ../$(BIN)/porter-migrate ./cmd/porter-migrate"} {
+	for _, required := range []string{
+		"build: porter agent porter-migrate",
+		"porter-migrate:",
+		"-o ../$(BIN)/porter-migrate ./cmd/porter-migrate",
+		"install: porter porter-migrate",
+		"install -D -m 0755 $(BIN)/porter $(DESTDIR)/usr/local/bin/porter",
+		"install -D -m 0755 $(BIN)/porter-migrate $(DESTDIR)/usr/local/bin/porter-migrate",
+		"install -D -m 0644 deploy/systemd/porter.service $(DESTDIR)$(SYSTEMD_UNIT_DIR)/porter.service",
+		"install -D -m 0644 deploy/systemd/porter-migrate.service $(DESTDIR)$(SYSTEMD_UNIT_DIR)/porter-migrate.service",
+		"systemd >= 247 is required",
+		"systemd --version",
+		"[ \"$$version\" -ge 247 ]",
+		"if [ -z \"$(DESTDIR)\" ]; then systemctl daemon-reload; fi",
+	} {
 		if !strings.Contains(string(makefile), required) {
 			t.Errorf("root Makefile missing %q", required)
 		}
@@ -250,6 +279,15 @@ func TestSystemdUnitsUseCredentialFilesForPorterUser(t *testing.T) {
 	if _, err := systemdcred.ReadPostgresDSN(func(string) string { return "" }); err == nil || !strings.Contains(err.Error(), "systemd >= 247") {
 		t.Fatal("missing LoadCredential environment did not fail closed with the systemd minimum")
 	}
+}
+
+func containsExactLine(contents, want string) bool {
+	for _, line := range strings.Split(contents, "\n") {
+		if strings.TrimSpace(line) == want {
+			return true
+		}
+	}
+	return false
 }
 
 func startPostgresAPITestServer(t *testing.T, dsn string) (*httptest.Server, func(), http.Handler) {
