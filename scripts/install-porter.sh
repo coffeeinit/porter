@@ -158,14 +158,9 @@ validate_unit() {
         fail("unsupported alternate credential source")
       if (key == "LoadCredential") {
         if (section != "Service") fail("LoadCredential must be in Service")
-        if (kind == "server") {
-          if (value == "porter-admin-token:/etc/porter/porter-admin-token") admin_credential++
-          else if (value == "porter-postgres-dsn:/etc/porter/porter-postgres-dsn") postgres_credential++
-          else fail("unexpected or fallback credential source")
-        } else {
-          if (value == "porter-postgres-dsn:/etc/porter/porter-postgres-dsn") postgres_credential++
-          else fail("unexpected or fallback credential source")
-        }
+        if (value == "porter-admin-token:/etc/porter/porter-admin-token") admin_credential++
+        else if (value == "porter-postgres-dsn:/etc/porter/porter-postgres-dsn") postgres_credential++
+        else fail("unexpected or fallback credential source")
       } else if (directives[section SUBSEP key]++) {
         fail("duplicate or conflicting directive")
       }
@@ -188,14 +183,12 @@ validate_unit() {
     END {
       if (!sections["Service"]) fail("missing Service section")
       if (exec_count != 1) fail("expected exactly one ExecStart")
+      if (admin_credential != 1 || postgres_credential != 1)
+        fail("expected exactly one admin and one PostgreSQL LoadCredential")
       if (kind == "server") {
-        if (admin_credential != 1 || postgres_credential != 1)
-          fail("expected exactly one admin and one PostgreSQL LoadCredential")
         if (envfile_count != 1) fail("expected exactly one approved EnvironmentFile")
-      } else {
-        if (postgres_credential != 1) fail("expected exactly one PostgreSQL LoadCredential")
-        if (admin_credential != 0 || envfile_count != 0)
-          fail("unexpected credential or EnvironmentFile fallback")
+      } else if (envfile_count != 0) {
+        fail("unexpected EnvironmentFile fallback")
       }
       if (invalid) exit 1
     }
@@ -220,6 +213,7 @@ validate_unit() {
       'Type=oneshot'
       'User=porter'
       'Group=porter'
+      'LoadCredential=porter-admin-token:/etc/porter/porter-admin-token'
       'LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn'
       'ExecStart=/usr/local/bin/porter-migrate apply'
     )

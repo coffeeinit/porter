@@ -64,6 +64,7 @@ After=postgresql.service
 Type=oneshot
 User=porter
 Group=porter
+LoadCredential=porter-admin-token:/etc/porter/porter-admin-token
 LoadCredential=porter-postgres-dsn:/etc/porter/porter-postgres-dsn
 ExecStart=/usr/local/bin/porter-migrate apply
 UNIT
@@ -561,6 +562,14 @@ expect_preflight_rejection missing-migration-unit "$MISSING_ROOT" "$WORK/missing
 write_valid_units
 cp "$FIXTURE_ROOT/deploy/systemd/porter.service" "$WORK/porter.service.valid"
 cp "$FIXTURE_ROOT/deploy/systemd/porter-migrate.service" "$WORK/porter-migrate.service.valid"
+
+MISSING_MIGRATOR_ADMIN_ROOT="$WORK/missing-migrator-admin-root"
+mkdir -p "$MISSING_MIGRATOR_ADMIN_ROOT"
+sed -i '/^LoadCredential=porter-admin-token:\/etc\/porter\/porter-admin-token$/d' \
+  "$FIXTURE_ROOT/deploy/systemd/porter-migrate.service"
+expect_preflight_rejection missing-migrator-admin-credential "$MISSING_MIGRATOR_ADMIN_ROOT" \
+  "$WORK/missing-migrator-admin.log" 'expected exactly one admin and one PostgreSQL LoadCredential'
+cp "$WORK/porter-migrate.service.valid" "$FIXTURE_ROOT/deploy/systemd/porter-migrate.service"
 
 MISSING_SERVER_UNIT_ROOT="$WORK/missing-server-unit-root"
 mkdir -p "$MISSING_SERVER_UNIT_ROOT"
