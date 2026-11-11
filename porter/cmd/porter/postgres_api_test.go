@@ -54,7 +54,7 @@ func TestPostgresOnlyMuxRoutesAndNeverFallsBack(t *testing.T) {
 		{path: "/v1/fleet/join-tokens", wantStatus: http.StatusGone, wantCP: 1, wantAgent: 7},
 		{path: "/v1/projects", wantStatus: http.StatusGone, wantCP: 1, wantAgent: 7},
 		{path: "/v1", wantStatus: http.StatusGone, wantCP: 1, wantAgent: 7},
-		{path: "/", wantStatus: http.StatusServiceUnavailable, wantCP: 1, wantAgent: 7},
+		{path: "/", wantStatus: http.StatusOK, wantCP: 1, wantAgent: 7},
 	} {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, tc.path, nil))
@@ -70,8 +70,8 @@ func TestPostgresOnlyMuxRoutesAndNeverFallsBack(t *testing.T) {
 				t.Fatalf("retired route error envelope=%+v err=%v", envelope.Error, err)
 			}
 		}
-		if tc.path == "/" && (!strings.Contains(response.Body.String(), "not verified as PostgreSQL-only") || strings.Contains(response.Body.String(), "Demo preview")) {
-			t.Fatal("unsafe embedded panel was not clearly withheld")
+		if tc.path == "/" && (!strings.Contains(response.Body.String(), postgresPanelContractMarker) || strings.Contains(response.Body.String(), "Demo preview")) {
+			t.Fatal("unsafe or non-PostgreSQL embedded panel was served")
 		}
 	}
 }

@@ -376,3 +376,57 @@ Firecracker/KVM was explicitly out of scope for install/register acceptance and 
 ### Stop condition
 
 This handoff is the stop point. Do not continue implementation, copy candidate code, delete candidate branches/worktrees, push, merge, or open a PR without the owner’s explicit authorization. The only remaining action from this execution is the local documentation-only commit; report its SHA and the six issue drafts to the coordinator.
+
+
+## Current handoff — 2026-11-11, 19:57 IST
+
+**Status: MVP changes integrated on beta; NOT RELEASE-READY.** This section supersedes the earlier 19:30 stop/no-integration status above, the old issue drafts, and older statements that the panel is still withheld. The owner authorized moving the current Porter MVP changes to `work/porter-0.0.1-beta` and recording incomplete or unverified work here. Keep this update scoped to that beta branch: no `main`, force-push, source-branch deletion, PR, tag, or release.
+
+### Branch and provenance
+
+- Worktree: `/workspace/porter-beta-0.0.1-beta`; target branch: `work/porter-0.0.1-beta`.
+- The target started clean at `eee9a993e90faa747de9632ed181be6a6e7fa69f`; the prior local handoff-only commit `e1f4b7a0d31cc9835470b01665c81e144b7a5248` is preserved in the branch history.
+- Integrated the reviewed candidate histories with `cherry-pick -x`, preserving source provenance. Candidate tips included backend `3738acb0cd6db03fc153fb0784279047b795c26d`, packaging `7fb7351289633406b55e30232983d4135a12f86e`, migrator contract docs `65f25cdad8fefc94b7a25fd6ce1ff5f9eff2d4bb`, agent recovery `729670fea9aaee54b75b08b8b7325df42078616c`, operator CLI `7b112b2308387670fa0584c459557c4de6fc7005`, Fleet UI `6b59f8234004415e6538c73c11fa48ca6e783666`, and installer `4a4ae67964ebc991e1ba01d7a012143956f4532e`, with their required ancestors.
+- Added the PG16 installer harness under `tests/pg16-installer-acceptance/`; the nested README, runner, captured results, and run output are test evidence, not a real install claim.
+- Reconciled the integrated PostgreSQL-only UI root test to expect the marked dashboard (HTTP 200) rather than the pre-UI 503 placeholder. Aligned both environment examples and installer smoke assertions with the actual agent `EnvironmentFile` contract. The server installer now reports the real remaining gate and still exits before migrations or service activation.
+- Source candidate worktrees and refs were left in place and unchanged. No force-push or source-branch deletion was performed. The beta-only publication boundary does not include `main` or a release.
+
+### What is now in beta
+
+The beta branch contains the PostgreSQL Fleet API and agent enrollment path, PostgreSQL-only Fleet UI, protected operator CLI, enrollment recovery changes, systemd packaging and migrator unit, local PostgreSQL provisioning/preflight installer, credential-file reader, and installer smoke/harness coverage. The panel root serves the embedded bundle only if its PostgreSQL-only contract marker and route checks pass; old mock/demo content remains blocked. `porter-agent.service` loads `/etc/porter/porter-agent.env`, and the installer validates an existing file as root-owned mode `0600` before preserving it.
+
+The migrator implementation and unit now exist: `porter-migrate` reads only from systemd's `CREDENTIALS_DIRECTORY`, with no DSN argv/environment fallback. This does **not** establish real systemd credential delivery or a successful migration. `scripts/install-porter.sh` deliberately stops after preflight/provisioning and refuses migration/activation until real-host acceptance passes.
+
+### Checks run on the integrated beta
+
+- `make test` — passed for `protocol`, `porter`, and `porter-agent`.
+- `make vet` — passed for all three Go modules.
+- `node --test porter/web/index.test.mjs` — 16 passed, 0 failed.
+- `bash -n` for installer and PG16 harness scripts — passed.
+- `bash scripts/install-smoke.sh` — passed with fake PostgreSQL/systemd/package commands and temporary-root checks. It explicitly did not run a real migration, DB, package installation, service activation, or host install.
+- `systemd-analyze --root=<temporary-root> verify` — passed for the three checked-in units with placeholder executables and stub dependencies. This is static syntax/path verification only, not a live systemd install.
+- Changed Go files passed `gofmt`; `git diff --check` passed; no unresolved conflict markers remained.
+
+### Candidate evidence and limits
+
+- The backend/agent paired candidate run used private PostgreSQL 16 and exercised enrollment, heartbeat, agent restart, and recovery fault paths. Two reviewers inspected its report/transcript; they did not rerun it. The evidence is in `/workspace/porter-paired-acceptance-3738acb0-729670fe-20261111/`. One earlier node line was appended in the logs; the report itself consistently identifies the tested node, and no binary hash was retained.
+- The agent recovery candidate received two reviews. The exact hard-process-death boundary after durable `submitted` but before the HTTP request was not tested. Conservative no-replay behavior can require operator recovery.
+- Packaging/docs and the CLI candidate had two review passes. The Fleet UI candidate passed a disposable served-panel/browser exercise, but the UI-issued join token was not redeemed by a real installed agent.
+- Installer candidate `4a4ae67` passed two reviews for preflight-only changes. The separate 15-check PG16 provisioning run used that candidate at `31636e764adcb36c3580a4a16184eed58feea8df`; it did not run migrations or activate services. Its captured files are in `/workspace/porter-pg16-installer-acceptance-20261111/` and are not final integrated acceptance.
+- No real Ubuntu/Debian installation, live systemd credential consumption, successful migration/activation, two-agent UI token redemption, or Firecracker/KVM acceptance has passed on the final integrated branch. Do not describe beta as fully accepted or release-ready. Snapshot scope remains crash-consistent; application-consistent snapshots are not promised.
+- Use `/home/ubuntu/upload/CzUpXDxrMahUMQyX3V03o/INSTALL_REGISTER_ACCEPTANCE.md` as the detailed enrollment test ledger; mark unrun cases honestly.
+
+### Pending work tracked in GitHub
+
+Created six separate follow-up issues; these are acceptance/implementation work, not evidence that a gate has passed:
+
+1. [Verify credential-backed migration and activation](https://github.com/coffeeinit/porter/issues/3) — real `CREDENTIALS_DIRECTORY` delivery, migration-before-service ordering, failure gating, and secret redaction.
+2. [Prove a clean Ubuntu/Debian install and systemd lifecycle](https://github.com/coffeeinit/porter/issues/4) — real host install, permissions, service lifecycle, and installed agent.
+3. [Redeem Fleet UI join tokens with real installed agents](https://github.com/coffeeinit/porter/issues/5) — same-host and remote agents, durable PostgreSQL rows, UI state, restarts, and token hygiene.
+4. [Test the agent hard-crash boundary after durable submitted state](https://github.com/coffeeinit/porter/issues/6) — deterministic crash injection, no replay, and operator recovery.
+5. [Run real Firecracker/KVM beta acceptance](https://github.com/coffeeinit/porter/issues/7) — actual VM lifecycle and crash-consistent recovery on KVM.
+6. [Close the remaining enrollment API, CLI, TLS, and recovery matrix](https://github.com/coffeeinit/porter/issues/8) — remaining integrated positive/negative cases and evidence.
+
+### Stop point
+
+Finish only the authorized beta-branch update and its handoff. Do not expand into release work. Keep every unverified item above pending until its stated acceptance passes; a passing fake smoke, candidate review, or static unit check is not a real installation or KVM result.

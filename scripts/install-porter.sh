@@ -564,6 +564,6 @@ if [[ ${PORTER_INSTALL_TEST_MODE:-0} == 1 ]]; then
   exit 0
 fi
 
-echo "Credential-backed migration and service activation remain blocked pending Coder-owned credential readers, redaction tests, and reviewed unit integration." >&2
+echo "Migration and Porter service activation remain disabled until real-host systemd acceptance verifies credential delivery, migration ordering, and fail-closed behavior." >&2
 echo "No PostgreSQL migration or Porter service activation was attempted." >&2
 exit 1

@@ -1114,8 +1114,8 @@ if ! grep -Fq 'trap cleanup_secret_memory EXIT' "$ROOT/scripts/install-porter.sh
   exit 1
 fi
 if ! grep -Fq 'No PostgreSQL migration or Porter service activation was attempted.' "$ROOT/scripts/install-porter.sh" ||
-   ! grep -Fq 'pending Coder-owned credential readers' "$ROOT/scripts/install-porter.sh"; then
-  echo "installer does not keep production activation fail-closed for Coder-owned blockers" >&2
+   ! grep -Fq 'real-host systemd acceptance verifies credential delivery, migration ordering, and fail-closed behavior' "$ROOT/scripts/install-porter.sh"; then
+  echo "installer does not keep production activation fail-closed pending real-host acceptance" >&2
   exit 1
 fi
 if ! grep -Fq 'Production requires API TLS' "$ROOT/deploy/porter.env.example" ||
@@ -1129,13 +1129,17 @@ if ! grep -Fq 'Production requires API TLS' "$ROOT/deploy/porter.env.example" ||
   echo "example config has unsafe secret placeholders or is missing the reviewed TLS/dev comments" >&2
   exit 1
 fi
-if ! grep -Fq '# PORTER_AGENT_SERVER_CA=/etc/porter/tls/server-ca.pem' "$ROOT/deploy/porter-agent.env.example" ||
+if ! grep -Fq 'PORTER_AGENT_STATE_DIR=/var/lib/porter-agent' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq 'PORTER_AGENT_KERNEL=/var/lib/porter-agent/vmlinux' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq 'PORTER_AGENT_ROOTFS=/var/lib/porter-agent/rootfs.ext4' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq '# PORTER_AGENT_SERVER_CA=/etc/porter/tls/server-ca.pem' "$ROOT/deploy/porter-agent.env.example" ||
    ! grep -Fq '# PORTER_AGENT_CLIENT_CERT=/etc/porter/tls/agent.crt' "$ROOT/deploy/porter-agent.env.example" ||
    ! grep -Fq '# PORTER_AGENT_CLIENT_KEY=/etc/porter/tls/agent.key' "$ROOT/deploy/porter-agent.env.example" ||
-   ! grep -Fq 'current deploy/systemd/porter-agent.service does not load this file' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq 'deploy/systemd/porter-agent.service loads this file as its EnvironmentFile' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq 'root:root mode 0600' "$ROOT/deploy/porter-agent.env.example" ||
    grep -Eq '^[[:space:]]*(export[[:space:]]+)?PORTER_AGENT_(SERVER_CA|CLIENT_CERT|CLIENT_KEY)[[:space:]]*=' "$ROOT/deploy/porter-agent.env.example" ||
-   grep -Eq '^[[:space:]]*EnvironmentFile=' "$ROOT/deploy/systemd/porter-agent.service"; then
-  echo "agent environment example is active, unsafe, or inaccurate about current unit loading" >&2
+   ! grep -Fqx 'EnvironmentFile=-/etc/porter/porter-agent.env' "$ROOT/deploy/systemd/porter-agent.service"; then
+  echo "agent environment example, systemd unit, and installer safety contract do not match" >&2
   exit 1
 fi
 
