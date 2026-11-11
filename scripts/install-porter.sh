@@ -207,6 +207,7 @@ validate_unit() {
   local -a required_lines
   if [[ "$unit_kind" == server ]]; then
     required_lines=(
+      'Type=simple'
       'User=porter'
       'Group=porter'
       'EnvironmentFile=/etc/porter/porter.env'
@@ -348,23 +349,81 @@ validate_porter_account() {
 PORTER_ACCOUNT_EXISTS=0
 validate_porter_account
 
-if (( USE_LOCAL_POSTGRES )); then
+prepare_local_postgres() {
+  local pg_command missing_commands=() attempt ready=0
   for pg_command in pg_isready psql createdb; do
     if ! command -v "$pg_command" >/dev/null 2>&1; then
-      echo "required local PostgreSQL command is missing: $pg_command" >&2
-      exit 1
+      missing_commands+=("$pg_command")
     fi
   done
-  if ! sudo -u postgres pg_isready -q; then
-    echo "local PostgreSQL is not ready; refusing installation" >&2
-    exit 1
+  if (( ${#missing_commands[@]} )); then
+    if ! command -v apt-get >/dev/null 2>&1; then
+      echo "apt-get is required to install missing local PostgreSQL commands: ${missing_commands[*]}" >&2
+      return 1
+    fi
+    sudo apt-get install -y postgresql
+    for pg_command in pg_isready psql createdb; do
+      if ! command -v "$pg_command" >/dev/null 2>&1; then
+        echo "required local PostgreSQL command is still missing after installing postgresql: $pg_command" >&2
+        return 1
+      fi
+    done
   fi
+
+  sudo systemctl enable --now postgresql.service
+  for ((attempt = 1; attempt <= 30; attempt++)); do
+    if sudo -u postgres pg_isready -q; then
+      ready=1
+      break
+    fi
+    if (( attempt < 30 )); then
+      sleep 1
+    fi
+  done
+  if (( ! ready )); then
+    echo "local PostgreSQL is not ready after starting the service; refusing installation" >&2
+    return 1
+  fi
+
+  local role_membership_check
   role_membership_check=$(sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --dbname postgres --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.member WHERE r.rolname = 'porter') THEN 'unsafe' ELSE 'safe' END;")
+    --dbname postgres --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON (m.roleid = r.oid OR m.member = r.oid) WHERE r.rolname = 'porter') THEN 'unsafe' ELSE 'safe' END;")
   if [[ "$role_membership_check" != safe ]]; then
     echo "existing porter PostgreSQL role has memberships; refusing to alter it" >&2
-    exit 1
+    return 1
   fi
+
+  local database_identity_check
+  database_identity_check=$(sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
+    --dbname postgres --command "SELECT CASE WHEN NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = 'porter') THEN 'absent' WHEN EXISTS (SELECT 1 FROM pg_database d JOIN pg_roles r ON r.oid = d.datdba WHERE d.datname = 'porter' AND r.rolname = 'porter' AND d.datistemplate = false) THEN 'owned' ELSE 'unsafe' END;")
+  case "$database_identity_check" in
+    absent|owned) LOCAL_POSTGRES_DB_STATE=$database_identity_check ;;
+    *)
+      echo "existing local porter database identity/owner is not validated; refusing to alter it" >&2
+      return 1
+      ;;
+  esac
+}
+
+provision_local_postgres() {
+  local role_sql
+  if [[ ${LOCAL_POSTGRES_DB_STATE:-} != absent && ${LOCAL_POSTGRES_DB_STATE:-} != owned ]]; then
+    echo "local porter database was not validated before provisioning" >&2
+    return 1
+  fi
+  role_sql="DO \$porter\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'porter') THEN CREATE ROLE porter LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS; ELSE ALTER ROLE porter WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS; END IF; END \$porter\$;"
+  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname postgres --command "$role_sql"
+  if [[ "$LOCAL_POSTGRES_DB_STATE" == absent ]]; then
+    sudo -u postgres createdb --owner=porter porter
+  fi
+  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname postgres \
+    --command 'ALTER DATABASE porter OWNER TO porter; REVOKE ALL PRIVILEGES ON DATABASE porter FROM PUBLIC; GRANT CONNECT ON DATABASE porter TO porter;'
+  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname porter \
+    --command 'REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO porter;'
+}
+
+if (( USE_LOCAL_POSTGRES )); then
+  prepare_local_postgres
 fi
 
 read_admin_token() {
@@ -452,6 +511,10 @@ if (( ! ADMIN_EXISTS )); then
   read_admin_token
 fi
 
+if (( USE_LOCAL_POSTGRES )); then
+  provision_local_postgres
+fi
+
 if (( ! PORTER_ACCOUNT_EXISTS )); then
   sudo useradd --system --user-group --home-dir "$STATE_DIR" --no-create-home --shell /usr/sbin/nologin porter
 fi
@@ -494,25 +557,8 @@ if [[ "$ADMIN_META" != "0:0:600" ]] || \
   exit 1
 fi
 
-if (( USE_LOCAL_POSTGRES )); then
-  role_sql="DO \$porter\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'porter') THEN CREATE ROLE porter LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS; ELSE ALTER ROLE porter WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS; END IF; END \$porter\$;"
-  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname postgres --command "$role_sql"
-  db_presence=$(sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --tuples-only --no-align \
-    --dbname postgres --command "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_database WHERE datname = 'porter') THEN 'present' ELSE 'absent' END;")
-  if [[ "$db_presence" == absent ]]; then
-    sudo -u postgres createdb --owner=porter porter
-  elif [[ "$db_presence" != present ]]; then
-    echo "could not determine whether the local porter database exists" >&2
-    exit 1
-  fi
-  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname postgres \
-    --command 'ALTER DATABASE porter OWNER TO porter; REVOKE ALL PRIVILEGES ON DATABASE porter FROM PUBLIC; GRANT CONNECT ON DATABASE porter TO porter;'
-  sudo -u postgres psql --no-psqlrc --set ON_ERROR_STOP=1 --dbname porter \
-    --command 'REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE, CREATE ON SCHEMA public TO porter;'
-fi
-
 if [[ ${PORTER_INSTALL_TEST_MODE:-0} == 1 ]]; then
-  echo "Install smoke mode: temporary-root files and fake local PostgreSQL setup completed; migrations, systemd actions, and activation were skipped."
+  echo "Install smoke mode: temporary-root files and fake local PostgreSQL setup completed; migrations and Porter unit reload/activation were skipped."
   exit 0
 fi
 

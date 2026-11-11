@@ -28,16 +28,21 @@ USERADD_LOG="$WORK/useradd.log"
 SYSTEMCTL_LOG="$WORK/systemctl.log"
 PG_LOG="$WORK/postgres.log"
 PACKAGE_LOG="$WORK/package.log"
+EVENT_LOG="$WORK/events.log"
+AGENT_INSTALL_LOG="$WORK/agent-install.log"
 : > "$SUDO_ARGS_LOG"
 : > "$USERADD_LOG"
 : > "$SYSTEMCTL_LOG"
 : > "$PG_LOG"
 : > "$PACKAGE_LOG"
+: > "$EVENT_LOG"
+: > "$AGENT_INSTALL_LOG"
 
 cp -- "$ROOT/scripts/install-porter.sh" "$FIXTURE_ROOT/scripts/install-porter.sh"
 cp -- "$ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/scripts/install-agent.sh"
 cp -- "$ROOT/deploy/porter.env.example" "$FIXTURE_ROOT/deploy/porter.env.example"
 cp -- "$ROOT/deploy/systemd/porter-agent.service" "$FIXTURE_ROOT/deploy/systemd/porter-agent.service"
+cp -- "$ROOT/deploy/porter-agent.env.example" "$FIXTURE_ROOT/deploy/porter-agent.env.example"
 for binary in porter porter-migrate porter-agent; do
   cat > "$FIXTURE_ROOT/bin/$binary" <<'BIN'
 #!/usr/bin/env sh
@@ -120,22 +125,38 @@ cat > "$MOCK_BIN/systemctl" <<'SYSTEMCTL'
 set -euo pipefail
 printf '%q ' "$@" >> "$PORTER_INSTALL_TEST_SYSTEMCTL_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_SYSTEMCTL_LOG"
+printf 'systemctl %s\n' "$*" >> "$PORTER_INSTALL_TEST_EVENT_LOG"
 if [[ ${1:-} == --version ]]; then
   printf 'systemd %s (smoke fake)\n' "${PORTER_INSTALL_TEST_SYSTEMD_VERSION:-247}"
   exit 0
 fi
-echo "blocked fake systemd action in installer smoke" >&2
+if [[ "$*" == 'enable --now postgresql.service' ]]; then
+  exit 0
+fi
+if [[ ${PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE:-0} == 1 && "$*" == daemon-reload ]]; then
+  exit 0
+fi
+echo "blocked non-PostgreSQL fake systemd action in installer smoke" >&2
 exit 97
 SYSTEMCTL
 chmod 0755 "$MOCK_BIN/systemctl"
-
 cat > "$MOCK_BIN/pg_isready" <<'PGREADY'
 #!/usr/bin/env bash
 set -euo pipefail
+count=0
+if [[ -f "$PORTER_INSTALL_TEST_PG_READY_COUNT" ]]; then
+  read -r count < "$PORTER_INSTALL_TEST_PG_READY_COUNT"
+fi
+count=$((count + 1))
+printf '%s\n' "$count" > "$PORTER_INSTALL_TEST_PG_READY_COUNT"
 printf 'pg_isready ' >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '%s ' "$@" >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_PG_LOG"
-[[ ${PORTER_INSTALL_TEST_PG_READY:-1} == 1 ]]
+printf 'pg_isready %s\n' "$*" >> "$PORTER_INSTALL_TEST_EVENT_LOG"
+if [[ ${PORTER_INSTALL_TEST_PG_READY:-1} != 1 ]]; then
+  exit 1
+fi
+[[ $count -ge ${PORTER_INSTALL_TEST_PG_READY_AFTER:-1} ]]
 PGREADY
 chmod 0755 "$MOCK_BIN/pg_isready"
 
@@ -145,10 +166,26 @@ set -euo pipefail
 printf 'psql ' >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '%s ' "$@" >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_PG_LOG"
+printf 'psql %s\n' "$*" >> "$PORTER_INSTALL_TEST_EVENT_LOG"
 all_args="$*"
 if [[ "$all_args" == *pg_auth_members* ]]; then
-  printf '%s\n' "${PORTER_INSTALL_TEST_PG_MEMBERSHIP:-safe}"
+  if [[ "$all_args" != *'m.roleid = r.oid'* || "$all_args" != *'m.member = r.oid'* ]]; then
+    echo "fake psql rejected incomplete role membership query" >&2
+    exit 96
+  fi
+  case ${PORTER_INSTALL_TEST_PG_MEMBERSHIP:-safe} in
+    safe) printf '%s\n' safe ;;
+    member|roleid) printf '%s\n' unsafe ;;
+    *) echo "unknown fake role membership scenario" >&2; exit 96 ;;
+  esac
 elif [[ "$all_args" == *pg_database* ]]; then
+  if [[ "$all_args" != *"d.datname = 'porter'"* ||
+        "$all_args" != *'r.oid = d.datdba'* ||
+        "$all_args" != *"r.rolname = 'porter'"* ||
+        "$all_args" != *'d.datistemplate = false'* ]]; then
+    echo "fake psql rejected incomplete database identity/owner query" >&2
+    exit 96
+  fi
   printf '%s\n' "${PORTER_INSTALL_TEST_PG_DATABASE:-absent}"
 fi
 PSQL
@@ -160,9 +197,15 @@ set -euo pipefail
 printf 'createdb ' >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '%s ' "$@" >> "$PORTER_INSTALL_TEST_PG_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_PG_LOG"
+printf 'createdb %s\n' "$*" >> "$PORTER_INSTALL_TEST_EVENT_LOG"
 CREATEDB
 chmod 0755 "$MOCK_BIN/createdb"
-
+cat > "$MOCK_BIN/sleep" <<'SLEEP'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "$#" == 1 && "$1" == 1 ]]
+SLEEP
+chmod 0755 "$MOCK_BIN/sleep"
 for package_manager in apt-get apt dnf yum zypper; do
   cat > "$MOCK_BIN/$package_manager" <<'PACKAGE'
 #!/usr/bin/env bash
@@ -170,7 +213,17 @@ set -euo pipefail
 printf '%s ' "$(basename "$0")" >> "$PORTER_INSTALL_TEST_PACKAGE_LOG"
 printf '%q ' "$@" >> "$PORTER_INSTALL_TEST_PACKAGE_LOG"
 printf '\n' >> "$PORTER_INSTALL_TEST_PACKAGE_LOG"
-echo "blocked package operation in installer smoke" >&2
+printf '%s %s\n' "$(basename "$0")" "$*" >> "$PORTER_INSTALL_TEST_EVENT_LOG"
+if [[ $(basename "$0") == apt-get && "$*" == 'install -y postgresql' ]]; then
+  if [[ ${PORTER_INSTALL_TEST_APT_FAIL:-0} == 1 ]]; then
+    exit 98
+  fi
+  if [[ -n ${PORTER_INSTALL_TEST_INSTALLED_MARKER:-} ]]; then
+    : > "$PORTER_INSTALL_TEST_INSTALLED_MARKER"
+  fi
+  exit 0
+fi
+echo "blocked unsupported package operation in installer smoke" >&2
 exit 98
 PACKAGE
   chmod 0755 "$MOCK_BIN/$package_manager"
@@ -192,6 +245,49 @@ fi
 if [[ ${PORTER_INSTALL_TEST_AGENT_PROBE:-0} == 1 ]]; then
   echo "blocked agent installer privileged-command probe" >&2
   exit 97
+fi
+if [[ ${PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE:-0} == 1 ]]; then
+  case ${1:-} in
+    test)
+      if [[ ${2:-} == -L && ${3:-} == /etc/porter ]]; then
+        [[ ${PORTER_INSTALL_TEST_AGENT_CONFIG_SYMLINK:-0} == 1 ]]
+        exit $?
+      fi
+      if [[ ${3:-} == /etc/porter && ${2:-} == -e ]]; then
+        [[ ${PORTER_INSTALL_TEST_AGENT_CONFIG_DIR_EXISTS:-${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0}} == 1 ]]
+        exit $?
+      fi
+      if [[ ${3:-} == /etc/porter && ${2:-} == -d ]]; then
+        [[ ${PORTER_INSTALL_TEST_AGENT_CONFIG_DIR_EXISTS:-${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0}} == 1 ]]
+        exit $?
+      fi
+      if [[ ${2:-} == -L && ${3:-} == /etc/porter/porter-agent.env ]]; then
+        exit 1
+      fi
+      if [[ ${3:-} == /etc/porter/porter-agent.env && ${2:-} == -e ]]; then
+        [[ ${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0} == 1 ]]
+        exit $?
+      fi
+      if [[ ${3:-} == /etc/porter/porter-agent.env && ${2:-} == -f ]]; then
+        [[ ${PORTER_INSTALL_TEST_AGENT_ENV_EXISTS:-0} == 1 ]]
+        exit $?
+      fi
+      echo "blocked unexpected agent destination test" >&2
+      exit 98
+      ;;
+    install)
+      printf '%q ' "$@" >> "$PORTER_INSTALL_TEST_AGENT_INSTALL_LOG"
+      printf '\n' >> "$PORTER_INSTALL_TEST_AGENT_INSTALL_LOG"
+      exit 0
+      ;;
+    systemctl)
+      exec "$PORTER_INSTALL_TEST_MOCK_BIN/systemctl" "${@:2}"
+      ;;
+    *)
+      echo "blocked unexpected agent installer command" >&2
+      exit 98
+      ;;
+  esac
 fi
 
 if [[ ${1:-} == -u && ${2:-} == postgres ]]; then
@@ -260,6 +356,9 @@ chmod 0755 "$MOCK_BIN/sudo"
 export PORTER_INSTALL_TEST_SYSTEMCTL_LOG="$SYSTEMCTL_LOG"
 export PORTER_INSTALL_TEST_PG_LOG="$PG_LOG"
 export PORTER_INSTALL_TEST_PACKAGE_LOG="$PACKAGE_LOG"
+export PORTER_INSTALL_TEST_EVENT_LOG="$EVENT_LOG"
+export PORTER_INSTALL_TEST_AGENT_INSTALL_LOG="$AGENT_INSTALL_LOG"
+export PORTER_INSTALL_TEST_PG_READY_COUNT="$WORK/pg-ready-count"
 export PORTER_INSTALL_TEST_SUDO_ARGS_LOG="$SUDO_ARGS_LOG"
 export PORTER_INSTALL_TEST_USERADD_LOG="$USERADD_LOG"
 export PORTER_INSTALL_TEST_MOCK_BIN="$MOCK_BIN"
@@ -272,7 +371,19 @@ reset_logs() {
   : > "$SYSTEMCTL_LOG"
   : > "$PG_LOG"
   : > "$PACKAGE_LOG"
+  : > "$EVENT_LOG"
+  : > "$AGENT_INSTALL_LOG"
+  rm -f "$PORTER_INSTALL_TEST_PG_READY_COUNT"
 }
+command() {
+  if [[ ${1:-} == -v && -n ${PORTER_INSTALL_TEST_MISSING_COMMAND:-} &&
+        ${2:-} == "$PORTER_INSTALL_TEST_MISSING_COMMAND" &&
+        ! -e ${PORTER_INSTALL_TEST_INSTALLED_MARKER:-/nonexistent/porter-smoke-marker} ]]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+export -f command
 run_installer() {
   local target_root=$1 input=$2 output=$3 marker=${4:-$USER_MARKER}
   PORTER_INSTALL_TEST_MODE=1 \
@@ -280,6 +391,32 @@ run_installer() {
   PORTER_INSTALL_TEST_USER_MARKER="$marker" \
   PATH="$MOCK_BIN:$PATH" \
     bash "$FIXTURE_ROOT/scripts/install-porter.sh" "$FIXTURE_ROOT/bin/porter" >"$output" 2>&1 <<<"$input"
+}
+event_line() {
+  local needle=$1
+  awk -v needle="$needle" 'index($0, needle) { print NR; exit }' "$EVENT_LOG"
+}
+assert_event_before() {
+  local first=$1 second=$2 first_line second_line
+  first_line=$(event_line "$first")
+  second_line=$(event_line "$second")
+  if [[ -z "$first_line" || -z "$second_line" ]] || (( first_line >= second_line )); then
+    echo "expected event order not found: $first before $second" >&2
+    cat "$EVENT_LOG" >&2
+    return 1
+  fi
+}
+assert_no_porter_writes() {
+  local target_root=$1 output=$2
+  if grep -Eq 'Read the admin token|Admin token \(' "$output" ||
+     [[ -s "$USERADD_LOG" ]] ||
+     grep -Eq '(^|[[:space:]])(install|chown|chmod|useradd)([[:space:]]|$)' "$SUDO_ARGS_LOG" ||
+     grep -Eq 'CREATE ROLE|ALTER ROLE|createdb|ALTER DATABASE|REVOKE|GRANT|DROP DATABASE' "$PG_LOG"; then
+    echo "local PostgreSQL startup failure proceeded to a Porter write or token prompt" >&2
+    cat "$output" "$SUDO_ARGS_LOG" "$USERADD_LOG" "$PG_LOG" >&2
+    return 1
+  fi
+  assert_empty_target "$target_root"
 }
 
 assert_empty_target() {
@@ -391,8 +528,14 @@ fi
 assert_empty_target "$WORK/world-writable-root"
 assert_preflight_side_effects_absent "$WORK/world-writable-root.log"
 
-# A missing migration executable or unit must fail before prompts, files,
+# A missing application/migration executable or unit must fail before prompts, files,
 # account creation, or PostgreSQL calls.
+MISSING_PORTER="$FIXTURE_ROOT/bin/porter"
+mv "$MISSING_PORTER" "$WORK/porter.bin"
+expect_preflight_rejection missing-porter-binary "$WORK/missing-porter-root" "$WORK/missing-porter.log" \
+  'missing required executable Porter binary'
+mv "$WORK/porter.bin" "$MISSING_PORTER"
+
 MISSING_MIGRATOR="$FIXTURE_ROOT/bin/porter-migrate"
 mv "$MISSING_MIGRATOR" "$WORK/porter-migrate.bin"
 expect_preflight_rejection missing-migrator-binary "$WORK/missing-migrator-root" "$WORK/missing-migrator.log" \
@@ -409,10 +552,42 @@ write_valid_units
 cp "$FIXTURE_ROOT/deploy/systemd/porter.service" "$WORK/porter.service.valid"
 cp "$FIXTURE_ROOT/deploy/systemd/porter-migrate.service" "$WORK/porter-migrate.service.valid"
 
+MISSING_SERVER_UNIT_ROOT="$WORK/missing-server-unit-root"
+mkdir -p "$MISSING_SERVER_UNIT_ROOT"
+mv "$FIXTURE_ROOT/deploy/systemd/porter.service" "$WORK/porter.service"
+expect_preflight_rejection missing-server-unit "$MISSING_SERVER_UNIT_ROOT" "$WORK/missing-server-unit.log" \
+  'missing required server unit source: deploy/systemd/porter.service'
+mv "$WORK/porter.service" "$FIXTURE_ROOT/deploy/systemd/porter.service"
+
+# An unsafe installation target is rejected before package, account, config,
+# or token writes, while leaving the pre-existing symlink untouched.
+UNSAFE_PATH_ROOT="$WORK/unsafe-target-path-root"
+mkdir -p "$UNSAFE_PATH_ROOT/etc" "$WORK/escaped-target"
+ln -s "$WORK/escaped-target" "$UNSAFE_PATH_ROOT/etc/porter"
+reset_logs
+set +e
+run_installer "$UNSAFE_PATH_ROOT" "" "$WORK/unsafe-target-path.log"
+unsafe_path_status=$?
+set -e
+if [[ $unsafe_path_status -eq 0 ]] ||
+   ! grep -Fq 'installation path must not be a symbolic link' "$WORK/unsafe-target-path.log" ||
+   [[ ! -L "$UNSAFE_PATH_ROOT/etc/porter" ]] ||
+   find "$WORK/escaped-target" -mindepth 1 -print -quit | grep -q .; then
+  echo "installer did not safely reject a symlinked installation target" >&2
+  cat "$WORK/unsafe-target-path.log" >&2
+  exit 1
+fi
+assert_preflight_side_effects_absent "$WORK/unsafe-target-path.log"
+
 cp "$WORK/porter.service.valid" "$FIXTURE_ROOT/deploy/systemd/porter.service"
 sed -i '/^User=porter$/a User=other' "$FIXTURE_ROOT/deploy/systemd/porter.service"
 expect_preflight_rejection duplicate-user "$WORK/duplicate-user-root" "$WORK/duplicate-user.log" \
   'duplicate or conflicting directive'
+
+cp "$WORK/porter.service.valid" "$FIXTURE_ROOT/deploy/systemd/porter.service"
+sed -i 's/^Type=simple$/Type=oneshot/' "$FIXTURE_ROOT/deploy/systemd/porter.service"
+expect_preflight_rejection server-oneshot-type "$WORK/server-oneshot-root" "$WORK/server-oneshot.log" \
+  'unit is missing exactly one required contract directive'
 
 cp "$WORK/porter.service.valid" "$FIXTURE_ROOT/deploy/systemd/porter.service"
 sed -i 's|EnvironmentFile=/etc/porter/porter.env|EnvironmentFile=/tmp/alternate-secret.env|' "$FIXTURE_ROOT/deploy/systemd/porter.service"
@@ -480,31 +655,67 @@ set +e
 PORTER_INSTALL_TEST_PG_READY=0 run_installer "$PG_NOT_READY_ROOT" "" "$WORK/postgres-not-ready.log"
 pg_ready_status=$?
 set -e
-if [[ $pg_ready_status -eq 0 ]] || ! grep -Fq 'local PostgreSQL is not ready' "$WORK/postgres-not-ready.log"; then
+if [[ $pg_ready_status -eq 0 ]] || ! grep -Fq 'local PostgreSQL is not ready after starting the service' "$WORK/postgres-not-ready.log"; then
   echo "installer did not fail closed when local PostgreSQL was unavailable" >&2
   cat "$WORK/postgres-not-ready.log" >&2
   exit 1
 fi
-assert_empty_target "$PG_NOT_READY_ROOT"
-assert_preflight_side_effects_absent "$WORK/postgres-not-ready.log"
-
-PG_MEMBERSHIP_ROOT="$WORK/postgres-membership-root"
-mkdir -p "$PG_MEMBERSHIP_ROOT"
-reset_logs
-set +e
-PORTER_INSTALL_TEST_PG_MEMBERSHIP=unsafe run_installer "$PG_MEMBERSHIP_ROOT" "" "$WORK/postgres-membership.log"
-pg_membership_status=$?
-set -e
-if [[ $pg_membership_status -eq 0 ]] || ! grep -Fq 'existing porter PostgreSQL role has memberships' "$WORK/postgres-membership.log"; then
-  echo "installer did not reject an unsafe PostgreSQL role membership" >&2
-  cat "$WORK/postgres-membership.log" >&2
+assert_no_porter_writes "$PG_NOT_READY_ROOT" "$WORK/postgres-not-ready.log"
+if [[ $(wc -l < "$PG_LOG") -ne 30 || -s "$PACKAGE_LOG" ]] ||
+   ! grep -Fq 'enable --now postgresql.service' "$SYSTEMCTL_LOG"; then
+  echo "installer did not start PostgreSQL and poll readiness before stopping" >&2
+  cat "$SYSTEMCTL_LOG" "$PG_LOG" "$PACKAGE_LOG" >&2
   exit 1
 fi
-assert_empty_target "$PG_MEMBERSHIP_ROOT"
-assert_preflight_side_effects_absent "$WORK/postgres-membership.log"
 
-# Valid synthetic units proceed only in the sandbox. The fake PostgreSQL
-# commands model role/database setup; fake systemd permits --version only.
+for membership_case in member roleid; do
+  PG_MEMBERSHIP_ROOT="$WORK/postgres-membership-$membership_case-root"
+  mkdir -p "$PG_MEMBERSHIP_ROOT"
+  reset_logs
+  set +e
+  PORTER_INSTALL_TEST_PG_MEMBERSHIP="$membership_case" \
+    run_installer "$PG_MEMBERSHIP_ROOT" "" "$WORK/postgres-membership-$membership_case.log"
+  pg_membership_status=$?
+  set -e
+  if [[ $pg_membership_status -eq 0 ]] ||
+     ! grep -Fq 'existing porter PostgreSQL role has memberships' "$WORK/postgres-membership-$membership_case.log"; then
+    echo "installer did not reject the $membership_case side of PostgreSQL role membership" >&2
+    cat "$WORK/postgres-membership-$membership_case.log" >&2
+    exit 1
+  fi
+  assert_no_porter_writes "$PG_MEMBERSHIP_ROOT" "$WORK/postgres-membership-$membership_case.log"
+  if ! grep -Fq 'm.roleid = r.oid' "$PG_LOG" || ! grep -Fq 'm.member = r.oid' "$PG_LOG" ||
+     grep -Eq 'CREATE ROLE|ALTER ROLE|createdb|ALTER DATABASE|REVOKE|GRANT' "$PG_LOG"; then
+    echo "installer changed PostgreSQL or omitted a membership direction for $membership_case" >&2
+    cat "$PG_LOG" >&2
+    exit 1
+  fi
+done
+
+PG_UNSAFE_DB_ROOT="$WORK/postgres-unsafe-database-root"
+mkdir -p "$PG_UNSAFE_DB_ROOT"
+reset_logs
+set +e
+PORTER_INSTALL_TEST_PG_DATABASE=unsafe \
+  run_installer "$PG_UNSAFE_DB_ROOT" "" "$WORK/postgres-unsafe-database.log"
+pg_database_status=$?
+set -e
+if [[ $pg_database_status -eq 0 ]] ||
+   ! grep -Fq 'existing local porter database identity/owner is not validated' "$WORK/postgres-unsafe-database.log"; then
+  echo "installer did not reject an existing porter database with an unvalidated owner" >&2
+  cat "$WORK/postgres-unsafe-database.log" >&2
+  exit 1
+fi
+assert_no_porter_writes "$PG_UNSAFE_DB_ROOT" "$WORK/postgres-unsafe-database.log"
+if ! grep -Fq 'd.datdba' "$PG_LOG" ||
+   grep -Eq 'CREATE ROLE|ALTER ROLE|createdb|ALTER DATABASE|REVOKE|GRANT' "$PG_LOG"; then
+  echo "installer altered a database before validating its identity and owner" >&2
+  cat "$PG_LOG" >&2
+  exit 1
+fi
+
+# Valid synthetic units proceed only in the sandbox. Fake apt, systemd, and
+# PostgreSQL commands model local setup; no host package, service, or DB is used.
 TEST_ROOT="$WORK/valid-root"
 mkdir -p "$TEST_ROOT"
 reset_logs
@@ -518,6 +729,7 @@ CUSTOM_DSN=dsn-inherited-sentinel \
 PGPASSWORD=pg-password-inherited-sentinel \
 PGPASSFILE=/tmp/pg-password-inherited-sentinel \
 PGTARGETSESSIONATTRS=primary \
+PORTER_INSTALL_TEST_PG_READY_AFTER=3 \
   run_installer "$TEST_ROOT" "$valid_input" "$WORK/valid-install.log"
 valid_status=$?
 set -e
@@ -553,7 +765,8 @@ if [[ ! -x "$TEST_ROOT/usr/local/bin/porter" || ! -x "$TEST_ROOT/usr/local/bin/p
   exit 1
 fi
 ENV_CONTENT=$(/usr/bin/sudo cat "$ENV_FILE")
-if [[ "$ENV_CONTENT" == *PORTER_POSTGRES_DSN=* || "$ENV_CONTENT" == *PORTER_ADMIN_TOKEN=* ]]; then
+if [[ "$ENV_CONTENT" == *PORTER_POSTGRES_DSN=* || "$ENV_CONTENT" == *PORTER_ADMIN_TOKEN=* ||
+      "$ENV_CONTENT" != *'PORTER_ADDR=127.0.0.1:8080'* ]]; then
   echo "example environment file contains a credential assignment" >&2
   exit 1
 fi
@@ -577,17 +790,91 @@ if [[ -s "$USERADD_LOG" ]] && ! grep -q -- '--system.*--user-group' "$USERADD_LO
   echo "Porter account was not created as a system account with a private group" >&2
   exit 1
 fi
-if grep -Eq 'daemon-reload|enable|start|restart|stop' "$SYSTEMCTL_LOG"; then
-  echo "installer attempted systemd activation or reload" >&2
+if [[ $(grep -c '^--version ' "$SYSTEMCTL_LOG") -ne 1 ||
+      $(grep -c '^enable --now postgresql.service ' "$SYSTEMCTL_LOG") -ne 1 ||
+      $(wc -l < "$SYSTEMCTL_LOG") -ne 2 ]]; then
+  echo "installer attempted an unexpected systemd action beyond starting PostgreSQL" >&2
   cat "$SYSTEMCTL_LOG" >&2
   exit 1
 fi
-if grep -Eq '(^|[[:space:]])(apt-get|apt|dnf|yum|zypper)([[:space:]]|$)' "$SUDO_ARGS_LOG" || [[ -s "$PACKAGE_LOG" ]]; then
-  echo "installer attempted package operations" >&2
+if [[ -s "$PACKAGE_LOG" ]]; then
+  echo "installer installed packages even though all PostgreSQL commands were available" >&2
   exit 1
 fi
+if [[ $(<"$PORTER_INSTALL_TEST_PG_READY_COUNT") -ne 3 ]]; then
+  echo "installer did not retry PostgreSQL readiness until the fake server was ready" >&2
+  cat "$PG_LOG" >&2
+  exit 1
+fi
+assert_event_before 'systemctl enable --now postgresql.service' 'pg_isready -q'
+assert_event_before 'pg_isready -q' 'pg_auth_members'
+assert_event_before 'pg_auth_members' 'd.datdba'
+assert_event_before 'd.datdba' 'CREATE ROLE porter LOGIN'
+assert_event_before 'CREATE ROLE porter LOGIN' 'createdb --owner=porter porter'
 assert_no_secret_leaks "$WORK/valid-install.log" "$SUDO_ARGS_LOG" "$USERADD_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
 assert_no_postgres_env_in_sudo
+
+# Existing databases are changed only when the fake catalog validates the
+# porter name, porter owner, and non-template identity; do not recreate them.
+OWNED_DB_ROOT="$WORK/postgres-owned-database-root"
+mkdir -p "$OWNED_DB_ROOT"
+reset_logs
+set +e
+PORTER_INSTALL_TEST_PG_DATABASE=owned \
+  run_installer "$OWNED_DB_ROOT" "$valid_input" "$WORK/postgres-owned-database.log"
+owned_db_status=$?
+set -e
+if [[ $owned_db_status -ne 0 ]] || grep -Fq 'createdb ' "$PG_LOG" ||
+   ! grep -Fq 'd.datdba' "$PG_LOG" || ! grep -Fq "r.rolname = 'porter'" "$PG_LOG" ||
+   ! grep -Fq 'ALTER DATABASE porter OWNER TO porter' "$PG_LOG"; then
+  echo "installer did not safely reuse the owner-validated porter database" >&2
+  cat "$WORK/postgres-owned-database.log" "$PG_LOG" >&2
+  exit 1
+fi
+
+# Missing PostgreSQL commands trigger only the fake apt install, after all
+# fail-fast checks and before the fake service/readiness/database sequence.
+PKG_ROOT="$WORK/postgresql-package-root"
+mkdir -p "$PKG_ROOT"
+reset_logs
+rm -f "$WORK/postgresql-installed"
+set +e
+PORTER_INSTALL_TEST_MISSING_COMMAND=psql \
+PORTER_INSTALL_TEST_INSTALLED_MARKER="$WORK/postgresql-installed" \
+  run_installer "$PKG_ROOT" "$valid_input" "$WORK/postgresql-package.log"
+package_status=$?
+set -e
+if [[ $package_status -ne 0 || ! -f "$WORK/postgresql-installed" ||
+      $(wc -l < "$PACKAGE_LOG") -ne 1 ]] ||
+   ! grep -Fq 'apt-get install -y postgresql' "$PACKAGE_LOG"; then
+  echo "installer did not install PostgreSQL through the fake apt-get when a required command was missing" >&2
+  cat "$WORK/postgresql-package.log" "$PACKAGE_LOG" >&2
+  exit 1
+fi
+assert_event_before 'apt-get install -y postgresql' 'systemctl enable --now postgresql.service'
+assert_event_before 'systemctl enable --now postgresql.service' 'pg_isready -q'
+assert_event_before 'pg_isready -q' 'CREATE ROLE porter LOGIN'
+assert_no_secret_leaks "$WORK/postgresql-package.log" "$SUDO_ARGS_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
+
+# A supplied advanced external raw DSN must skip local packages, services, and
+# role/database work. The fake credential is not connected to or disclosed.
+EXTERNAL_ROOT="$WORK/external-dsn-root"
+mkdir -p "$EXTERNAL_ROOT/etc/porter"
+printf '%s\n' 'postgresql://porter:external-example@db.invalid/porter?sslmode=require' \
+  > "$EXTERNAL_ROOT/etc/porter/porter-postgres-dsn"
+chmod 0600 "$EXTERNAL_ROOT/etc/porter/porter-postgres-dsn"
+reset_logs
+set +e
+run_installer "$EXTERNAL_ROOT" "$valid_input" "$WORK/external-dsn.log"
+external_status=$?
+set -e
+if [[ $external_status -ne 0 || -s "$PACKAGE_LOG" || -s "$PG_LOG" ]] ||
+   grep -Eq '^enable --now|^start |^restart ' "$SYSTEMCTL_LOG"; then
+  echo "external DSN mode attempted local PostgreSQL provisioning" >&2
+  cat "$WORK/external-dsn.log" "$PACKAGE_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" >&2
+  exit 1
+fi
+assert_no_secret_leaks "$WORK/external-dsn.log" "$SUDO_ARGS_LOG" "$PG_LOG" "$SYSTEMCTL_LOG" "$PACKAGE_LOG"
 
 # A direct agent-installer probe proves its first privileged child receives no
 # inherited PostgreSQL DSN/password variables; the fake sudo blocks the action.
@@ -614,6 +901,83 @@ if [[ $agent_status -ne 97 ]] || grep -Fq 'credential or PostgreSQL environment 
 fi
 assert_no_secret_leaks "$WORK/agent-probe.log" "$SUDO_ARGS_LOG"
 
+# Agent install smoke uses a privileged-command fake only. A missing template
+# is reported and skipped; a present one is installed once without overwriting.
+AGENT_ENV_TEMPLATE="$FIXTURE_ROOT/deploy/porter-agent.env.example"
+rm -f "$AGENT_ENV_TEMPLATE"
+reset_logs
+set +e
+PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE=1 \
+PORTER_INSTALL_TEST_AGENT_CONFIG_SYMLINK=1 \
+  PATH="$MOCK_BIN:$PATH" bash "$FIXTURE_ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/bin/porter-agent" \
+  >"$WORK/agent-install-symlink-dir.log" 2>&1
+agent_symlink_dir_status=$?
+set -e
+if [[ $agent_symlink_dir_status -eq 0 ]] ||
+   ! grep -Fq 'agent configuration directory must not be a symbolic link' "$WORK/agent-install-symlink-dir.log" ||
+   [[ -s "$AGENT_INSTALL_LOG" ]]; then
+  echo "agent installer did not reject a symlinked /etc/porter before writes" >&2
+  cat "$WORK/agent-install-symlink-dir.log" "$AGENT_INSTALL_LOG" >&2
+  exit 1
+fi
+
+reset_logs
+set +e
+PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE=1 \
+  PATH="$MOCK_BIN:$PATH" bash "$FIXTURE_ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/bin/porter-agent" \
+  >"$WORK/agent-install-no-template.log" 2>&1
+agent_missing_template_status=$?
+set -e
+if [[ $agent_missing_template_status -ne 0 ]] ||
+   ! grep -Fq 'agent environment template is absent; no agent environment file was installed' "$WORK/agent-install-no-template.log" ||
+   ! grep -Fq '/etc/porter' "$AGENT_INSTALL_LOG" ||
+   grep -Fq '/etc/porter/porter-agent.env' "$AGENT_INSTALL_LOG" ||
+   grep -Fq '/var/lib/porter-agent' "$AGENT_INSTALL_LOG"; then
+  echo "agent installer did not safely skip an absent environment template" >&2
+  cat "$WORK/agent-install-no-template.log" "$AGENT_INSTALL_LOG" >&2
+  exit 1
+fi
+if ! grep -Fq -- '--state-dir /var/lib/porter-agent [--hostname <HOSTNAME>]' "$WORK/agent-install-no-template.log" ||
+   ! grep -Fq 'hidden-prompt join CLI' "$WORK/agent-install-no-template.log" ||
+   grep -Fq -- '--token' "$WORK/agent-install-no-template.log" ||
+   grep -Eq '^enable |^start |^restart ' "$SYSTEMCTL_LOG"; then
+  echo "agent installer printed an unsafe or activated join command" >&2
+  cat "$WORK/agent-install-no-template.log" "$SYSTEMCTL_LOG" >&2
+  exit 1
+fi
+
+cp -- "$ROOT/deploy/porter-agent.env.example" "$AGENT_ENV_TEMPLATE"
+reset_logs
+set +e
+PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE=1 \
+  PATH="$MOCK_BIN:$PATH" bash "$FIXTURE_ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/bin/porter-agent" \
+  >"$WORK/agent-install-template.log" 2>&1
+agent_template_status=$?
+set -e
+if [[ $agent_template_status -ne 0 ]] ||
+   ! grep -Fq -- "$AGENT_ENV_TEMPLATE /etc/porter/porter-agent.env" "$AGENT_INSTALL_LOG"; then
+  echo "agent installer did not stage the present env template through the fake privileged helper" >&2
+  cat "$WORK/agent-install-template.log" "$AGENT_INSTALL_LOG" >&2
+  exit 1
+fi
+
+reset_logs
+set +e
+PORTER_INSTALL_TEST_AGENT_INSTALL_PROBE=1 \
+PORTER_INSTALL_TEST_AGENT_ENV_EXISTS=1 \
+  PATH="$MOCK_BIN:$PATH" bash "$FIXTURE_ROOT/scripts/install-agent.sh" "$FIXTURE_ROOT/bin/porter-agent" \
+  >"$WORK/agent-install-existing-env.log" 2>&1
+agent_existing_env_status=$?
+set -e
+if [[ $agent_existing_env_status -ne 0 ]] ||
+   ! grep -Fq 'Existing agent environment file left unchanged' "$WORK/agent-install-existing-env.log" ||
+   grep -Fq -- "$AGENT_ENV_TEMPLATE /etc/porter/porter-agent.env" "$AGENT_INSTALL_LOG"; then
+  echo "agent installer overwrote an existing environment file" >&2
+  cat "$WORK/agent-install-existing-env.log" "$AGENT_INSTALL_LOG" >&2
+  exit 1
+fi
+rm -f "$AGENT_ENV_TEMPLATE"
+
 # Source assertions guard secret cleanup and fail-closed behavior. The parser
 # checks above use only synthetic unit fixtures and provide no real-unit evidence.
 if ! grep -Fq 'trap cleanup_secret_memory EXIT' "$ROOT/scripts/install-porter.sh" ||
@@ -630,9 +994,25 @@ if ! grep -Fq 'No PostgreSQL migration or Porter service activation was attempte
   echo "installer does not keep production activation fail-closed for Coder-owned blockers" >&2
   exit 1
 fi
-if ! grep -Fq 'Never add them here or pass them in argv' "$ROOT/deploy/porter.env.example"; then
-  echo "example config does not clearly prohibit credential env/argv fallbacks" >&2
+if ! grep -Fq 'Production requires API TLS' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq 'Loopback HTTP and development mode are for' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq 'Only non-secret settings belong in this file' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq 'systemd LoadCredential' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq '# PORTER_API_TLS_CERT=/etc/porter/tls/server.crt' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq '# PORTER_API_TLS_KEY=/etc/porter/tls/server.key' "$ROOT/deploy/porter.env.example" ||
+   ! grep -Fq '# PORTER_API_MODE=development' "$ROOT/deploy/porter.env.example" ||
+   grep -Eq '^[[:space:]]*(export[[:space:]]+)?(PORTER_DB|PORTER_ADMIN_TOKEN)[[:space:]]*=' "$ROOT/deploy/porter.env.example"; then
+  echo "example config has unsafe secret placeholders or is missing the reviewed TLS/dev comments" >&2
+  exit 1
+fi
+if ! grep -Fq '# PORTER_AGENT_SERVER_CA=/etc/porter/tls/server-ca.pem' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq '# PORTER_AGENT_CLIENT_CERT=/etc/porter/tls/agent.crt' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq '# PORTER_AGENT_CLIENT_KEY=/etc/porter/tls/agent.key' "$ROOT/deploy/porter-agent.env.example" ||
+   ! grep -Fq 'current deploy/systemd/porter-agent.service does not load this file' "$ROOT/deploy/porter-agent.env.example" ||
+   grep -Eq '^[[:space:]]*(export[[:space:]]+)?PORTER_AGENT_(SERVER_CA|CLIENT_CERT|CLIENT_KEY)[[:space:]]*=' "$ROOT/deploy/porter-agent.env.example" ||
+   grep -Eq '^[[:space:]]*EnvironmentFile=' "$ROOT/deploy/systemd/porter-agent.service"; then
+  echo "agent environment example is active, unsafe, or inaccurate about current unit loading" >&2
   exit 1
 fi
 
-printf '%s\n' "install smoke passed: canonical temporary root; fail-fast preflight with no prompt/write/DB mutation/package/user/systemd action; synthetic unit fixtures only (not real Coder unit evidence); inherited DSN cleanup; root:root 0600 credentials; temp cleanup; fake least-privilege PostgreSQL setup; migrator binary staging; no real DB/package/systemd operation or activation"
+printf '%s\n' "install smoke passed: fail-fast preflight before package/user/config/token writes; synthetic unit fixtures only (not real Coder unit evidence); fake apt/systemd/PostgreSQL ordering and readiness retries; external-DSN bypass; inherited DSN cleanup; agent env template install gating and secret-free defaults; root:root 0600 credentials; no real DB/package/systemd operation, Porter activation, or migration"
