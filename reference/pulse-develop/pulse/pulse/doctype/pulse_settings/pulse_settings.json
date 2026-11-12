@@ -1,0 +1,122 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-08-22 16:14:17.740458",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "api_key",
+  "rate_limit",
+  "ingest_mode",
+  "max_stream_length",
+  "anon_salt",
+  "anon_salt_day",
+  "press_section",
+  "press_url",
+  "press_site",
+  "column_break_press",
+  "press_api_key",
+  "press_api_secret"
+ ],
+ "fields": [
+  {
+   "description": "Public write-only ingest key. Browsers send it in the request body; server-to-server callers in the X-Pulse-API-Key header.",
+   "fieldname": "api_key",
+   "fieldtype": "Password",
+   "label": "API Key"
+  },
+  {
+   "description": "Max ingest requests per minute, per site (default 60)",
+   "fieldname": "rate_limit",
+   "fieldtype": "Int",
+   "label": "Rate Limit"
+  },
+  {
+   "default": "Direct",
+   "description": "Direct stores events in the database during the ingest request. Redis Stream is the legacy path, kept for rollback.",
+   "fieldname": "ingest_mode",
+   "fieldtype": "Select",
+   "label": "Ingest Mode",
+   "options": "Direct\nRedis Stream"
+  },
+  {
+   "fieldname": "max_stream_length",
+   "fieldtype": "Int",
+   "label": "Max Stream Length"
+  },
+  {
+   "description": "Server-managed rotating salt for cookieless anonymous ids. Rotates every UTC day; the previous value is overwritten and not recoverable. Do not edit.",
+   "fieldname": "anon_salt",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Anonymous Salt",
+   "read_only": 1
+  },
+  {
+   "description": "UTC date (YYYY-MM-DD) the current Anonymous Salt was generated for.",
+   "fieldname": "anon_salt_day",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Anonymous Salt Day",
+   "read_only": 1
+  },
+  {
+   "description": "Press provisions each tenant's database user.",
+   "fieldname": "press_section",
+   "fieldtype": "Section Break",
+   "label": "Press"
+  },
+  {
+   "description": "e.g. https://frappecloud.com",
+   "fieldname": "press_url",
+   "fieldtype": "Data",
+   "label": "Press URL",
+   "options": "URL"
+  },
+  {
+   "description": "This site's name on Press.",
+   "fieldname": "press_site",
+   "fieldtype": "Data",
+   "label": "Press Site"
+  },
+  {
+   "fieldname": "column_break_press",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "press_api_key",
+   "fieldtype": "Data",
+   "label": "Press API Key"
+  },
+  {
+   "fieldname": "press_api_secret",
+   "fieldtype": "Password",
+   "label": "Press API Secret"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-23 18:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Pulse",
+ "name": "Pulse Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

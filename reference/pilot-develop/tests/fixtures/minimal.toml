@@ -1,0 +1,14 @@
+
+[bench]
+name = "test-bench"
+python = "3.14"
+
+[[apps]]
+name = "frappe"
+repo = "https://github.com/frappe/frappe"
+branch = "version-16"
+
+[redis]
+cache_port = 13000
+queue_port = 11000
+socketio_port = 12000

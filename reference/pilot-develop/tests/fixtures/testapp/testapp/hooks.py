@@ -1,0 +1,7 @@
+app_name = "testapp"
+app_title = "Test App"
+app_publisher = "Frappe Technologies Pvt. Ltd."
+app_description = "Minimal app used in Pilot integration tests"
+app_email = "hello@frappe.io"
+app_license = "MIT"
+app_version = "0.0.1"

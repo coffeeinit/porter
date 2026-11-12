@@ -1,0 +1,59 @@
+# platform: host integration
+
+For Go code, follow the repository [Go anti-pattern rules](../../../llm/go-code-review-guide.md).
+
+[Metal specification](../../SPEC.md) · overview: [Metal overview](../../../docs/develop/metal.md)
+
+## Purpose
+
+Package `platform` is the Metal boundary to host files, commands, and systemd. Metal talks to systemd through D-Bus, not `systemctl`.
+
+## Types
+
+| Type | Owns |
+|---|---|
+| `UnitManager` | The systemd operations a VM runtime needs. |
+| `DBus` | The `UnitManager` implementation and the system-bus connection. |
+| `SSHSessionUnits` | Manages transient `metal-ssh-<id>` units through the shared D-Bus connection. |
+| `SystemdUnitUsage` | CPU time, memory, and root disk I/O read from a unit's cgroup. |
+| `Status`, `Result`, `Limits` | systemd state across the boundary. |
+| `FileDescriptorStore` | Open descriptors held by systemd across a restart. |
+| `RunWatchdog` | Pings the systemd watchdog while metald runs. |
+
+## Host commands
+
+| Function | Returns |
+|---|---|
+| `Run` | Success or failure. |
+| `Output` | stdout. |
+| `RunInNetworkNamespace` | stdout of `ip netns exec`. |
+
+Each error keeps the command diagnostics. A context can stop a running command.
+
+## Systemd units
+
+- The `metal-vm@.service` template runs each VM.
+- Each SSH console runs in a transient `metal-ssh-<id>.service` on its PTY. Set a fixed 24 by 80 size so systemd does not send terminal queries to the guest. systemd removes the unit when the client exits.
+- Start and stop wait for systemd to finish. A replace job makes the newest request win.
+- Reset failed ignores an absent unit.
+- The context cancels systemd waits and polling.
+- The `firecracker` package maps unit state to VM state.
+- `GetUsage` reads CPU, memory, and root disk I/O counters from the VM cgroup. The VM unit must have `IOAccounting=yes`; the reader selects the root disk device in `io.stat`.
+
+## File descriptor store
+
+- `FileDescriptorStore` stores with `FDSTORE=1` and removes with `FDSTOREREMOVE=1`.
+- `Listen` reuses a stored listener at the configured address or stores a new one. It removes listeners at other addresses. Stored listeners queue connections across restarts.
+- `SetStatus` sets the status text that `systemctl show -p StatusText` reports.
+- The unit needs `NotifyAccess`, `FileDescriptorStoreMax`, and `FileDescriptorStorePreserve=yes`.
+- Without the notification socket, `IsAvailable` is false and store operations do nothing.
+- Without `FileDescriptorStorePreserve=yes`, a service stop releases the descriptors.
+
+## Tests
+
+Unit tests sit next to the code, such as `systemd_dbus_test.go` and `systemd_fdstore_test.go`.
+
+## Related
+
+- [Metal reconciliation](../../../docs/compute/reconciliation.md) describes the VM state machine.
+- [internal/firecracker/SPEC.md](../firecracker/SPEC.md) maps unit state to VM state.

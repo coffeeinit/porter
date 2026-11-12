@@ -1,0 +1,258 @@
+/* SPDX-License-Identifier: AGPL-3.0 */
+
+#include <linux/bpf.h>
+#include <bpf/bpf_helpers.h>
+
+#define ETHERNET_DESTINATION_OFFSET 0
+#define ETHERNET_GROUP_ADDRESS_BIT 0x01
+#define ETHERNET_TYPE_OFFSET 12
+#define ETHERNET_TYPE_IPV4 0x0800
+#define ETHERNET_TYPE_IPV6 0x86DD
+#define IPV4_PROTOCOL_OFFSET 23
+#define IPV6_NEXT_HEADER_OFFSET 20
+#define IP_PROTOCOL_ICMP 1
+#define IP_PROTOCOL_ICMPV6 58
+
+/*
+ * Stores the last time meaningful network traffic was seen for the VM.
+ * Timestamp is from bpf_ktime_get_ns().
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u64);
+} activity_by_user_id SEC(".maps");
+
+/*
+ * One-shot traffic watch flag.
+ * Userspace sets the value to 1 when it wants to be notified about
+ * the next qualifying packet.
+ */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, __u32);
+} watch_by_user_id SEC(".maps");
+
+struct traffic_counters {
+	__u64 bytes;
+	__u64 packets;
+};
+
+struct sent_counters {
+	struct traffic_counters total;
+	__u64 icmp_packets;
+	__u64 udp_packets;
+	__u64 tcp_syn_packets;
+	__u64 tcp_rst_packets;
+};
+
+/* Egress on the TAP: host stack writing toward the guest. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct traffic_counters);
+} rx_counters_by_user_id SEC(".maps");
+
+/* Ingress on the TAP: the guest writing toward the host stack. */
+struct {
+	__uint(type, BPF_MAP_TYPE_HASH);
+	__uint(max_entries, 1);
+	__type(key, __u32);
+	__type(value, struct sent_counters);
+} tx_counters_by_user_id SEC(".maps");
+
+/* Sends the VM user ID to userspace when watched traffic is detected. */
+struct {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 1 << 16);
+} traffic_events SEC(".maps");
+
+/* Set by the loader for the VM this program is attached to. */
+const volatile __u32 virtual_machine_user_id = 0;
+
+static __always_inline struct traffic_counters *add_traffic_counters(void *counters_map, __u32 user_id, __u32 packet_length)
+{
+	struct traffic_counters *counters = bpf_map_lookup_elem(counters_map, &user_id);
+	if (!counters) {
+		/* Another CPU can create the entry before this insertion. Never replace it. */
+		struct sent_counters initial = {};
+		bpf_map_update_elem(counters_map, &user_id, &initial, BPF_NOEXIST);
+		counters = bpf_map_lookup_elem(counters_map, &user_id);
+		if (!counters)
+			return 0;
+	}
+
+	__sync_fetch_and_add(&counters->bytes, packet_length);
+	__sync_fetch_and_add(&counters->packets, 1);
+	return counters;
+}
+
+static __always_inline void count_sent_protocol(struct __sk_buff *packet, struct sent_counters *counters)
+{
+	__u16 ethernet_type;
+	__u8 protocol;
+	__u8 first_header_byte;
+	__u16 transport_offset;
+
+	if (bpf_skb_load_bytes(packet, ETHERNET_TYPE_OFFSET, &ethernet_type, sizeof(ethernet_type)) < 0)
+		return;
+	if (ethernet_type == __builtin_bswap16(ETHERNET_TYPE_IPV4)) {
+		if (bpf_skb_load_bytes(packet, 14, &first_header_byte, 1) < 0 ||
+		    (first_header_byte >> 4) != 4 || (first_header_byte & 15) < 5 ||
+		    bpf_skb_load_bytes(packet, IPV4_PROTOCOL_OFFSET, &protocol, 1) < 0)
+			return;
+		transport_offset = 14 + (first_header_byte & 15) * 4;
+		__u16 fragment_offset_and_flags;
+		if (bpf_skb_load_bytes(packet, 20, &fragment_offset_and_flags, sizeof(fragment_offset_and_flags)) < 0 ||
+		    (__builtin_bswap16(fragment_offset_and_flags) & 0x1fff) != 0)
+			return;
+	} else if (ethernet_type == __builtin_bswap16(ETHERNET_TYPE_IPV6)) {
+		if (bpf_skb_load_bytes(packet, 14, &first_header_byte, 1) < 0 ||
+		    (first_header_byte >> 4) != 6 ||
+		    bpf_skb_load_bytes(packet, IPV6_NEXT_HEADER_OFFSET, &protocol, 1) < 0)
+			return;
+		transport_offset = 54;
+	} else {
+		return;
+	}
+
+	if (protocol == IP_PROTOCOL_ICMP || protocol == IP_PROTOCOL_ICMPV6) {
+		__sync_fetch_and_add(&counters->icmp_packets, 1);
+		return;
+	}
+	if (protocol == 17) {
+		__sync_fetch_and_add(&counters->udp_packets, 1);
+		return;
+	}
+	if (protocol != 6)
+		return;
+
+	__u8 tcp_flags;
+	if (bpf_skb_load_bytes(packet, transport_offset + 13, &tcp_flags, 1) < 0)
+		return;
+	if (tcp_flags & 0x02) {
+		__sync_fetch_and_add(&counters->tcp_syn_packets, 1);
+	}
+	if (tcp_flags & 0x04)
+		__sync_fetch_and_add(&counters->tcp_rst_packets, 1);
+}
+
+/* Only IPv4 and IPv6 packets are considered activity. */
+static __always_inline int is_ip_packet(struct __sk_buff *packet)
+{
+	__u16 ethernet_type;
+
+	if (bpf_skb_load_bytes(
+		    packet,
+		    ETHERNET_TYPE_OFFSET,
+		    &ethernet_type,
+		    sizeof(ethernet_type)) < 0)
+		return 0;
+
+	return ethernet_type == __builtin_bswap16(ETHERNET_TYPE_IPV4) ||
+	       ethernet_type == __builtin_bswap16(ETHERNET_TYPE_IPV6);
+}
+
+/*
+ * Ignore multicast/broadcast traffic.
+ *
+ * The host can generate IPv6 multicast listener traffic on the TAP device.
+ * That is host control traffic and should not keep an idle VM awake.
+ */
+static __always_inline int is_unicast_packet(struct __sk_buff *packet)
+{
+	__u8 first_destination_byte;
+
+	if (bpf_skb_load_bytes(
+		    packet,
+		    ETHERNET_DESTINATION_OFFSET,
+		    &first_destination_byte,
+		    sizeof(first_destination_byte)) < 0)
+		return 0;
+
+	return (first_destination_byte & ETHERNET_GROUP_ADDRESS_BIT) == 0;
+}
+
+/*
+ * ICMP and ICMPv6 carry pings, scans, and neighbor discovery, not guest work,
+ * so they neither keep a VM awake nor wake it.
+ */
+static __always_inline int is_icmp_packet(struct __sk_buff *packet)
+{
+	__u16 ethernet_type;
+	__u8 protocol;
+
+	if (bpf_skb_load_bytes(packet, ETHERNET_TYPE_OFFSET, &ethernet_type, sizeof(ethernet_type)) < 0)
+		return 0;
+	if (ethernet_type == __builtin_bswap16(ETHERNET_TYPE_IPV4))
+		return bpf_skb_load_bytes(packet, IPV4_PROTOCOL_OFFSET, &protocol, 1) == 0 && protocol == IP_PROTOCOL_ICMP;
+	return bpf_skb_load_bytes(packet, IPV6_NEXT_HEADER_OFFSET, &protocol, 1) == 0 && protocol == IP_PROTOCOL_ICMPV6;
+}
+
+SEC("tc")
+int track_guest_received(struct __sk_buff *packet)
+{
+	if (!is_ip_packet(packet) || !is_unicast_packet(packet))
+		return TCX_NEXT;
+
+	__u32 user_id = virtual_machine_user_id;
+	add_traffic_counters(&rx_counters_by_user_id, user_id, packet->len);
+	if (is_icmp_packet(packet))
+		return TCX_NEXT;
+
+	/* Update the VM's last activity timestamp. */
+	__u64 packet_time = bpf_ktime_get_ns();
+	bpf_map_update_elem(
+		&activity_by_user_id,
+		&user_id,
+		&packet_time,
+		BPF_ANY
+	);
+
+	/*
+	 * Only notify userspace if it explicitly armed a watch for this VM.
+	 */
+	__u32 *watch = bpf_map_lookup_elem(&watch_by_user_id, &user_id);
+	if (!watch || *watch == 0)
+		return TCX_NEXT;
+
+	/*
+	 * Reserve the event before clearing the watch.
+	 * If the ring buffer is full, the watch remains armed for the next packet.
+	 */
+	__u32 *event = bpf_ringbuf_reserve(
+		&traffic_events,
+		sizeof(*event),
+		0
+	);
+	if (!event)
+		return TCX_NEXT;
+
+	/* One-shot notification: userspace must re-arm it if needed. */
+	*watch = 0;
+	*event = user_id;
+	bpf_ringbuf_submit(event, 0);
+
+	return TCX_NEXT;
+}
+
+/* Counts only; activity and watch bookkeeping stays on the egress side. */
+SEC("tc")
+int track_guest_sent(struct __sk_buff *packet)
+{
+	if (!is_ip_packet(packet) || !is_unicast_packet(packet))
+		return TCX_NEXT;
+
+	__u32 user_id = virtual_machine_user_id;
+	struct traffic_counters *total = add_traffic_counters(&tx_counters_by_user_id, user_id, packet->len);
+	if (total)
+		count_sent_protocol(packet, (struct sent_counters *)total);
+
+	return TCX_NEXT;
+}
+
+char _license[] SEC("license") = "GPL";

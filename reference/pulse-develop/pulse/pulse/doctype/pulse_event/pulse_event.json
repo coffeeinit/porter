@@ -1,0 +1,107 @@
+{
+ "actions": [],
+ "autoname": "prompt",
+ "creation": "2025-08-24 15:11:22.905364",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "event_name",
+  "captured_at",
+  "site",
+  "app",
+  "user",
+  "team",
+  "column_break_swwj",
+  "dedup_key",
+  "is_internal",
+  "properties"
+ ],
+ "fields": [
+  {
+   "fieldname": "event_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Event Name"
+  },
+  {
+   "description": "Fingerprint of the event, derived at ingest from its name, timestamp, source and properties. The unique index on it is what makes an event sent twice a no-op instead of a duplicate row.",
+   "fieldname": "dedup_key",
+   "fieldtype": "Data",
+   "label": "Dedup Key",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_swwj",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "captured_at",
+   "fieldtype": "Datetime",
+   "label": "Captured At",
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "Set by a Pulse Capture Rule. The event is kept but is not real product usage — test, staging or load-test traffic — so reporting should exclude it.",
+   "fieldname": "is_internal",
+   "fieldtype": "Check",
+   "in_standard_filter": 1,
+   "label": "Internal",
+   "read_only": 1
+  },
+  {
+   "fieldname": "properties",
+   "fieldtype": "JSON",
+   "label": "Properties"
+  },
+  {
+   "fieldname": "site",
+   "fieldtype": "Data",
+   "label": "Site"
+  },
+  {
+   "fieldname": "app",
+   "fieldtype": "Data",
+   "label": "App"
+  },
+  {
+   "fieldname": "user",
+   "fieldtype": "Data",
+   "label": "User"
+  },
+  {
+   "fieldname": "team",
+   "fieldtype": "Data",
+   "label": "Team"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-08-30 13:18:58.894643",
+ "modified_by": "Administrator",
+ "module": "Pulse",
+ "name": "Pulse Event",
+ "naming_rule": "Set by user",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "event_name"
+}

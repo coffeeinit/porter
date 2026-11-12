@@ -1,0 +1,279 @@
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from pilot.config import S3Config
+from pilot.exceptions import BenchError
+
+boto3: Any = None
+TransferConfig: Any = None
+Config: Any = None
+_STREAM_TRANSFER: Any = None
+_BACKUP_STREAM_TRANSFER: Any = None
+
+
+class ClientError(Exception):
+    """Replaced when boto3 loads."""
+
+    response: dict
+
+
+class EndpointConnectionError(Exception):
+    """Replaced when boto3 loads."""
+
+
+class BotoCoreError(Exception):
+    """Replaced when boto3 loads."""
+
+
+def load_boto3() -> None:
+    """Import boto3 on first S3 use; importing it eagerly costs ~9 MB of RSS."""
+    global boto3, TransferConfig, Config, ClientError, EndpointConnectionError, BotoCoreError
+    global _STREAM_TRANSFER, _BACKUP_STREAM_TRANSFER
+    if boto3 is not None:
+        return
+
+    import boto3
+    from boto3.s3.transfer import TransferConfig
+    from botocore.client import Config
+    from botocore.exceptions import BotoCoreError, ClientError, EndpointConnectionError
+
+    # s3transfer buffers out-of-order parts, so non-seekable streams still get parallel range GETs.
+    _STREAM_TRANSFER = TransferConfig(multipart_chunksize=64 * 1024 * 1024, max_concurrency=8)
+    # Backup files stream side by side, so each holds few parts. 32 MiB parts cap an object at 320 GiB.
+    _BACKUP_STREAM_TRANSFER = TransferConfig(multipart_chunksize=32 * 1024 * 1024, max_concurrency=2)
+
+
+ENDPOINT_TEMPLATES = {
+    "aws": "https://s3.{region}.amazonaws.com",
+    "digitalocean": "https://{region}.digitaloceanspaces.com",
+    "hetzner": "https://{region}.your-objectstorage.com",
+}
+
+PROVIDER_LABELS = {
+    "aws": "Amazon S3",
+    "digitalocean": "DigitalOcean Spaces",
+    "hetzner": "Hetzner Object Storage",
+    "frappe": "Frappe Cloud",
+}
+
+SUPPORTED_REGIONS = {
+    "aws": [
+        "us-east-1",
+        "us-east-2",
+        "us-west-1",
+        "us-west-2",
+        "eu-west-1",
+        "eu-west-2",
+        "eu-central-1",
+        "ap-south-1",
+        "ap-southeast-1",
+        "ap-southeast-2",
+        "ap-northeast-1",
+    ],
+    "digitalocean": ["nyc3", "sfo3", "sgp1", "ams3", "fra1"],
+    "hetzner": ["fsn1", "nbg1", "hel1"],
+}
+
+
+def build_endpoint_url(provider: str, region: str) -> str:
+    try:
+        return ENDPOINT_TEMPLATES[provider].format(region=region)
+    except KeyError as exc:
+        raise ValueError(f"Unsupported provider: {provider}") from exc
+
+
+class S3IntegrationError(BenchError):
+    pass
+
+
+@dataclass
+class S3:
+    access_key: str
+    secret_key: str
+    region_name: str
+    provider: str
+    bucket_name: str
+    endpoint_url: str = ""
+    client: Any = field(init=False)
+
+    def __post_init__(self):
+        try:
+            load_boto3()
+        except ImportError as error:
+            raise RuntimeError("boto3 is not installed. Run: pip install boto3") from error
+        if not self.endpoint_url:
+            try:
+                self.endpoint_url = build_endpoint_url(self.provider, self.region_name)
+            except ValueError as error:
+                raise S3IntegrationError(str(error)) from error
+        addressing_style = "virtual" if self.provider == "aws" else "path"
+
+        self.client = boto3.client(
+            "s3",
+            aws_access_key_id=self.access_key,
+            aws_secret_access_key=self.secret_key,
+            endpoint_url=self.endpoint_url,
+            region_name=self.region_name,
+            config=Config(signature_version="s3v4", s3={"addressing_style": addressing_style}),
+        )
+
+    @classmethod
+    def from_config(cls, config: S3Config) -> "S3":
+        """Connect using bench.toml's [s3] section, creating the bucket on first use."""
+        if not config.is_configured:
+            raise S3IntegrationError("S3 integration is not configured via settings")
+        client = cls(
+            config.access_key,
+            config.secret_key,
+            region_name=config.region,
+            provider=config.provider,
+            bucket_name=config.bucket,
+            endpoint_url=config.endpoint_url,
+        )
+        client.create_bucket_if_not_present(config.bucket)
+        return client
+
+    def create_bucket_if_not_present(self, bucket_name: str) -> None:
+        try:
+            self.client.head_bucket(Bucket=bucket_name)
+        except EndpointConnectionError as error:
+            raise S3IntegrationError(
+                f"Could not reach S3 endpoint '{self.endpoint_url}'. Check the endpoint URL and network access."
+            ) from error
+        except ClientError as error:
+            code = error.response["Error"]["Code"]
+            if code == "404":
+                self.create_bucket(bucket_name)
+            elif code in ("401", "403"):
+                raise S3IntegrationError(
+                    f"Access to bucket '{bucket_name}' was denied. Check the S3 credentials."
+                ) from error
+            else:
+                raise S3IntegrationError(
+                    f"Could not verify bucket '{bucket_name}': {error.response['Error'].get('Message', code)}"
+                ) from error
+
+    def create_bucket(self, bucket_name: str) -> None:
+        try:
+            if self.provider == "aws" and self.region_name != "us-east-1":
+                self.client.create_bucket(
+                    Bucket=bucket_name,
+                    CreateBucketConfiguration={"LocationConstraint": self.region_name},
+                )
+            else:
+                self.client.create_bucket(Bucket=bucket_name)
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to create bucket '{bucket_name}': {error.response['Error'].get('Message', error)}"
+            ) from error
+
+    def upload_file(self, bucket_name: str, local_path: Path, remote_key: str) -> None:
+        try:
+            self.client.upload_file(str(local_path), bucket_name, remote_key)
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to upload '{local_path.name}' to '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def upload_stream(self, bucket_name: str, remote_key: str, fileobj, low_memory: bool = False) -> None:
+        """Multipart-upload a stream without local buffering."""
+        config = _BACKUP_STREAM_TRANSFER if low_memory else _STREAM_TRANSFER
+        try:
+            self.client.upload_fileobj(fileobj, bucket_name, remote_key, Config=config)
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to upload stream to '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+        except BotoCoreError as error:
+            # Connection and timeout errors. The reader's own errors pass through unwrapped.
+            raise S3IntegrationError(f"Failed to upload stream to '{bucket_name}/{remote_key}': {error}") from error
+
+    def download_stream(self, bucket_name: str, remote_key: str, fileobj) -> None:
+        """Stream an S3 object into a writable file-like object."""
+        try:
+            self.client.download_fileobj(bucket_name, remote_key, fileobj, Config=_STREAM_TRANSFER)
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to download stream from '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def download_file(self, bucket_name: str, remote_key: str, local_path: Path) -> None:
+        try:
+            self.client.download_file(bucket_name, remote_key, str(local_path))
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to download '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def presigned_url(self, bucket_name: str, remote_key: str, expires_in: int = 25_200) -> str:
+        """A time-limited URL the caller can hand straight to a browser/curl -
+        the download streams directly from S3, never through this server."""
+        try:
+            return self.client.generate_presigned_url(
+                "get_object",
+                Params={"Bucket": bucket_name, "Key": remote_key},
+                ExpiresIn=expires_in,
+            )
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to create a download link for '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def delete_object(self, bucket_name: str, remote_key: str) -> None:
+        try:
+            self.client.delete_object(Bucket=bucket_name, Key=remote_key)
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to delete '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def list_objects(self, bucket_name: str, prefix: str) -> list[str]:
+        return list(self.get_object_sizes(bucket_name, prefix))
+
+    def get_object_sizes(self, bucket_name: str, prefix: str) -> dict[str, int]:
+        """Size in bytes of each object under `prefix`, keyed by object key."""
+        try:
+            paginator = self.client.get_paginator("list_objects_v2")
+            sizes: dict[str, int] = {}
+            for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
+                sizes.update((obj["Key"], obj["Size"]) for obj in page.get("Contents", []))
+            return sizes
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to list '{bucket_name}/{prefix}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def has_object(self, bucket_name: str, remote_key: str) -> bool:
+        try:
+            self.client.head_object(Bucket=bucket_name, Key=remote_key)
+            return True
+        except ClientError as error:
+            if error.response["Error"]["Code"] == "404":
+                return False
+            raise S3IntegrationError(
+                f"Failed to check '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def read_json(self, bucket_name: str, remote_key: str) -> Any:
+        try:
+            response = self.client.get_object(Bucket=bucket_name, Key=remote_key)
+            return json.loads(response["Body"].read())
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to read '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error
+
+    def write_json(self, bucket_name: str, remote_key: str, data: Any) -> None:
+        try:
+            self.client.put_object(
+                Bucket=bucket_name,
+                Key=remote_key,
+                Body=json.dumps(data, indent=2).encode(),
+                ContentType="application/json",
+            )
+        except ClientError as error:
+            raise S3IntegrationError(
+                f"Failed to write '{bucket_name}/{remote_key}': {error.response['Error'].get('Message', error)}",
+            ) from error

@@ -1,0 +1,124 @@
+<script setup lang="ts">
+import {
+	Avatar,
+	Badge,
+	SettingsBody,
+	SettingsContent,
+	SettingsDialog,
+	SettingsHeader,
+	SettingsNavGroup,
+	SettingsNavItem,
+	SettingsPanel,
+	SettingsSidebar,
+} from 'frappe-ui'
+import { computed, watch } from 'vue'
+import { useMyInvitations } from '@/composables/useMyInvitations'
+import { useMyProfile } from '@/composables/useMyProfile'
+import {
+	type SettingsTabDef,
+	settingsOpen,
+	settingsTab,
+	useSettingsTabs,
+} from '@/composables/useSettings'
+
+// Desktop's settings surface: every tab in one dialog, so nothing is a dead end
+// — you can fix your photo, switch teams and rename one without closing
+// anything. Mobile renders the same tabs as pages (see SettingsDetailPage).
+const { profile } = useMyProfile()
+const { availableTabs: tabs } = useSettingsTabs()
+const { count: invitationCount } = useMyInvitations()
+
+// What's yours and what the team's are different kinds of setting, so they get
+// their own sections rather than one long list.
+const groups = computed(() => {
+	const order: SettingsTabDef['group'][] = ['Account', 'Administration']
+	return order
+		.map((group) => ({
+			label: group,
+			items: tabs.value.filter((tab) => tab.group === group),
+		}))
+		.filter((group) => group.items.length > 0)
+})
+
+// Losing a tab you can no longer reach shouldn't leave an empty content pane.
+watch(tabs, (available) => {
+	if (!available.some((tab) => tab.value === settingsTab.value)) {
+		settingsTab.value = available[0]?.value ?? 'profile'
+	}
+})
+</script>
+
+<template>
+	<!-- `v-model:open`, not a bare `v-model`: SettingsDialog names its open model
+	     (`defineModel('open')`) and declares no `modelValue`, so a bare v-model
+	     binds a prop nothing reads and the dialog never opens. -->
+	<SettingsDialog v-model:open="settingsOpen" v-model:tab="settingsTab">
+		<SettingsSidebar class="dark:bg-surface-elevation-1">
+			<SettingsNavGroup v-for="group in groups" :key="group.label">
+				<template #label>
+					<span class="text-sm-medium text-ink-gray-5">{{ group.label }}</span>
+				</template>
+
+				<SettingsNavItem
+					v-for="tab in group.items"
+					:key="tab.value"
+					:value="tab.value"
+				>
+					<template #prefix>
+						<!-- Your own face on your own tab; everything else takes an icon. -->
+						<Avatar
+							v-if="tab.value === 'profile'"
+							:image="profile?.user_image ?? undefined"
+							:label="profile?.full_name || profile?.user || ''"
+							size="xs"
+						/>
+						<span v-else :class="`${tab.icon} size-4 text-ink-gray-7`" />
+					</template>
+					{{ tab.label }}
+					<template
+						v-if="tab.value === 'invitations' && invitationCount"
+						#suffix
+					>
+						<Badge
+							theme="orange"
+							:label="String(invitationCount)"
+							:aria-label="`${invitationCount} pending`"
+						/>
+					</template>
+				</SettingsNavItem>
+			</SettingsNavGroup>
+		</SettingsSidebar>
+
+		<SettingsContent class="min-w-0 bg-surface-base">
+			<SettingsPanel v-for="tab in tabs" :key="tab.value" :value="tab.value">
+				<SettingsHeader
+					class="!px-10 !pt-9"
+					:title="tab.title"
+					:description="tab.description"
+				>
+					<template #actions>
+						<div :id="`settings-actions-${tab.value}`" class="contents" />
+					</template>
+				</SettingsHeader>
+				<SettingsBody viewport-class="px-10 pb-16">
+					<component :is="tab.component" />
+				</SettingsBody>
+			</SettingsPanel>
+		</SettingsContent>
+	</SettingsDialog>
+</template>
+
+<!-- NOTE: revert if this merges https://github.com/frappe/frappe-ui/pull/1126 -->
+<style scoped>
+:deep(.text-lg.font-semibold) {
+	@apply text-lg-semibold;
+}
+
+:deep(.text-base.text-ink-gray-6) {
+	@apply text-p-base;
+}
+
+:deep([data-state="active"]) {
+	@apply text-ink-gray-8;
+}
+</style>

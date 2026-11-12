@@ -1,0 +1,379 @@
+from __future__ import annotations
+
+import re
+import shlex
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from pilot.exceptions import BenchError
+from pilot.managers.environment import AdminEnvManager
+from pilot.utils import cli_root
+
+if TYPE_CHECKING:
+    from pilot.core.bench import Bench
+
+
+@dataclass(frozen=True)
+class ProcessState:
+    state: str  # the manager's own word, such as RUNNING or active (running)
+    pid: int | None = None
+
+
+@dataclass
+class ProcessDefinition:
+    name: str
+    argv: list[str]  # executable + args - no shell, no `cd`, no inline env prefix
+    log_file: Path
+    env: dict = field(default_factory=dict)
+    working_dir: Path | None = None  # was `cd {dir} &&`
+    stop_timeout: int | None = None  # graceful-stop seconds (redis=300)
+    critical: bool = True  # dev runner stops the whole bench when this process exits
+    app: str | None = None  # the app that declares it; None for the bench's own processes
+    socket_file: Path | None = None  # removed before each start; a stale one blocks listen()
+    listen_address: str | None = None  # systemd holds it, so a restart queues requests instead of refusing them
+    restart_on_failure: bool = True
+    pre_run: list[str] = field(default_factory=list)
+    post_run: list[str] = field(default_factory=list)
+
+    @property
+    def argv_with_hooks(self) -> list[str]:
+        """argv that runs pre_run and post_run around the process, for managers without native hooks."""
+        if not self.pre_run and not self.post_run:
+            return self.argv
+
+        if not self.post_run:
+            return ["sh", "-c", f"{shlex.join(self.pre_run)} || exit; exec {shlex.join(self.argv)}"]
+
+        # One line: supervisord's command= cannot hold a newline.
+        # A TERM during pre_run skips the process; one during it ends the first wait early,
+        # so wait again before post_run.
+        pre_run = f"{shlex.join(self.pre_run)} || status=$?; " if self.pre_run else ""
+        run = (
+            f"{shlex.join(self.argv)} & child=$!; "
+            'wait "$child"; status=$?; '
+            'kill -0 "$child" 2>/dev/null && { wait "$child"; status=$?; }'
+        )
+        script = (
+            "status=0; stopped=0; child=; "
+            "trap 'stopped=1; [ -n \"$child\" ] && kill -TERM \"$child\" 2>/dev/null' TERM; "
+            f'{pre_run}if [ "$status" -eq 0 ] && [ "$stopped" -eq 0 ]; then {run}; fi; '
+            f'{shlex.join(self.post_run)}; exit "$status"'
+        )
+        return ["sh", "-c", script]
+
+
+def check_unique_names(definitions: list[ProcessDefinition]) -> None:
+    """Supervisor writes `_` as `-`, so two names that differ only there would share a program."""
+    seen: dict[str, ProcessDefinition] = {}
+    for definition in definitions:
+        other = seen.setdefault(definition.name.replace("_", "-"), definition)
+        if other is not definition:
+            owner = f"app '{definition.app}'" if definition.app else "the bench"
+            raise BenchError(f"Process '{definition.name}' of {owner} has the same name as '{other.name}'.")
+
+
+class ProcessDefinitionBuilder:
+    def __init__(self, bench: "Bench", python: Path, watch_admin_js: bool) -> None:
+        self.bench = bench
+        self.python = python
+        self.watch_admin_js = watch_admin_js
+
+    def prod_process_definitions(self) -> list[ProcessDefinition]:
+        defs = [
+            *self.workload_definitions(),
+            self.redis_definition("redis_cache", "redis_cache.conf"),
+            self.redis_definition("redis_queue", "redis_queue.conf"),
+        ]
+        if self.bench.config.production.process_manager == "systemd":
+            self.wait_for_database_before_web(defs)
+        defs.extend(self.bench.processes.get_app_definitions())
+        check_unique_names(defs)
+        return defs
+
+    def workload_definitions(self) -> list[ProcessDefinition]:
+        if self.bench.is_lite_mode:
+            # web, realtime and jobs all live in the one lite process.
+            return [self.web_definition(), self.admin_definition()]
+        if self.bench.config.production.process_manager == "systemd":
+            all_queues = ",".join(q for group in self.bench.config.workers.groups for q in group.queues)
+            num_workers = sum(group.count for group in self.bench.config.workers.groups)
+            return [
+                self.web_definition(),
+                self.socketio_definition(),
+                self.admin_definition(),
+                self.worker_pool_definition(all_queues, num_workers),
+            ]
+        worker_defs = [
+            pd
+            for group in self.bench.config.workers.groups
+            for pd in self.worker_definitions(",".join(group.queues), group.count)
+        ]
+        return [
+            self.web_definition(),
+            self.socketio_definition(),
+            self.admin_definition(),
+            *worker_defs,
+            self.schedule_definition(),
+        ]
+
+    def wait_for_database_before_web(self, defs: list[ProcessDefinition]) -> None:
+        web = next(pd for pd in defs if pd.name == "web")
+        web.pre_run = [
+            str(AdminEnvManager(cli_root()).python),
+            str(cli_root() / "bin" / "pilot"),
+            "-b",
+            str(self.bench.path),
+            "wait-for-database",
+        ]
+
+    def process_definitions(self) -> list[ProcessDefinition]:
+        defs = [self.to_dev(pd) for pd in self.prod_process_definitions()]
+        if self.bench.config.watch_apps_js:
+            defs.append(self.watch_definition())
+        if self.watch_admin_js:
+            defs.append(self.admin_frontend_dev_definition())
+        return defs
+
+    def to_dev(self, pd: ProcessDefinition) -> ProcessDefinition:
+        if pd.name == "admin":
+            return (
+                self.watch_admin_definition()
+                if self.watch_admin_js
+                else self.build_admin_definition("--no-timeout")
+            )
+        if pd.name == "web":
+            return self.web_definition(dev=True)
+        if pd.name == "socketio":
+            return self.socketio_definition(dev=True)
+        return pd
+
+    @staticmethod
+    def python_env() -> dict:
+        """Shared env for Python processes. PYTHONUNBUFFERED keeps stdout unbuffered:
+        every runner captures it into a pipe or log file, where Python would otherwise
+        block-buffer app-code print() until ~8KB accumulates."""
+        return {"PYTHONUNBUFFERED": "1"}
+
+    def web_definition(self, dev: bool = False) -> ProcessDefinition:
+        sites = self.bench.sites_path
+        if self.bench.is_lite_mode:
+            return self.lite_definition(dev=dev)
+        if dev:
+            port = self.bench.config.http_port
+            argv = [
+                str(self.python),
+                "-m",
+                "frappe.utils.bench_helper",
+                "frappe",
+                "serve",
+                "--port",
+                str(port),
+            ]
+            if not self.bench.config.reload_python:
+                argv.append("--noreload")
+            return ProcessDefinition(
+                name="web",
+                argv=argv,
+                log_file=self.bench.logs_path / "web.log",
+                env={**self.python_env(), "DEV_SERVER": "1"},
+                working_dir=sites,
+            )
+        gunicorn = self.bench.env_path / "bin" / "gunicorn"
+        return ProcessDefinition(
+            name="web",
+            argv=[str(gunicorn), "-c", "../config/gunicorn.conf.py", "frappe.app:application"],
+            log_file=self.bench.logs_path / "web.log",
+            env=self.python_env(),
+            working_dir=sites,
+            # gunicorn takes systemd's socket when given one, and binds this address itself otherwise.
+            listen_address=f"127.0.0.1:{self.bench.config.http_port}",
+        )
+
+    def lite_definition(self, dev: bool = False) -> ProcessDefinition:
+        """Web, realtime and background jobs in one self-recycling process."""
+        lite_mode = self.bench.config.lite_mode
+        argv = [
+            str(self.python),
+            "-m",
+            "frappe.runner",
+            "--host=127.0.0.1",
+            f"--port={self.bench.config.http_port}",
+            f"--queue={','.join(self.bench.config.workers.queues)}",
+            f"--job-threads={self.bench.config.workers.count}",
+            f"--restart-after-requests={lite_mode.restart_after_requests}",
+            f"--restart-after-jobs={lite_mode.restart_after_jobs}",
+            f"--restart-idle-seconds={lite_mode.restart_idle_seconds}",
+            f"--request-drain-seconds={lite_mode.request_drain_seconds}",
+            f"--job-drain-seconds={lite_mode.job_drain_seconds}",
+        ]
+        if dev:
+            argv.append("--dev")
+            argv.append("--verbose")
+        return ProcessDefinition(
+            name="web",
+            argv=argv,
+            log_file=self.bench.logs_path / "web.log",
+            # One threaded process: capping the glibc arenas keeps the heap from
+            # fragmenting across them, and preloading only pays off before a fork.
+            env={**self.python_env(), "MALLOC_ARENA_MAX": "2", "FRAPPE_PRELOAD_MODULES": "0"},
+            working_dir=self.bench.sites_path,
+            stop_timeout=lite_mode.stop_timeout,
+            listen_address=(
+                f"127.0.0.1:{self.bench.config.http_port}"
+                if not dev and self.bench.has_runner_socket_support
+                else None
+            ),
+        )
+
+    def socketio_definition(self, dev: bool = False) -> ProcessDefinition:
+        socket = None if dev else self.bench.realtime_socket
+        if self.bench.config.socketio_backend == "python":
+            argv = [str(self.python), "-m", "frappe.realtime.server"]
+            working_dir = self.bench.path
+            backend_env = self.python_env()
+        else:
+            argv = ["node", f"{self.bench.apps_path}/frappe/socketio.js"]
+            working_dir = self.bench.sites_path
+            backend_env = {"FRAPPE_SOCKETIO_UDS": str(socket)} if socket else {}
+        return ProcessDefinition(
+            name="socketio",
+            argv=argv,
+            log_file=self.bench.logs_path / "socketio.log",
+            env=backend_env,
+            working_dir=working_dir,
+            socket_file=socket,
+        )
+
+    def watch_definition(self) -> ProcessDefinition:
+        # Non-critical: frappe watch dies when the initial esbuild build fails
+        # (e.g. unbuilt assets on a fresh bench); the bench must outlive it.
+        return ProcessDefinition(
+            name="watch",
+            argv=[str(self.python), "-m", "frappe.utils.bench_helper", "frappe", "watch"],
+            log_file=self.bench.logs_path / "watch.log",
+            env=self.python_env(),
+            working_dir=self.bench.sites_path,
+            critical=False,
+        )
+
+    def worker_pool_definition(self, queues: str, num_workers: int) -> ProcessDefinition:
+        return ProcessDefinition(
+            name="worker_pool",
+            argv=[
+                str(self.python),
+                "-m",
+                "frappe.utils.bench_helper",
+                "frappe",
+                "worker-pool",
+                "--num-workers",
+                str(num_workers),
+                "--queue",
+                queues,
+            ],
+            log_file=self.bench.logs_path / "worker_pool.log",
+            env=self.python_env(),
+            working_dir=self.bench.sites_path,
+        )
+
+    def worker_definitions(self, queue: str, count: int) -> list[ProcessDefinition]:
+        sites = self.bench.sites_path
+        # Commas in queue names break supervisor's programs= list; slug them.
+        slug = re.sub(r"[^A-Za-z0-9]+", "_", queue).strip("_") or "default"
+        return [
+            ProcessDefinition(
+                name=f"worker_{slug}_{i}",
+                argv=[
+                    str(self.python),
+                    "-m",
+                    "frappe.utils.bench_helper",
+                    "frappe",
+                    "worker",
+                    "--queue",
+                    queue,
+                ],
+                log_file=self.bench.logs_path / f"worker_{slug}_{i}.log",
+                env=self.python_env(),
+                working_dir=sites,
+            )
+            for i in range(1, count + 1)
+        ]
+
+    def schedule_definition(self) -> ProcessDefinition:
+        """Plain `frappe worker` has no scheduler; lite and worker-pool run their own."""
+        return ProcessDefinition(
+            name="schedule",
+            argv=[str(self.python), "-m", "frappe.utils.bench_helper", "frappe", "schedule"],
+            log_file=self.bench.logs_path / "schedule.log",
+            env=self.python_env(),
+            working_dir=self.bench.sites_path,
+        )
+
+    def redis_definition(self, name: str, config_filename: str) -> ProcessDefinition:
+        from pilot.managers.redis import redis_server_binary
+
+        return ProcessDefinition(
+            name=name,
+            argv=[
+                redis_server_binary() or "redis-server",
+                f"{self.bench.config_path}/{config_filename}",
+            ],
+            log_file=self.bench.logs_path / f"{name}.log",
+            stop_timeout=300,
+        )
+
+    def admin_definition(self) -> ProcessDefinition:
+        root = cli_root()
+        admin = AdminEnvManager(root)
+        return ProcessDefinition(
+            name="admin",
+            argv=[
+                str(admin.gunicorn),
+                "-c",
+                str(self.bench.config_path / "admin-gunicorn.conf.py"),
+                "admin.backend.wsgi:application",
+            ],
+            log_file=self.bench.logs_path / "admin.log",
+            env={
+                **self.python_env(),
+                "BENCH_ADMIN_ROOT": str(self.bench.path),
+                "PYTHONPATH": str(root),
+                "MALLOC_ARENA_MAX": "2",
+            },
+            working_dir=root,
+        )
+
+    def watch_admin_definition(self) -> ProcessDefinition:
+        return self.build_admin_definition("--dev")
+
+    def build_admin_definition(self, mode_flag: str) -> ProcessDefinition:
+        root = cli_root()
+        python = AdminEnvManager(root).python
+        cfg = self.bench.config.admin
+        return ProcessDefinition(
+            name="admin",
+            argv=[
+                str(python),
+                "-m",
+                "admin.backend.run_server",
+                "--bench-root",
+                str(self.bench.path),
+                "--port",
+                str(cfg.port),
+                "--timeout",
+                str(cfg.timeout),
+                mode_flag,
+            ],
+            log_file=self.bench.logs_path / "admin.log",
+            env={**self.python_env(), "PYTHONPATH": str(root)},
+        )
+
+    def admin_frontend_dev_definition(self) -> ProcessDefinition:
+        frontend_dir = cli_root() / "admin" / "frontend"
+        cfg = self.bench.config.admin
+        return ProcessDefinition(
+            name="admin-ui",
+            argv=["npm", "--prefix", str(frontend_dir), "run", "dev"],
+            log_file=self.bench.logs_path / "admin-ui.log",
+            env={"VITE_ADMIN_PORT": str(cfg.port)},
+        )

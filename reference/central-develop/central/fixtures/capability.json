@@ -1,0 +1,172 @@
+[
+ {
+  "capability": "billing:manage",
+  "description": "Add credit, change payment methods, and update billing details",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "billing:manage",
+  "plane": "central",
+  "resource": "billing"
+ },
+ {
+  "capability": "billing:view",
+  "description": "View invoices, usage, and billing details",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "billing:view",
+  "plane": "central",
+  "resource": "billing"
+ },
+ {
+  "capability": "cluster:view",
+  "description": "View the regions servers can be created in",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "cluster:view",
+  "plane": "atlas",
+  "resource": "cluster"
+ },
+ {
+  "capability": "server:console",
+  "description": "Open the web console of selected servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-09-24 00:00:00.000000",
+  "name": "server:console",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:create",
+  "description": "Create new servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:create",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:network",
+  "description": "Change the firewall and public addresses of servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-10-11 18:00:00.000000",
+  "name": "server:network",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:power",
+  "description": "Start, stop, and restart servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:power",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:resize",
+  "description": "Resize or rebuild servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:resize",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:snapshot",
+  "description": "Create and restore server snapshots",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:snapshot",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:ssh-key",
+  "description": "Manage team SSH keys and rotate keys on selected servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-09-24 00:00:00.000000",
+  "name": "server:ssh-key",
+  "plane": "central",
+  "resource": "server"
+ },
+ {
+  "capability": "server:terminate",
+  "description": "Permanently destroy servers",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:terminate",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "server:view",
+  "description": "View servers, their status, and their metrics",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "server:view",
+  "plane": "atlas",
+  "resource": "server"
+ },
+ {
+  "capability": "service:manage",
+  "description": "Subscribe to add-on services, configure them, and cancel them",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "service:manage",
+  "plane": "central",
+  "resource": "service"
+ },
+ {
+  "capability": "service:view",
+  "description": "View add-on services and their usage",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "service:view",
+  "plane": "central",
+  "resource": "service"
+ },
+ {
+  "capability": "team:delete",
+  "description": "Archive the team",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "team:delete",
+  "plane": "central",
+  "resource": "team"
+ },
+ {
+  "capability": "team:edit",
+  "description": "Rename the team and change its logo",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "team:edit",
+  "plane": "central",
+  "resource": "team"
+ },
+ {
+  "capability": "team:manage_members",
+  "description": "Invite, suspend, and remove team members",
+  "docstatus": 0,
+  "doctype": "Capability",
+  "modified": "2026-08-07 12:00:00.000000",
+  "name": "team:manage_members",
+  "plane": "central",
+  "resource": "team"
+ }
+]

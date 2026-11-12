@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import ClassVar
+
+from pilot.commands import BenchMode, Command
+
+
+@dataclass(kw_only=True)
+class ListCommand(Command):
+    name: ClassVar[str] = "ls"
+    help: ClassVar[str] = "List all benches."
+    bench_mode: ClassVar[BenchMode] = BenchMode.NONE
+
+    def run(self) -> None:
+        from pilot.utils import cli_root
+
+        benches_dir = cli_root() / "benches"
+        rows = self._collect(benches_dir)
+        if not rows:
+            self.report("No benches yet. Create one with: pilot new <name>")
+            return
+
+        # Column widths sized to content (with sensible minimums).
+        name_w = max(len("NAME"), *(len(r["name"]) for r in rows))
+        mode_w = max(len("MODE"), *(len(r["mode"]) for r in rows))
+        mgr_w = max(len("MANAGER"), *(len(r["manager"]) for r in rows))
+        sites_w = max(len("SITES"), *(len(str(r["sites"])) for r in rows))
+
+        header = (
+            f"  {'':1} {'NAME':<{name_w}}  {'MODE':<{mode_w}}  "
+            f"{'MANAGER':<{mgr_w}}  {'SITES':<{sites_w}}  ADDRESS"
+        )
+        self.report(_dim(header))
+        for r in rows:
+            dot = {"running": _ok("●"), "admin": _warn("●")}.get(r["state"], _dim("○"))
+            self.report(
+                f"  {dot} {r['name']:<{name_w}}  {r['mode']:<{mode_w}}  "
+                f"{r['manager']:<{mgr_w}}  {r['sites']!s:<{sites_w}}  {r['address']}"
+            )
+
+    def _collect(self, benches_dir: Path) -> list[dict]:
+        if not benches_dir.is_dir():
+            return []
+        rows = []
+        for bench_dir in sorted(benches_dir.iterdir()):
+            toml_path = bench_dir / "bench.toml"
+            if not bench_dir.is_dir() or not toml_path.exists():
+                continue
+            rows.append(self._describe(bench_dir, toml_path))
+        return rows
+
+    def _describe(self, bench_dir: Path, toml_path: Path) -> dict:
+        from pilot.config import BenchConfig
+        from pilot.core.bench import Bench
+
+        name = bench_dir.name
+        mode, manager, address, state, sites = "unknown", "-", "", "stopped", 0
+        try:
+            # Parse-only (no validate) so a half-configured bench still lists.
+            config = BenchConfig.read(toml_path, validate=False)
+            name = config.name or name
+            prod = config.production
+            bench = Bench(config, bench_dir)
+            mode = "production" if prod.enabled else "development"
+            manager = prod.process_manager or "foreground"
+            address = self._address(bench)
+            state = self._state(bench, prod.enabled)
+            sites = self._site_count(bench_dir)
+        except Exception as exc:
+            logging.debug("Failed to describe bench %s: %s", bench_dir, exc)
+        return {
+            "name": name,
+            "mode": mode,
+            "manager": manager,
+            "address": address,
+            "state": state,
+            "sites": sites,
+        }
+
+    def _address(self, bench) -> str:
+        from pilot.utils import admin_url
+
+        admin = bench.config.admin
+        if not admin.domain:
+            return admin_url(bench.config)
+        from pilot.managers.nginx import NginxManager
+
+        scheme = "https" if admin.tls and NginxManager(bench).has_admin_cert else "http"
+        return f"{scheme}://{admin.domain}"
+
+    def _site_count(self, bench_dir: Path) -> int:
+        """A sites/ subdir counts as a site iff it has a site_config.json and is not a rename alias."""
+        sites_dir = bench_dir / "sites"
+        if not sites_dir.is_dir():
+            return 0
+        return sum(
+            1 for d in sites_dir.iterdir() if not d.is_symlink() and d.is_dir() and (d / "site_config.json").exists()
+        )
+
+    def _state(self, bench, production: bool) -> str:
+        """Return running/admin/stopped using the same states as the admin UI."""
+        from pilot.managers.processes.local import ProcessManager
+
+        try:
+            if not production:
+                manager = ProcessManager.detect_running(bench)
+                return "running" if manager.is_admin_running() else "stopped"
+            manager = ProcessManager.for_bench(bench)
+            if manager.is_running():
+                return "running"
+            return "admin" if manager.is_admin_running() else "stopped"
+        except Exception:
+            return "stopped"
+
+
+def _ok(text: str) -> str:
+    return f"\033[32m{text}\033[0m"
+
+
+def _warn(text: str) -> str:
+    return f"\033[33m{text}\033[0m"
+
+
+def _dim(text: str) -> str:
+    return f"\033[90m{text}\033[0m"

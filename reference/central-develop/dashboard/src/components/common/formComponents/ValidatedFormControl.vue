@@ -1,0 +1,72 @@
+<script setup lang="ts">
+import { TextInput } from 'frappe-ui'
+import { computed, ref, useAttrs } from 'vue'
+
+defineOptions({ inheritAttrs: false })
+
+type Validator = (value: string) => string
+type InputType = 'text' | 'email' | 'password' | 'number' | 'url' | 'tel'
+
+const props = withDefaults(
+	defineProps<{
+		modelValue: string
+		label: string
+		type?: InputType
+		validator?: Validator
+		submitted?: boolean
+	}>(),
+	{
+		type: 'text',
+		validator: () => '',
+		submitted: false,
+	},
+)
+
+const emit = defineEmits<{
+	'update:modelValue': [value: string]
+}>()
+
+const attrs = useAttrs()
+const touched = ref(false)
+const initialValue = props.modelValue
+const error = computed(() =>
+	touched.value || props.submitted ? props.validator(props.modelValue) : '',
+)
+
+const dirty = computed(() => props.modelValue !== initialValue)
+const valid = computed(() => !props.validator(props.modelValue))
+
+// Leaving an untouched field shows no error, so a click elsewhere does not shift the layout under the pointer.
+function onBlur(): void {
+	if (dirty.value) touched.value = true
+}
+
+function validate(): boolean {
+	touched.value = true
+	return valid.value
+}
+
+defineExpose({ dirty, valid, validate })
+</script>
+
+<template>
+	<TextInput
+		:model-value="modelValue"
+		:label="label"
+		:type="type"
+		:error="error"
+		size="md"
+		v-bind="attrs"
+		:class="attrs.class"
+		@update:model-value="emit('update:modelValue', String($event ?? ''))"
+		@blur="onBlur"
+	>
+		<template
+			v-for="name in Object.keys($slots)"
+			:key="name"
+			#[name]="slotProps"
+		>
+			<slot :name="name" v-bind="slotProps" />
+		</template>
+	</TextInput>
+</template>

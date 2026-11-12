@@ -245,7 +245,7 @@ func (e *Engine) vmSocket(vmID string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "firecracker.sock"), nil
+	return filepath.Join(dir, e.driver().SocketName()), nil
 }
 
 func socketMatches(expected, supplied string) bool {

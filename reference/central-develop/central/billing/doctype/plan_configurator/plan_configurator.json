@@ -1,0 +1,262 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:template_name",
+ "creation": "2026-06-18 00:00:00",
+ "description": "Authoring tool: generate a t-shirt-size ladder of bundles, then price it per cluster. Reusable \u2014 re-apply pricing when a new cluster onboards (final-plan-pricing.md \u00a711, issue #33).",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "template_name",
+  "plan_name_prefix",
+  "billing_cycle",
+  "column_break_xbyf",
+  "is_active",
+  "category",
+  "builder",
+  "provision_target",
+  "sub_category",
+  "sizing_section",
+  "start_vcpu",
+  "memory_ratio",
+  "base_transfer_gb",
+  "column_break_sizing",
+  "ceiling_vcpu",
+  "base_disk_gb",
+  "transfer_step_gb",
+  "pricing_section",
+  "base_rates",
+  "pricing_help",
+  "rungs_section",
+  "rungs",
+  "simple_section",
+  "simple_plans",
+  "component_card_section",
+  "component_rates",
+  "component_card_help"
+ ],
+ "fields": [
+  {
+   "description": "Identifies this reusable ladder (e.g. \"Standard 1:2\").",
+   "fieldname": "template_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Template Name",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "1",
+   "depends_on": "eval:doc.provision_target!='Resource'",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Generate Plans as Active"
+  },
+  {
+   "default": "VM Plans",
+   "description": "The Plan Category these plans belong to; its builder decides authoring (ADR 0007).",
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Plan Category",
+   "reqd": 1
+  },
+  {
+   "description": "Resolved from the category \u2014 VM Rungs (vCPU ladder) or Simple (name + quantity + rate).",
+   "fetch_from": "category.configurator_builder",
+   "fieldname": "builder",
+   "fieldtype": "Read Only",
+   "label": "Builder",
+   "read_only": 1
+  },
+  {
+   "description": "Resolved from the category: Server/blank authors plans, Resource prices resource types per unit.",
+   "fetch_from": "category.provision_target",
+   "fieldname": "provision_target",
+   "fieldtype": "Read Only",
+   "label": "Provision Target",
+   "read_only": 1
+  },
+  {
+   "description": "The optimisation profile within the category; for VM plans it pins the memory ratio.",
+   "fieldname": "sub_category",
+   "fieldtype": "Link",
+   "label": "Sub-Category",
+   "options": "Plan Sub-Category"
+  },
+  {
+   "depends_on": "eval:doc.provision_target!='Resource' && doc.builder=='VM Rungs'",
+   "fieldname": "sizing_section",
+   "fieldtype": "Section Break",
+   "label": "Sizing"
+  },
+  {
+   "default": "1/8",
+   "description": "Smallest rung, in vCPU (1 vCPU = 1000 millicores). The ladder doubles from here.",
+   "fieldname": "start_vcpu",
+   "fieldtype": "Select",
+   "options": "1/16\n1/8\n1/4\n1/2\n1\n2\n4\n8\n16\n32\n64\n128\n256\n512\n1024",
+   "in_list_view": 1,
+   "label": "Start vCPU",
+   "reqd": 1
+  },
+  {
+   "default": "4",
+   "description": "Largest rung. The ladder doubles from start up to (and including) this.",
+   "fieldname": "ceiling_vcpu",
+   "fieldtype": "Select",
+   "options": "1/16\n1/8\n1/4\n1/2\n1\n2\n4\n8\n16\n32\n64\n128\n256\n512\n1024",
+   "label": "Ceiling vCPU",
+   "reqd": 1
+  },
+  {
+   "description": "GB RAM per vCPU; pre-filled from the Sub-Category profile but authoritative once set.",
+   "fieldname": "memory_ratio",
+   "fieldtype": "Select",
+   "label": "Memory Ratio",
+   "options": "\n1:2\n1:4\n1:6\n1:8",
+   "mandatory_depends_on": "eval:doc.builder=='VM Rungs'"
+  },
+  {
+   "default": "0",
+   "description": "Disk for the smallest rung; scales with the size multiplier. 0 = no disk line.",
+   "fieldname": "base_disk_gb",
+   "fieldtype": "Float",
+   "label": "Base Disk (GB)",
+   "precision": "3"
+  },
+  {
+   "default": "0",
+   "description": "Transfer for the smallest rung (0 = none); tune irregular tiers per rung below.",
+   "fieldname": "base_transfer_gb",
+   "fieldtype": "Float",
+   "label": "Base Transfer (GB)",
+   "precision": "3"
+  },
+  {
+   "default": "0",
+   "description": "Added to transfer per rung (base + index \u00d7 step), e.g. +1000 GB each step.",
+   "fieldname": "transfer_step_gb",
+   "fieldtype": "Float",
+   "label": "Transfer Step (GB)",
+   "precision": "3"
+  },
+  {
+   "fieldname": "column_break_sizing",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Bundle",
+   "depends_on": "eval:doc.provision_target!='Resource'",
+   "description": "Generated plan names start with this (e.g. \"Bundle 2 vCPU 4 GB\").",
+   "fieldname": "plan_name_prefix",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Plan Name Prefix",
+   "mandatory_depends_on": "eval:doc.provision_target!='Resource'"
+  },
+  {
+   "default": "Monthly",
+   "depends_on": "eval:doc.provision_target!='Resource'",
+   "fieldname": "billing_cycle",
+   "fieldtype": "Select",
+   "label": "Billing Cycle",
+   "options": "Monthly\nAnnual"
+  },
+  {
+   "depends_on": "eval:doc.provision_target!='Resource'",
+   "fieldname": "pricing_section",
+   "fieldtype": "Section Break",
+   "label": "Default Pricing"
+  },
+  {
+   "description": "One row per currency \u2014 the price of the smallest rung. Each rung is priced base_rate \u00d7 its size multiplier.",
+   "fieldname": "base_rates",
+   "fieldtype": "Table",
+   "label": "Base Rates",
+   "mandatory_depends_on": "eval:doc.provision_target!='Resource'",
+   "options": "Plan Configurator Rate"
+  },
+  {
+   "fieldname": "pricing_help",
+   "fieldtype": "HTML",
+   "options": "<p class='text-muted small'><b>Populate Rungs</b> fills the table below from the formula; edit any value (irregular transfer, off-ratio memory, a hand-authored tier). <b>Generate Plans</b> opens a dialog to pick the cluster, currencies, and which rungs \u2014 then runs in the background, creating a bundle per rung and its rates. Re-run it per cluster (a plan is sellable on a cluster only where it has a rate, or a global one); blank cluster = global.</p>"
+  },
+  {
+   "depends_on": "eval:doc.provision_target!='Resource' && doc.builder=='VM Rungs'",
+   "fieldname": "rungs_section",
+   "fieldtype": "Section Break",
+   "label": "Rungs"
+  },
+  {
+   "description": "Populate from the formula, then edit before generating.",
+   "fieldname": "rungs",
+   "fieldtype": "Table",
+   "label": "Rungs",
+   "options": "Plan Configurator Plan"
+  },
+  {
+   "depends_on": "eval:doc.provision_target!='Resource' && doc.builder=='Simple'",
+   "fieldname": "simple_section",
+   "fieldtype": "Section Break",
+   "label": "Plans"
+  },
+  {
+   "description": "One row per plan: title, the category's resource type, included quantity, unit, and a rate multiplier (rate = base rate x multiplier).",
+   "fieldname": "simple_plans",
+   "fieldtype": "Table",
+   "label": "Plans",
+   "options": "Plan Configurator Simple Plan"
+  },
+  {
+   "fieldname": "column_break_xbyf",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.provision_target=='Resource'",
+   "fieldname": "component_card_section",
+   "fieldtype": "Section Break",
+   "label": "Resource Rates"
+  },
+  {
+   "description": "Per-unit rates per (resource type × currency); a config is sellable only where every type is priced (ADR 0011).",
+   "fieldname": "component_rates",
+   "fieldtype": "Table",
+   "label": "Resource Rates",
+   "options": "Plan Configurator Component Rate"
+  },
+  {
+   "fieldname": "component_card_help",
+   "fieldtype": "HTML",
+   "options": "<p class='text-muted small'><b>Seed Rates</b> fills the table with every shipped currency × resource type so nothing is missed. <b>Publish Rates</b> writes these as Catalog Rate rows (per cluster; blank = global) and reports any currency still missing a resource type — that region can't offer custom configs until it is priced (ADR 0011).</p>"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-06-24 12:54:45.644382",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Plan Configurator",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

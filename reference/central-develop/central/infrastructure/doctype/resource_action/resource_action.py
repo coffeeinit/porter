@@ -1,0 +1,471 @@
+from typing import Self
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+
+from central.errors import AtlasConnectionError, AtlasRequestUncertain, build_envelope, to_error_response
+from central.iam import can
+from central.infrastructure.doctype.blocked_domain.blocked_domain import BlockedDomain, normalize_domain
+from central.infrastructure.doctype.pilot_credential.pilot_credential import PilotCredential
+from central.infrastructure.doctype.user_mail_account.user_mail_account import UserMailAccount
+from central.server_models import ActionStatus, ResizeConfiguration, ServerCreation, SiteCreation
+
+PENDING_STATES = ("Queued", "Dispatching", "Sent", "In Progress", "Uncertain")
+PENDING_LABEL = {
+	"create": "Provisioning",
+	"start": "Starting",
+	"stop": "Stopping",
+	"terminate": "Terminating",
+	"restart": "Restarting",
+	"resize": "Resizing",
+}
+# The capability a requester must hold, both when an action is accepted and when it is sent.
+ACTION_CAPABILITIES = {
+	"create": "server:create",
+	"start": "server:power",
+	"stop": "server:power",
+	"restart": "server:power",
+	"terminate": "server:terminate",
+	"resize": "server:resize",
+}
+# The actions a customer runs against an existing server as a plain command.
+COMMAND_ACTIONS = ("start", "stop", "restart", "terminate")
+# The observed status that means an action reached its goal.
+GOAL_STATUS = {
+	"create": "Running",
+	"start": "Running",
+	"stop": "Stopped",
+	"restart": "Running",
+	"terminate": "Terminated",
+}
+# A command that has not reached its goal this long after dispatch has timed out.
+COMMAND_TIMEOUT_SECONDS = 10 * 60
+TERMINAL_STATES = ("Succeeded", "Failed", "Timed Out")
+# A creation in one of these states can be sent again while it holds no VM identity.
+RETRYABLE_CREATE_STATES = ("Failed", "Timed Out")
+ACTION_STATES = (*PENDING_STATES, *TERMINAL_STATES)
+# What `action_status` reads, so a list query can build the same shape as a document.
+STATUS_FIELDS = (
+	"name",
+	"action",
+	"status",
+	"resource_id",
+	"title",
+	"error_code",
+	"error_message",
+	"remediation",
+)
+
+
+def action_status(row) -> ActionStatus:
+	"""The one shape a console reads an action in, built from a document or a query row."""
+	error = None
+	if row.error_code:
+		error = build_envelope(
+			row.error_code, action=row.action, message=row.error_message, remediation=row.remediation
+		)
+
+	return {
+		"action": row.name,
+		"status": row.status,
+		"resource_id": row.resource_id,
+		"title": row.title or row.resource_id or row.action,
+		"error": error,
+	}
+
+
+class ResourceAction(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		action: DF.Literal["create", "start", "stop", "restart", "terminate", "resize"]
+		completed_at: DF.Datetime | None
+		correlation_id: DF.Data
+		credential: DF.Link | None
+		diagnostic: DF.Code | None
+		dispatched_at: DF.Datetime | None
+		error_code: DF.Data | None
+		error_message: DF.SmallText | None
+		last_checked_at: DF.Datetime | None
+		is_free_trial: DF.Check
+		product: DF.Link | None
+		region: DF.Link | None
+		remediation: DF.SmallText | None
+		remote_vm_id: DF.Data | None
+		request_digest: DF.Data | None
+		request_key: DF.Data | None
+		request_payload: DF.JSON | None
+		requested_by: DF.Link | None
+		reserved_monthly_rate: DF.Currency
+		resource_id: DF.Data | None
+		resource_type: DF.Literal["Server", "Site"]
+		retriable: DF.Check
+		server: DF.Link | None
+		status: DF.Literal[
+			"Queued", "Dispatching", "Sent", "In Progress", "Succeeded", "Failed", "Uncertain", "Timed Out"
+		]
+		subdomain: DF.Data | None
+		take_snapshot: DF.Check
+		team: DF.Link
+		title: DF.Data | None
+		vm_snapshot: DF.Link | None
+	# end: auto-generated types
+
+	"""One durable resource operation, from validated intent to confirmed outcome."""
+
+	@classmethod
+	def queue(
+		cls,
+		action: str,
+		team: str,
+		region: str,
+		title: str,
+		*,
+		server: str | None = None,
+		remote_vm_id: str | None = None,
+		requested_by: str | None = None,
+		**fields,
+	) -> Self:
+		"""Save one authorized request as a Queued action."""
+		document = frappe.get_doc(
+			{
+				"doctype": "Resource Action",
+				"resource_type": "Server",
+				"action": action,
+				"team": team,
+				"region": region,
+				"title": title,
+				"server": server,
+				"resource_id": server,
+				"remote_vm_id": remote_vm_id,
+				"requested_by": requested_by or frappe.session.user,
+				"correlation_id": frappe.generate_hash(length=32),
+				"status": "Queued",
+				**fields,
+			}
+		)
+		# Customers have read-only access, so the authorized service inserts for them.
+		document.insert(ignore_permissions=True)
+
+		return document
+
+	@classmethod
+	def get_pending(cls, server: str, action: str) -> Self | None:
+		"""Return the same pending action, or refuse when a different one is pending."""
+		name = frappe.db.get_value(
+			"Resource Action", {"resource_id": server, "status": ["in", PENDING_STATES]}
+		)
+		if not name:
+			return None
+
+		pending = frappe.get_doc("Resource Action", name)
+		if pending.action != action:
+			frappe.throw(_("Another action is still pending for this server."))
+
+		return pending
+
+	def is_allowed(self) -> bool:
+		"""Whether the requester still holds the capabilities this action needs."""
+		server = self.server or None
+		if not can(self.requested_by, self.team, ACTION_CAPABILITIES[self.action], server=server):
+			return False
+
+		return not self.take_snapshot or can(self.requested_by, self.team, "server:snapshot", server=server)
+
+	def after_insert(self) -> None:
+		if self.status == "Queued":
+			self.enqueue()
+		if self.is_trial_creation:
+			first_touch = frappe.db.get_value(
+				"Team",
+				self.team,
+				["utm_source", "utm_medium", "utm_campaign", "referrer", "landing_product"],
+				as_dict=True,
+			)
+			self.capture_trial_event("trial_requested", region=self.region, **first_touch)
+
+	def validate(self) -> None:
+		if self.subdomain and (self.has_value_changed("subdomain") or self.has_value_changed("region")):
+			self.subdomain = normalize_domain(self.subdomain)
+			zone = frappe.get_cached_value("Region", self.region, "proxy_domain")
+			BlockedDomain.validate_assignment(f"{self.subdomain}.{zone}")
+
+	def enqueue(self) -> None:
+		from central.integrations.resource_actions import get_job_timeout_seconds
+
+		frappe.enqueue(
+			"central.integrations.resource_actions.process_request",
+			name=self.name,
+			queue="long",
+			timeout=get_job_timeout_seconds(self.action),
+			enqueue_after_commit=True,
+			job_id=f"resource-action:{self.name}",
+			deduplicate=True,
+		)
+
+	def get_configuration(self) -> ServerCreation:
+		return ServerCreation.model_validate(frappe.parse_json(self.request_payload))
+
+	def get_site_creation(self) -> SiteCreation | None:
+		"""The trial site part of a creation request. Older requests carry none."""
+		site = (frappe.parse_json(self.request_payload or "{}") or {}).get("site")
+		return SiteCreation.model_validate(site) if site else None
+
+	def get_resize_configuration(self) -> ResizeConfiguration:
+		return ResizeConfiguration.model_validate(frappe.parse_json(self.request_payload))
+
+	def customer_status(self) -> ActionStatus:
+		return action_status(self)
+
+	def transition(
+		self,
+		status: str,
+		*,
+		envelope: dict | None = None,
+		diagnostic: str | None = None,
+		diagnostic_title: str = "Resource action failed",
+		notify: bool = True,
+	) -> None:
+		"""Record one action state and keep operator diagnostics on the same record."""
+		if status not in ACTION_STATES:
+			frappe.throw(_("Unknown resource action status {0}.").format(frappe.bold(status)))
+
+		previous_status = self.status
+		now = frappe.utils.now_datetime()
+		values = {
+			"status": status,
+			"last_checked_at": now,
+			"completed_at": now if status in TERMINAL_STATES else None,
+			"error_code": envelope["code"] if envelope else None,
+			"error_message": envelope["message"] if envelope else None,
+			"remediation": envelope["remediation"] if envelope else None,
+			"retriable": int(envelope["retriable"]) if envelope else 0,
+		}
+		if status in ("Queued", "Dispatching"):
+			values["dispatched_at"] = now if status == "Dispatching" else None
+		if diagnostic:
+			values.update(self._diagnostic_values(diagnostic, diagnostic_title))
+
+		self.db_set(values, notify=notify)
+		if status != previous_status and status in ("Failed", "Timed Out"):
+			if self.action == "create":
+				# A creation the region never accepted leaves no machine to use its credential.
+				if not self.remote_vm_id:
+					PilotCredential.revoke_by_id(self.credential)
+				# No server will ever link the mailbox, so termination would not remove it.
+				UserMailAccount.queue_removal(resource_action=self.name, server=("is", "not set"))
+			self.queue_attention_notification(envelope)
+			if self.is_trial_creation:
+				self.capture_trial_event("trial_failed", status=status, error_code=self.error_code)
+
+	def fail(self, error: Exception, title: str) -> None:
+		"""Record a failed dispatch. An uncertain Atlas reply stays pending for recovery."""
+		self.transition(
+			"Uncertain" if isinstance(error, AtlasRequestUncertain) else "Failed",
+			envelope=to_error_response(error),
+			diagnostic=frappe.get_traceback() if isinstance(error, AtlasConnectionError) else None,
+			diagnostic_title=title,
+		)
+
+	def finish(self, observed_status: str) -> None:
+		"""Settle this action against the server status the region reported."""
+		self.reload()
+		if self.status in TERMINAL_STATES or self.record_observed_status(observed_status):
+			return
+
+		if observed_status in ("Failed", "Terminated"):
+			self.transition("Failed", envelope=build_envelope("ACTION_FAILED", action=self.action))
+		elif self.action != "create" and self.is_overdue:
+			self.transition("Timed Out", envelope=build_envelope("ACTION_TIMED_OUT", action=self.action))
+		else:
+			self.transition("In Progress", notify=False)
+
+	@property
+	def server_id(self) -> str:
+		"""The Virtual Machine this action works on, or the one a creation gives its server."""
+		return self.server or f"server-{self.name}"
+
+	@property
+	def is_overdue(self) -> bool:
+		started = self.dispatched_at or self.creation
+		return (
+			frappe.utils.time_diff_in_seconds(frappe.utils.now_datetime(), started) > COMMAND_TIMEOUT_SECONDS
+		)
+
+	@property
+	def is_trial_creation(self) -> bool:
+		return self.action == "create" and self.resource_type == "Site"
+
+	def capture_trial_event(self, event: str, **properties) -> None:
+		"""Send this trial's step to the signup funnel, once per action."""
+		from central.signups.funnel import capture_trial_event
+
+		site = self.get_site_creation()
+		capture_trial_event(
+			event, self.team, site.product if site else None, user=self.requested_by, **properties
+		)
+
+	def queue_attention_notification(self, envelope: dict | None) -> None:
+		"""Notify once when an action reaches a terminal state that needs attention."""
+		from central.notification.engine import queue_event
+
+		event_type = {
+			"create": "provision_failure",
+			"resize": "resize_failed",
+		}.get(self.action, "server_action_required")
+		queue_event(
+			self.team,
+			event_type,
+			message=envelope["message"] if envelope else _("The operation did not finish."),
+			context={"action": self.action, "title": self.title or self.resource_id or self.name},
+			reference_doctype=self.doctype,
+			reference_name=self.name,
+		)
+
+	def record_diagnostic(self, detail: str, title: str = "Resource action diagnostic") -> None:
+		"""Keep Atlas detail or a local traceback where a Desk operator investigates it."""
+		self.db_set(self._diagnostic_values(detail, title), notify=True)
+
+	def _diagnostic_values(self, detail: str, title: str) -> dict:
+		self.log_error(title=title, message=detail)
+		return {"diagnostic": f"{title}\n\n{detail}"}
+
+	@classmethod
+	def confirm_observed_status(cls, resource_id: str, status: str) -> None:
+		"""Advance the action waiting on this server against what the region reports."""
+		waiting = frappe.db.get_value(
+			"Resource Action",
+			{"resource_id": resource_id, "status": ["in", PENDING_STATES]},
+			"name",
+			order_by="creation asc",
+		)
+		if waiting:
+			frappe.get_doc("Resource Action", waiting).record_observed_status(status)
+
+	def record_observed_status(self, status: str) -> bool:
+		"""Move this action on from the state the region reports, and return True when it
+		reached its goal. Any other state leaves the action pending: the scoped read
+		decides what a surprising state means."""
+		if self.action == "resize":
+			return False
+
+		if status != GOAL_STATUS[self.action]:
+			return False
+
+		self.transition("Succeeded")
+
+		return True
+
+	@frappe.whitelist(methods=["POST"])
+	def check_status(self) -> None:
+		self.check_permission("read")
+		if self.status in TERMINAL_STATES:
+			return
+
+		self.enqueue()
+
+	@frappe.whitelist(methods=["GET"])
+	def get_setup_timeline(self) -> list[dict]:
+		"""Each step a new site takes, with when it happened, so an operator sees where a signup
+		stopped. The page a customer waits on reads the same records."""
+		self.check_permission("read")
+		site = frappe._dict()
+		if self.server:
+			fields = ["creation", "ready_at", "claimed_at", "renamed_at", "rename_error"]
+			site = frappe.db.get_value("Site", {"server": self.server}, fields, as_dict=True) or site
+		failed = self.status in ("Failed", "Timed Out")
+
+		return [
+			{"label": _("Requested"), "at": self.creation},
+			{"label": _("Sent to region"), "at": self.dispatched_at},
+			{
+				"label": _("Server created"),
+				"at": self.completed_at if self.status == "Succeeded" else None,
+				"error": (self.error_message or self.status) if failed else None,
+			},
+			{"label": _("Site addressable"), "at": site.creation},
+			{"label": _("Site answered"), "at": site.ready_at},
+			{"label": _("Signed in"), "at": site.claimed_at},
+			{"label": _("Name applied"), "at": site.renamed_at, "error": site.rename_error},
+		]
+
+	@frappe.whitelist(methods=["POST"])
+	def retry(self) -> ActionStatus:
+		"""Send this creation again on the same record, with the same request key, configuration
+		and quote. Refused once the region answered with a machine, because a second dispatch would
+		build a second server."""
+		self.check_permission("read")
+		if self.action != "create":
+			frappe.throw(_("Only a server creation can be retried. Run this action again from the server."))
+		if not can(frappe.session.user, self.team, "server:create"):
+			frappe.throw(_("You cannot create servers for this Team."), frappe.PermissionError)
+		if self.status not in RETRYABLE_CREATE_STATES:
+			frappe.throw(_("Only a failed creation can be retried."))
+		if self.remote_vm_id:
+			frappe.throw(
+				_("The region already accepted a machine for this request. Central will not send it again.")
+			)
+		# A record from before the saved configuration has nothing to send again.
+		if not self.request_payload:
+			frappe.throw(_("This request holds no saved configuration. Create the server again."))
+
+		self.revalidate_purchase()
+		self.transition("Queued")
+		self.enqueue()
+
+		return self.customer_status()
+
+	def revalidate_purchase(self) -> None:
+		"""Check the saved configuration against today's catalog and budget before a retry.
+		The reserved rate stays as accepted; headroom, plan eligibility and trial limits are checked again."""
+		from central.resource_actions import validate_purchase
+
+		frappe.db.get_value("Team", self.team, "name", for_update=True)
+		configuration = self.get_configuration()
+		validate_purchase(
+			self.team,
+			self.region,
+			configuration.plan,
+			[row.model_dump() for row in configuration.includes],
+			configuration.sub_category,
+			is_free_trial=bool(self.is_free_trial),
+		)
+
+	@classmethod
+	def open_creations(cls, team: str) -> list[dict]:
+		"""The team's unfinished creations. A creation has no server record until the region
+		accepts it, so this is how a console finds its own request."""
+		rows = frappe.get_list(
+			"Resource Action",
+			filters={"team": team, "action": "create", "status": ["in", PENDING_STATES]},
+			fields=[*STATUS_FIELDS, "requested_by"],
+			order_by="creation asc",
+			limit=0,
+		)
+		return [{**action_status(row), "requested_by": row.requested_by} for row in rows]
+
+	@classmethod
+	def pending_labels(cls, team: str) -> dict[str, str]:
+		rows = frappe.get_list(
+			"Resource Action",
+			filters={"team": team, "status": ["in", PENDING_STATES], "resource_id": ["is", "set"]},
+			fields=["resource_id", "action"],
+			order_by="creation asc",
+			limit=0,
+		)
+		return {row.resource_id: PENDING_LABEL[row.action] for row in rows}
+
+
+def on_doctype_update() -> None:
+	frappe.db.add_unique("Resource Action", ["team", "request_key"])
+	frappe.db.add_index("Resource Action", ["team", "status"])
+	frappe.db.add_index("Resource Action", ["team", "requested_by", "product", "creation"])
+	frappe.db.add_index("Resource Action", ["resource_id", "status"])
+	frappe.db.add_index("Resource Action", ["status", "modified"])
+	frappe.db.add_index("Resource Action", ["server", "action"])

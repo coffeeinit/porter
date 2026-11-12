@@ -1,0 +1,323 @@
+{
+ "actions": [],
+ "autoname": "OSC-.####.",
+ "creation": "2026-09-11 17:22:03.268619",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "section_break_cluster",
+  "status",
+  "health",
+  "health_reason",
+  "activated_on",
+  "auto_spawn",
+  "auto_setup_attempts",
+  "error",
+  "section_break_topology",
+  "replication_factor",
+  "machine_info_section",
+  "machines",
+  "section_break_garage",
+  "garage_version",
+  "garage_arch",
+  "garage_binary",
+  "column_break_garage",
+  "metadata_dir",
+  "data_dir",
+  "last_metadata_snapshot_at",
+  "section_break_ports",
+  "s3_port",
+  "rpc_port",
+  "column_break_ports",
+  "admin_port",
+  "metrics_scrape_seconds",
+  "section_break_secrets",
+  "rpc_secret",
+  "admin_token",
+  "column_break_secrets",
+  "metrics_token",
+  "section_break_log",
+  "setup_log"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_cluster",
+   "fieldtype": "Section Break",
+   "label": "Cluster"
+  },
+  {
+   "default": "Draft",
+   "description": "Draft \u2014 no machines set up yet.\nSetting Up \u2014 installing Garage on the machines that have not joined.\nActive \u2014 the nodes joined and Garage is running.\nFailed \u2014 the last setup run could not bring up enough nodes. See Error.",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nSetting Up\nActive\nFailed",
+   "read_only": 1
+  },
+  {
+   "default": "Unknown",
+   "description": "What users get right now, worked out from the machines. Status is what Cargo is doing to the cluster; health is how the cluster is doing. Unknown until it first serves.",
+   "fieldname": "health",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Health",
+   "options": "Unknown\nHealthy\nDegraded\nCritical",
+   "read_only": 1
+  },
+  {
+   "depends_on": "health_reason",
+   "description": "What the worst check found.",
+   "fieldname": "health_reason",
+   "fieldtype": "Data",
+   "label": "Health Reason",
+   "read_only": 1
+  },
+  {
+   "description": "When this cluster first served. Past this it stays Active: a later failure is a health problem, not a failed build.",
+   "fieldname": "activated_on",
+   "fieldtype": "Datetime",
+   "label": "Activated On",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Cargo created this cluster and keeps it moving. A cluster added by hand is never advanced on its own.",
+   "fieldname": "auto_spawn",
+   "fieldtype": "Check",
+   "label": "Auto Spawn",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "depends_on": "auto_spawn",
+   "description": "Setup runs Cargo started by itself. It stops trying once the budget is spent, and clears when the cluster serves.",
+   "fieldname": "auto_setup_attempts",
+   "fieldtype": "Int",
+   "label": "Auto Setup Attempts",
+   "read_only": 1
+  },
+  {
+   "depends_on": "error",
+   "description": "Why the last step failed.",
+   "fieldname": "error",
+   "fieldtype": "Long Text",
+   "label": "Error",
+   "max_height": "16rem",
+   "read_only": 1
+  },
+  {
+   "description": "How safely data is spread. The machines themselves live under Machines, each with its own disk.",
+   "fieldname": "section_break_topology",
+   "fieldtype": "Section Break",
+   "label": "Topology"
+  },
+  {
+   "default": "3",
+   "description": "Copies of each object. Can't exceed the number of storage machines.",
+   "fieldname": "replication_factor",
+   "fieldtype": "Int",
+   "label": "Replication Factor",
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Defaults suit a normal cluster.",
+   "fieldname": "section_break_garage",
+   "fieldtype": "Section Break",
+   "label": "Garage"
+  },
+  {
+   "default": "v2.3.0",
+   "description": "Release tag, e.g. v2.3.0.",
+   "fieldname": "garage_version",
+   "fieldtype": "Data",
+   "label": "Version",
+   "reqd": 1
+  },
+  {
+   "default": "x86_64-unknown-linux-musl",
+   "description": "Must match the base image.",
+   "fieldname": "garage_arch",
+   "fieldtype": "Data",
+   "label": "Architecture",
+   "reqd": 1
+  },
+  {
+   "default": "/usr/local/bin/garage",
+   "description": "Where the binary lands on each machine.",
+   "fieldname": "garage_binary",
+   "fieldtype": "Data",
+   "label": "Binary Path",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_garage",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "/var/lib/garage/meta",
+   "description": "Node identity and index. Small, but losing it loses the node.",
+   "fieldname": "metadata_dir",
+   "fieldtype": "Data",
+   "label": "Metadata Directory",
+   "reqd": 1
+  },
+  {
+   "default": "/var/lib/garage/data",
+   "description": "Where objects live. Put the big disk here.",
+   "fieldname": "data_dir",
+   "fieldtype": "Data",
+   "label": "Data Directory",
+   "reqd": 1
+  },
+  {
+   "description": "When Cargo last asked every node to snapshot its metadata database. Each node keeps its two newest under snapshots/ in the metadata directory.",
+   "fieldname": "last_metadata_snapshot_at",
+   "fieldtype": "Datetime",
+   "label": "Last Metadata Snapshot",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Garage's defaults. Every machine binds all five.",
+   "fieldname": "section_break_ports",
+   "fieldtype": "Section Break",
+   "label": "Ports"
+  },
+  {
+   "default": "3900",
+   "description": "Garage's S3 API, on every node. Users never reach it directly: nginx on the gateway takes port 80 and forwards s3-svc.<domain> here.",
+   "fieldname": "s3_port",
+   "fieldtype": "Int",
+   "label": "S3 API",
+   "reqd": 1
+  },
+  {
+   "default": "3901",
+   "description": "Node to node. Must be open between machines.",
+   "fieldname": "rpc_port",
+   "fieldtype": "Int",
+   "label": "RPC",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_ports",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "3903",
+   "description": "Layout and bucket management. Keep it private.",
+   "fieldname": "admin_port",
+   "fieldtype": "Int",
+   "label": "Admin API",
+   "reqd": 1
+  },
+  {
+   "default": "60",
+   "description": "How often Vector on each node reads Garage's metrics and hands them to Datum. Vector sends once a minute and keeps only the latest reading per series, so 60 is the finest that reaches Datum. Saving a new value re-installs Vector on the nodes of a live cluster.",
+   "fieldname": "metrics_scrape_seconds",
+   "fieldtype": "Int",
+   "label": "Metrics Scrape Interval (Seconds)",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.status == 'Credentials Minted'",
+   "description": "Issued by Central. Identical on every node \u2014 that is what makes them one cluster.",
+   "fieldname": "section_break_secrets",
+   "fieldtype": "Section Break",
+   "label": "Cluster Secrets"
+  },
+  {
+   "description": "Authenticates nodes to each other.",
+   "fieldname": "rpc_secret",
+   "fieldtype": "Password",
+   "label": "RPC Secret",
+   "read_only": 1
+  },
+  {
+   "description": "Full admin access. Central gets a narrower one.",
+   "fieldname": "admin_token",
+   "fieldtype": "Password",
+   "label": "Admin Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_secrets",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Read-only Prometheus access.",
+   "fieldname": "metrics_token",
+   "fieldtype": "Password",
+   "label": "Metrics Token",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_log",
+   "fieldtype": "Section Break",
+   "label": "Setup Log"
+  },
+  {
+   "description": "Everything the install script printed on every machine, as it printed it.",
+   "fieldname": "setup_log",
+   "fieldtype": "Code",
+   "label": "Setup Log",
+   "max_height": "24rem",
+   "read_only": 1
+  },
+  {
+   "fieldname": "machine_info_section",
+   "fieldtype": "Section Break",
+   "label": "Machine Info"
+  },
+  {
+   "fieldname": "machines",
+   "fieldtype": "Table",
+   "label": "Machines",
+   "options": "Object Storage Node"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Machines",
+   "link_doctype": "Machine",
+   "link_fieldname": "reference_name"
+  },
+  {
+   "group": "Workflows",
+   "link_doctype": "Press Workflow",
+   "link_fieldname": "linked_docname"
+  }
+ ],
+ "modified": "2026-10-23 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Object Storage",
+ "name": "Object Storage Cluster",
+ "naming_rule": "Expression",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,471 @@
+{
+ "actions": [],
+ "creation": "2026-09-03 03:25:50.873793",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "is_draft",
+  "is_terminating",
+  "current_state",
+  "desired_state",
+  "active_migration",
+  "tenant_id",
+  "is_privileged",
+  "is_network_gateway",
+  "column_break_status",
+  "server",
+  "virtual_machine_image",
+  "architecture",
+  "hostname",
+  "error",
+  "is_termination_protected",
+  "section_break_compute_and_storage",
+  "cpu_millicores",
+  "memory_mib",
+  "column_break_compute",
+  "disk_mib",
+  "disk_throughput_mibps",
+  "disk_iops",
+  "sleepy_configuration_section",
+  "sleep_after_idle_seconds",
+  "column_break_azga",
+  "deep_sleep_after_idle_seconds",
+  "column_break_mhiq",
+  "coma_after_idle_seconds",
+  "section_break_network",
+  "mac",
+  "public_ipv4",
+  "public_ipv6",
+  "routed_ipv6",
+  "column_break_network",
+  "wireguard_mesh_ipv6",
+  "private_network_throughput_mibps",
+  "public_network_throughput_mibps",
+  "is_accessible_via_wireguard_gateway",
+  "other_data_section",
+  "routes",
+  "ssh_keys",
+  "firewall_summary",
+  "metadata",
+  "placement_rules",
+  "tags"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "is_draft",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Draft",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_terminating",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Terminating",
+   "read_only": 1
+  },
+  {
+   "fieldname": "active_migration",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Active Migration",
+   "options": "Virtual Machine Migration",
+   "read_only": 1
+  },
+  {
+   "fieldname": "current_state",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Current State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "desired_state",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Desired State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "server",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Server",
+   "options": "Metal Server",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "virtual_machine_image",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Virtual Machine Image",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "error",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Error",
+   "length": 512,
+   "read_only": 1
+  },
+  {
+   "description": "1000 millicores equals one CPU core. The valid range is 100 to 32000. Firecracker supports a maximum of 32 guest vCPUs.",
+   "fieldname": "cpu_millicores",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "CPU (millicores)",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "column_break_compute",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "memory_mib",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Memory (MiB)",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "default": "0",
+   "description": "Metal puts the VM to sleep after this idle time. 0 disables automatic idle sleep.",
+   "fieldname": "sleep_after_idle_seconds",
+   "fieldtype": "Int",
+   "label": "Sleep After Idle (Seconds)",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "Idle time before Atlas offloads saved memory. 0 disables deep sleep.",
+   "fieldname": "deep_sleep_after_idle_seconds",
+   "fieldtype": "Int",
+   "label": "Deep Sleep After Idle (Seconds)",
+   "non_negative": 1,
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "Idle time before Atlas offloads the disk. Must exceed Deep Sleep After Idle. 0 disables coma.",
+   "fieldname": "coma_after_idle_seconds",
+   "fieldtype": "Int",
+   "label": "Coma After Idle (Seconds)",
+   "non_negative": 1,
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "disk_mib",
+   "fieldtype": "Int",
+   "label": "Disk (MiB)",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "disk_throughput_mibps",
+   "fieldtype": "Int",
+   "is_virtual": 1,
+   "label": "Disk Throughput (MiB/s)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "disk_iops",
+   "fieldtype": "Int",
+   "is_virtual": 1,
+   "label": "Disk IOPS",
+   "read_only": 1
+  },
+  {
+   "description": "VMs in the same tenant can connect through the mesh.",
+   "fieldname": "tenant_id",
+   "fieldtype": "Int",
+   "label": "Tenant ID",
+   "read_only": 1,
+   "reqd": 1,
+   "search_index": 1,
+   "set_only_once": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "Reaches every tenant, and every tenant reaches it. Needs tenant 0.",
+   "fieldname": "is_privileged",
+   "fieldtype": "Check",
+   "label": "Is Privileged",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "Termination and deletion are refused while this is set.",
+   "fieldname": "is_termination_protected",
+   "fieldtype": "Check",
+   "label": "Is Termination Protected",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "section_break_network",
+   "fieldtype": "Section Break",
+   "label": "Network"
+  },
+  {
+   "fieldname": "hostname",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Hostname",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wireguard_mesh_ipv6",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "WireGuard Mesh IPv6",
+   "read_only": 1
+  },
+  {
+   "description": "Each destination leaves through the host uplink (via host) or a gateway VM mesh address.",
+   "fieldname": "routes",
+   "fieldtype": "Code",
+   "is_virtual": 1,
+   "label": "Routes",
+   "options": "JSON",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "This VM carries traffic for other VMs, so it may send a source address it does not own.",
+   "fieldname": "is_network_gateway",
+   "fieldtype": "Check",
+   "label": "Network Gateway",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "description": "Customer devices on a WireGuard gateway of this tenant can reach this VM.",
+   "fieldname": "is_accessible_via_wireguard_gateway",
+   "fieldtype": "Check",
+   "is_virtual": 1,
+   "label": "Accessible via WireGuard Gateway",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "public_ipv6",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Public IPv6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "routed_ipv6",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Routed IPv6",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_network",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_ipv4",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "Public IPv4",
+   "read_only": 1
+  },
+  {
+   "fieldname": "mac",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "MAC",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.private_network_throughput_mibps",
+   "fieldname": "private_network_throughput_mibps",
+   "fieldtype": "Int",
+   "is_virtual": 1,
+   "label": "Private Throughput (MiB/s)",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.public_network_throughput_mibps",
+   "fieldname": "public_network_throughput_mibps",
+   "fieldtype": "Int",
+   "is_virtual": 1,
+   "label": "Public Throughput (MiB/s)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "firewall_summary",
+   "fieldtype": "Code",
+   "is_virtual": 1,
+   "label": "Firewall",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "ssh_keys",
+   "fieldtype": "Small Text",
+   "is_virtual": 1,
+   "label": "SSH Keys",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metadata",
+   "fieldtype": "Code",
+   "is_virtual": 1,
+   "label": "Metadata",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "description": "Rules that limit the Metal Servers for this virtual machine. Placement applies them at creation, at a migration to a host that placement chooses, and at a resize that moves the virtual machine.",
+   "fieldname": "placement_rules",
+   "fieldtype": "Code",
+   "label": "Placement Rules",
+   "options": "JSON",
+   "read_only": 1,
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "section_break_compute_and_storage",
+   "fieldtype": "Section Break",
+   "label": "Compute and Storage"
+  },
+  {
+   "fieldname": "other_data_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "architecture",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Architecture",
+   "options": "amd64\narm64",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "description": "Your own key and value labels for this virtual machine, such as env and prod. Use them to find it again.",
+   "fieldname": "tags",
+   "fieldtype": "Table",
+   "label": "Tags",
+   "options": "Atlas Tag",
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "sleepy_configuration_section",
+   "fieldtype": "Section Break",
+   "label": "Sleepy Configuration"
+  },
+  {
+   "fieldname": "column_break_azga",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_mhiq",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "in_create": 1,
+ "links": [
+  {
+   "link_doctype": "SSH Task",
+   "link_fieldname": "target"
+  },
+  {
+   "link_doctype": "Virtual Machine State",
+   "link_fieldname": "virtual_machine"
+  },
+  {
+   "link_doctype": "Virtual Machine Migration",
+   "link_fieldname": "virtual_machine"
+  },
+  {
+   "link_doctype": "Public IP Allocation",
+   "link_fieldname": "virtual_machine"
+  }
+ ],
+ "modified": "2026-10-23 14:39:56.831096",
+ "modified_by": "Administrator",
+ "module": "VM",
+ "name": "Virtual Machine",
+ "naming_rule": "By script",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Atlas Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Gray",
+   "title": "unknown"
+  },
+  {
+   "color": "Blue",
+   "title": "created"
+  },
+  {
+   "color": "Green",
+   "title": "running"
+  },
+  {
+   "color": "Gray",
+   "title": "stopped"
+  },
+  {
+   "color": "Orange",
+   "title": "paused"
+  },
+  {
+   "color": "Red",
+   "title": "failed"
+  },
+  {
+   "color": "Orange",
+   "title": "terminating"
+  }
+ ]
+}

@@ -1,0 +1,635 @@
+# Copyright (c) 2026, Frappe and contributors
+# For license information, please see license.txt
+"""Shared helpers for billing tests."""
+
+import time
+from contextlib import contextmanager
+from unittest.mock import patch
+
+import frappe
+from frappe.tests import IntegrationTestCase
+
+from central.billing.catalog.pricing import set_catalog_rates
+
+_SWEEP_DEADLOCK_RETRIES = 3
+
+
+@contextmanager
+def billing_settings(**values):
+	"""Temporarily change Billing Settings, restoring them on the way out.
+
+	Frappe's own `change_settings` assigns with `setattr`, which leaves a child table
+	as raw dicts; `doc.set` converts them, so this handles `welcome_credit_amounts`
+	too. Restoring matters because a Single is site-wide state that the per-test
+	rollback (and BillingTestCase's row sweep, which commits) won't undo.
+
+	Child rows are snapshotted as plain dicts, without their `name`. Replacing a table
+	deletes its rows, so putting the original Documents back would have Frappe UPDATE
+	rows that no longer exist — the write lands nowhere and the table is left empty for
+	every test that follows."""
+	settings = frappe.get_doc("Billing Settings")
+	before = {key: _snapshot(settings.get(key)) for key in values}
+	for key, value in values.items():
+		settings.set(key, value)
+	settings.save(ignore_permissions=True)
+	try:
+		yield settings
+	finally:
+		settings = frappe.get_doc("Billing Settings")
+		for key, value in before.items():
+			settings.set(key, value)
+		settings.save(ignore_permissions=True)
+
+
+def _snapshot(value):
+	"""A settings value that can be written back later — child rows as fresh dicts."""
+	if isinstance(value, list):
+		return [row.as_dict(no_default_fields=True) for row in value]
+	return value
+
+
+class BillingTestCase(IntegrationTestCase):
+	"""Atomic base for billing/server tests: it snapshots every tracked doctype
+	before the test and deletes whatever the test added afterwards — so a test leaves
+	the site exactly as it found it, EVEN when it commits (the concurrency/load tests,
+	which the default per-test rollback can't undo, are the whole reason data leaks).
+
+	The snapshot + sweep hang off `run()`, not setUp/tearDown, so a subclass gets this
+	for free without having to remember a super() call — swap the base class and it's
+	atomic. Deleting only rows absent from the pre-test snapshot means it can never
+	touch data the test didn't create.
+	"""
+
+	# Top-level doctypes these tests create. Frappe links aren't DB foreign keys, so
+	# raw deletes (frappe.db.delete) need no dependency ordering. Child rows need
+	# explicit cleanup because raw deletes do not run the parent document hooks.
+	_TRACKED = (
+		"Payment Attempt",
+		"Top-up Order",
+		"Refund",
+		"Credit Ledger Entry",
+		"Credit Wallet",
+		"Invoice",
+		"Subscription Change",
+		"Subscription",
+		"Gateway Customer",
+		"Entitlement Token",
+		"Commitment",
+		"Usage Rollup",
+		"Payment Method",
+		"Tax Profile",
+		"Billing Profile",
+		"Team Invitation",
+		"Team Role",
+		"Catalog Rate",
+		"Plan",
+		"Virtual Machine",
+		"Metal Server",
+		"Team",
+		"Region",
+		"User",
+		"Webhook Event",
+		"Notification Log",
+		"Billing Event",
+		"Billing Run",
+	)
+
+	# Payment Gateway is a fixed roster (one row per adapter), not something a test
+	# creates — so it can't be swept, it has to be put back. These are the fields a
+	# test reconfigures; the Password fields live in __Auth and are left alone.
+	_GATEWAY_FIELDS = (
+		"is_enabled",
+		"supports_mandates",
+		"paypal_settlement_mode",
+		"credentials_validated_at",
+		"webhook_endpoint_id",
+	)
+
+	def run(self, result=None):
+		before = {doctype: set(frappe.get_all(doctype, pluck="name")) for doctype in self._TRACKED}
+		gateways = self._snapshot_gateways()
+		try:
+			# The bench config may point at a real accounting site; a test opts in.
+			with patch.dict(frappe.local.conf, {"enable_erpnext_sync": 0}):
+				return super().run(result)
+		finally:
+			self._sweep(before)
+			self._restore_gateways(gateways)
+
+	def _snapshot_gateways(self) -> dict:
+		return {
+			gw.name: (gw, frappe.get_all("Payment Gateway Currency", {"parent": gw.name}, ["*"]))
+			for gw in frappe.get_all("Payment Gateway", fields=["name", *self._GATEWAY_FIELDS])
+		}
+
+	def _restore_gateways(self, snapshot: dict) -> None:
+		"""Put every gateway back the way the test found it — config and currency rows.
+
+		A test that commits (the top-up flows do, via ensure_gateway_customer) outlives
+		the per-test rollback, so a currency row it added would silently re-route the
+		next test's payments."""
+		for name, (values, currency_rows) in snapshot.items():
+			if not frappe.db.exists("Payment Gateway", name):
+				continue
+			frappe.db.set_value(
+				"Payment Gateway",
+				name,
+				{field: values.get(field) for field in self._GATEWAY_FIELDS},
+				update_modified=False,
+			)
+			frappe.db.delete("Payment Gateway Currency", {"parent": name})
+			for row in currency_rows:
+				frappe.get_doc({"doctype": "Payment Gateway Currency", **row}).db_insert()
+		frappe.db.commit()  # nosemgrep: frappe-manual-commit -- outlive a test's own commit
+
+	def _sweep(self, before: dict) -> None:
+		for attempt in range(_SWEEP_DEADLOCK_RETRIES):
+			try:
+				self._sweep_once(before)
+				frappe.db.commit()  # nosemgrep: frappe-manual-commit -- persist the sweep past a test's own commit
+				return
+			except frappe.QueryDeadlockError:
+				frappe.db.rollback()
+				if attempt == _SWEEP_DEADLOCK_RETRIES - 1:
+					raise
+				time.sleep(0.05 * (attempt + 1))
+
+	def _sweep_once(self, before: dict) -> None:
+		removed_teams: list[str] = []
+		for doctype in self._TRACKED:
+			added = list(set(frappe.get_all(doctype, pluck="name")) - before[doctype])
+			if not added:
+				continue
+			if doctype == "Team":
+				removed_teams = added
+			if doctype == "Plan":
+				frappe.db.delete("Plan Includes", {"parent": ["in", added]})
+			frappe.db.delete(doctype, {"name": ["in", added]})
+		if removed_teams:
+			frappe.db.delete("Team Member", {"parenttype": "Team", "parent": ["in", removed_teams]})
+
+
+# frappe.enqueue doesn't run inline in tests unless now=True, so patch it with this to
+# execute an enqueued job synchronously — dropping the queue-control kwargs and calling
+# the target with the real ones. Usage: patch("frappe.enqueue", side_effect=run_enqueued_inline).
+_ENQUEUE_CONTROL_KWARGS = (
+	"queue",
+	"timeout",
+	"enqueue_after_commit",
+	"job_id",
+	"at_front",
+	"is_async",
+	"now",
+	"deduplicate",
+	"event",
+	"on_success",
+	"on_failure",
+	"job_name",
+)
+
+
+def run_enqueued_inline(method, **kwargs):
+	for control in _ENQUEUE_CONTROL_KWARGS:
+		kwargs.pop(control, None)
+	if isinstance(method, str):  # enqueue takes a dotted path or a callable
+		method = frappe.get_attr(method)
+	return method(**kwargs)
+
+
+DEFAULT_RATES = [
+	{"cluster": "", "currency": "USD", "rate": 40},
+	{"cluster": "", "currency": "INR", "rate": 3200},
+]
+
+DEFAULT_ADDON_RATES = [
+	{"cluster": "", "currency": "USD", "rate": 0.01},
+	{"cluster": "", "currency": "INR", "rate": 0.8},
+]
+
+DEFAULT_INCLUDES = [
+	{"resource_type": "Compute", "quantity": 2, "unit": "vCPU"},
+	{"resource_type": "Memory", "quantity": 4, "unit": "GB"},
+	{"resource_type": "Disk", "quantity": 80, "unit": "GB"},
+]
+
+
+def ensure_atlas_instance(region):
+	"""The cluster a billing test bills against.
+
+	Both VirtualMachine.region and Catalog Rate.cluster are required Links to Region, so any
+	test that creates a subscription or a per-region rate needs the region to exist
+	first, connection-configured."""
+	from central.tests.utils import ensure_atlas_instance as _ensure_atlas_instance
+
+	return _ensure_atlas_instance(region)
+
+
+def configure_gateway(adapter_key, currencies, **values):
+	"""Put the one gateway row for `adapter_key` into a known state, and return it.
+
+	Gateway rows are seeded per adapter (`gateways.setup.ensure_gateway_records`) and
+	named after it, so a test configures the existing row rather than creating one —
+	there is no second Stripe to create. `currencies` is a list of (currency,
+	is_default) pairs and REPLACES whatever the row carried.
+	"""
+	from central.billing.gateways.setup import ensure_gateway_records
+
+	# The roster is seeded by a before_tests hook, but a site set up before this
+	# landed won't have run it — seeding here keeps the fixture self-sufficient.
+	ensure_gateway_records()
+
+	doc = frappe.get_doc("Payment Gateway", adapter_key)
+	doc.update(values)
+	doc.currencies = []
+	for currency, is_default in currencies:
+		doc.append("currencies", {"currency": currency, "is_default": is_default})
+	doc.flags.skip_credential_validation = True
+	doc.save(ignore_permissions=True)
+	return doc
+
+
+def disable_gateway(adapter_key):
+	"""Take a gateway out of play without deleting it (deleting the roster row would
+	strand every Link that points at it)."""
+	frappe.db.set_value("Payment Gateway", adapter_key, "is_enabled", 0)
+
+
+def reset_gateway_roster():
+	"""Restore the routing the rest of the suite assumes: Stripe settles USD,
+	Razorpay settles INR, PayPal is off.
+
+	There is one shared row per adapter (ADR 0021), so a test that rewires the
+	roster rewires it for everything that runs after — where the old throwaway rows
+	could be abandoned harmlessly. A test that wipes the roster owes it a restore.
+	"""
+	from central.billing.tests.test_razorpay_adapter import make_razorpay_gateway
+	from central.billing.tests.test_stripe_adapter import make_stripe_gateway
+
+	configure_gateway("Paypal", [], is_enabled=0)
+	make_stripe_gateway()
+	make_razorpay_gateway()
+
+
+def make_plan(name, rates=None, includes=None, **kwargs):
+	"""Create (or replace) a bundle Plan and its Catalog Rate rows; return its name."""
+	if frappe.db.exists("Plan", name):
+		frappe.delete_doc("Plan", name, force=True)
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Plan",
+			"title": kwargs.get("title", name),
+			"category": kwargs.get("category", "VM Plans"),
+			"sub_category": kwargs.get("sub_category"),
+			"billing_cycle": kwargs.get("billing_cycle", "Monthly"),
+			"is_active": kwargs.get("is_active", 1),
+			"includes": includes if includes is not None else DEFAULT_INCLUDES,
+		}
+	)
+	# Plan autonames by hash now; force a deterministic name for tests that reference
+	# the plan by a known id (name_set skips autoname, unlike __newname under hash).
+	doc.name = name
+	doc.flags.name_set = True
+	doc.insert(ignore_permissions=True)
+	rates = rates if rates is not None else DEFAULT_RATES
+	_ensure_rate_instances(rates)
+	set_catalog_rates("Plan", doc.name, rates)
+	return doc.name
+
+
+def _ensure_rate_instances(rates):
+	"""Seed the region behind every non-blank cluster a rate row references."""
+	for cluster in {(r.get("cluster") or "").strip() for r in rates}:
+		if cluster:
+			ensure_atlas_instance(cluster)
+
+
+def make_metered_plan(name, resource_type="Transfer", rates=None, pricing_mode="Grandfathered", **kwargs):
+	"""Create (or replace) a metered single-resource Plan and its Catalog Rate rows.
+
+	The ADR 0008 replacement for an Add-on: a single-resource Plan under a Metered
+	Plan Category, which metering resolves by its resource type. The category is chosen
+	by `pricing_mode` (Grandfathered vs Live). Drops any other active metered plan
+	covering the same resource first, since at most one may be active. Returns its name."""
+	category = "Live Metered Resources" if pricing_mode == "Live" else "Metered Resources"
+	_clear_metered_plans(resource_type, keep=name)
+	if frappe.db.exists("Plan", name):
+		frappe.delete_doc("Plan", name, force=True)
+
+	doc = frappe.get_doc(
+		{
+			"doctype": "Plan",
+			"title": kwargs.get("title", name),
+			"category": category,
+			"billing_cycle": "Monthly",
+			"is_active": kwargs.get("is_active", 1),
+			"includes": [
+				{
+					"resource_type": resource_type,
+					"quantity": kwargs.get("quantity", 0),
+					"unit": kwargs.get("unit", "GB"),
+				}
+			],
+		}
+	)
+	# Plan autonames by hash; force a deterministic name for tests that reference it.
+	doc.name = name
+	doc.flags.name_set = True
+	doc.insert(ignore_permissions=True)
+	rates = rates if rates is not None else DEFAULT_ADDON_RATES
+	_ensure_rate_instances(rates)
+	set_catalog_rates("Plan", doc.name, rates)
+	return doc.name
+
+
+def _clear_metered_plans(resource_type, keep=None):
+	"""Delete every active/inactive metered single-resource Plan for `resource_type`
+	(except `keep`), so a test can re-seed without tripping the one-active-per-resource
+	uniqueness rule on data committed by an earlier test."""
+	metered_cats = frappe.get_all("Plan Category", filters={"billing_type": "Metered"}, pluck="name")
+	for plan in frappe.get_all("Plan", filters={"category": ["in", metered_cats]}, pluck="name"):
+		if plan == keep:
+			continue
+		includes = frappe.get_all("Plan Includes", filters={"parent": plan}, pluck="resource_type")
+		if len(includes) == 1 and includes[0] == resource_type:
+			frappe.delete_doc("Plan", plan, force=True)
+
+
+def make_user(email=None):
+	"""Create (or reuse) a plain user with no platform roles — stands in for a
+	customer or the role-less Agent key."""
+	email = email or f"cust-{frappe.generate_hash(6)}@example.com"
+	if not frappe.db.exists("User", email):
+		frappe.get_doc(
+			{"doctype": "User", "email": email, "first_name": "Cust", "send_welcome_email": 0}
+		).insert(ignore_permissions=True)
+	return email
+
+
+def ensure_team(slug, owner=None):
+	"""Ensure a Central `Team` whose `name` *is* `slug` exists, bypassing the
+	`TEAM-#####` series via `flags.name_set`.
+
+	`team` is now a `Link → Team` (#43), so tests can no longer insert a billing
+	doc with a free-text slug. Forcing the Team's name to the slug keeps the
+	readable identifier valid as a link with no churn to the test bodies.
+	Idempotent; returns `slug`."""
+	if frappe.db.exists("Team", slug):
+		return slug
+	# One shared owner across all ensure_team() teams — a fresh user per team
+	# would trip Frappe's user-creation throttle in the load test (hundreds of
+	# teams). Owning many teams is fine; these teams exist only to satisfy the link.
+	owner = owner or make_user("billing-test-team-owner@example.com")
+	doc = frappe.get_doc({"doctype": "Team", "team_name": slug, "owner_user": owner})
+	doc.flags.name_set = True
+	doc.name = slug
+	doc.insert(ignore_permissions=True)
+	return slug
+
+
+def purge_teams(teams):
+	"""Delete the given teams and every row that links them, for test teardown.
+
+	Tests that `frappe.db.commit()` (load/concurrency runs) escape the per-test
+	rollback, so anything they created — the Team plus its billing artifacts
+	(subscriptions, invoices, profiles, wallets, gateway customers, …) — leaks into
+	the site. Raw DELETEs across every `team`-linked table (discovered live) clear it
+	without tripping Link-integrity ordering, since Frappe links aren't DB FKs."""
+	teams = [t for t in teams if frappe.db.exists("Team", t)]
+	if not teams:
+		return
+	# Every doctype with a `team` Link column — discovered live so nothing is missed.
+	tables = frappe.db.sql_list(
+		"""SELECT DISTINCT TABLE_NAME FROM information_schema.COLUMNS
+		   WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'team' AND TABLE_NAME LIKE 'tab%%'"""
+	)
+	for table in tables:
+		doctype = table[len("tab") :]
+		if doctype != "Team":
+			frappe.db.delete(doctype, {"team": ["in", teams]})
+	frappe.db.delete("Team Member", {"parenttype": "Team", "parent": ["in", teams]})
+	frappe.db.delete("Team", {"name": ["in", teams]})
+
+
+def complete_billing_profile(team, currency="INR"):
+	"""A minimal *complete* Billing Profile (currency + legal name + address) so the
+	money-movement gate (_require_billing_setup) passes. Saves the doc directly,
+	bypassing the API's gateway-supported-currency check, so it works regardless of
+	which gateways a given test has configured."""
+	in_india = currency == "INR"
+	values = {
+		"doctype": "Billing Profile",
+		"team": team,
+		"currency": currency,
+		"legal_name": f"{team} Ltd",
+		"email": "billing@test.example",
+		"phone": "9999999999",
+		"address_line1": "1 Test Street",
+		"city": "Pune" if in_india else "Austin",
+		"state": "Maharashtra" if in_india else "Texas",
+		"country": "India" if in_india else "United States",
+		"pincode": "411001" if in_india else "73301",
+	}
+	if frappe.db.exists("Billing Profile", team):
+		doc = frappe.get_doc("Billing Profile", team)
+		doc.update(values)
+	else:
+		doc = frappe.get_doc(values)
+	doc.save(ignore_permissions=True)
+	return team
+
+
+def give_team_a_card(team, gateway="Stripe"):
+	"""An active card, so the team passes the payment gate that every purchase runs."""
+	if frappe.db.exists("Payment Method", {"team": team, "status": "Active"}):
+		return
+	frappe.get_doc(
+		{
+			"doctype": "Payment Method",
+			"team": team,
+			"gateway": gateway,
+			"method_type": "Card",
+			"status": "Active",
+			"gateway_method_id": f"pm_{team}",
+			"gateway_customer_id": f"cus_{team}",
+			"is_default": 1,
+		}
+	).insert(ignore_permissions=True)
+
+
+def make_billing_subscription(team, cluster, plan, start_date=None, clear_changes=True, **kwargs):
+	"""Provision a billable subscription for billing tests under the VirtualMachine model:
+	ensure the cluster's Region is connection-configured, and the team's Billing
+	Profile currency, create
+	the VirtualMachine (carrying the region) + linked Subscription, and (by default) clear the
+	auto 'Created' segment so the test can author its own Subscription Change timeline
+	with `add_segment`. Returns the Subscription name."""
+	from central.billing.catalog import subscriptions
+
+	ensure_atlas_instance(cluster)
+	ensure_team(team)
+	currency = kwargs.pop("currency", "INR")
+	if not frappe.db.get_value("Billing Profile", team, "currency"):
+		complete_billing_profile(team, currency=currency)
+	sub = subscriptions.create_subscription(
+		team=team, cluster=cluster, plan=plan, start_date=start_date, **kwargs
+	)
+	if clear_changes:
+		frappe.db.delete("Subscription Change", {"subscription": sub.name})
+	return sub.name
+
+
+def seed_running_resource(
+	team, resource_id, cluster, plan, rate=1000, currency="INR", effective_at="2026-06-01 00:00:00"
+):
+	"""Seed a provisioned, running resource on the Subscription Change ledger (ADR 0010):
+	its VirtualMachine (named by `resource_id`) + Subscription + an open `Created` segment at
+	`rate`/`currency`. The ledger replacement for the retired price-lock event seeding
+	(#86) — metering and every 'what is running' reader resolve the resource through this
+	open segment. Returns the Subscription name."""
+	sub = make_billing_subscription(team, cluster, plan, resource_id=resource_id, currency=currency)
+	add_segment(sub, "Created", rate, effective_at, plan=plan, currency=currency)
+	return sub
+
+
+def add_segment(subscription, change_type, rate, effective_at, plan=None, currency="INR"):
+	"""Author one Subscription Change run-segment directly — the unit billing
+	day-weights over in the new model. `change_type` is Created / Plan Changed /
+	Cancelled; a Cancelled marker carries no rate (it just closes the prior segment)."""
+	return frappe.get_doc(
+		{
+			"doctype": "Subscription Change",
+			"subscription": subscription,
+			"change_type": change_type,
+			"new_value": plan,
+			"locked_rate": None if change_type == "Cancelled" else rate,
+			"currency": currency,
+			"effective_at": effective_at,
+		}
+	).insert(ignore_permissions=True)
+
+
+def ensure_trust_tier_level(level="t1"):
+	"""Create the link target used when a billing test pins a team's trust tier."""
+	if not frappe.db.exists("Trust Tier Level", level):
+		frappe.get_doc(
+			{
+				"doctype": "Trust Tier Level",
+				"__newname": level,
+				"tier": level,
+				"sequence": 0,
+				"max_resource_count": 50,
+			}
+		).insert(ignore_permissions=True)
+	return level
+
+
+def set_team_tier(team, level="t1", max_spend=None, manual_override=1):
+	"""Pin a team's trust tier on its Billing Profile — the per-team tier carrier
+	since the standalone Trust Tier doctype was folded in (#62). Ensures the level
+	and profile exist; an explicit `max_spend` is stored as a bespoke
+	`override_max_spend` so get_team_caps returns exactly it regardless of the
+	level's currency thresholds."""
+	ensure_trust_tier_level(level)
+	if not frappe.db.exists("Billing Profile", team):
+		frappe.get_doc({"doctype": "Billing Profile", "team": team, "currency": "INR"}).insert(
+			ignore_permissions=True
+		)
+	values = {
+		"trust_tier_level": level,
+		"trust_tier": level,
+		"manual_override": manual_override,
+	}
+	if max_spend is not None:
+		values["override_max_spend"] = max_spend
+	frappe.db.set_value("Billing Profile", team, values)
+	return team
+
+
+def clear_team_tier(team):
+	"""Reset a team's tier fields on its Billing Profile (test teardown)."""
+	if frappe.db.exists("Billing Profile", team):
+		frappe.db.set_value(
+			"Billing Profile",
+			team,
+			{
+				"trust_tier_level": None,
+				"trust_tier": None,
+				"manual_override": 0,
+				"override_max_spend": 0,
+				"promoted_at": None,
+				"promotion_basis": None,
+			},
+		)
+
+
+def make_billing_team(user, role="Billing", team_name=None):
+	"""A Central `Team` with `user` as an active member under `role`. The team's
+	Owner is a separate throwaway user (a Team must have exactly one Owner), so
+	`user` carries exactly `role`'s capabilities — `Billing`/`Owner` grant
+	`billing:view` + `billing:manage`; `Viewer`/`Developer` grant neither.
+	Returns the Team doc; `team.name` is the slug to pass to the billing APIs."""
+	owner = make_user(f"owner-{frappe.generate_hash(6)}@example.com")
+	return frappe.get_doc(
+		{
+			"doctype": "Team",
+			"team_name": team_name or f"Billing {frappe.generate_hash(5)}",
+			"owner_user": owner,
+			"members": [{"user": user, "role": role, "status": "Active"}],
+		}
+	).insert(ignore_permissions=True)
+
+
+def make_custom_role_team(user, capabilities, team_name=None):
+	"""A Central `Team` whose `user` member carries a *custom* (non-system) Team
+	Role granting exactly `capabilities` — for capability combinations the stock
+	system roles don't offer (notably `billing:view` WITHOUT `billing:manage`,
+	which no system role has). The Owner is a separate throwaway user so `user`
+	holds only the custom grant. Returns the Team doc."""
+	owner = make_user(f"owner-{frappe.generate_hash(6)}@example.com")
+	team = frappe.get_doc(
+		{
+			"doctype": "Team",
+			"team_name": team_name or f"Custom {frappe.generate_hash(5)}",
+			"owner_user": owner,
+		}
+	).insert(ignore_permissions=True)
+	# A custom Team Role must be tied to exactly one team (its scope).
+	role = frappe.get_doc(
+		{
+			"doctype": "Team Role",
+			"role_name": f"Custom {frappe.generate_hash(5)}",
+			"is_system": 0,
+			"team": team.name,
+			"capabilities": [{"capability": c} for c in capabilities],
+		}
+	).insert(ignore_permissions=True)
+	team.append("members", {"user": user, "role": role.name, "status": "Active"})
+	team.save(ignore_permissions=True)
+	return team
+
+
+def isolate_trial_plans(case) -> None:
+	"""Take every plan already flagged Available on Trial out of a test's way.
+
+	The trial menu narrows on a global flag, so a plan an operator flagged on this site
+	would otherwise decide what the test sees. Restored on cleanup."""
+	for name in frappe.get_all("Plan", filters={"available_on_trial": 1}, pluck="name"):
+		frappe.db.set_value("Plan", name, "available_on_trial", 0)
+		case.addCleanup(frappe.db.set_value, "Plan", name, "available_on_trial", 1)
+
+
+def stripe_intent(txn_id, event_type="payment_intent.succeeded", **fields):
+	"""A PaymentIntent as Stripe sends it, for the charge we made under `txn_id`."""
+	attempt = frappe.db.get_value(
+		"Payment Attempt", {"gateway_transaction_id": txn_id}, ["amount", "currency"], as_dict=True
+	) or frappe._dict(amount=0, currency="INR")
+	succeeded = event_type == "payment_intent.succeeded"
+	return {
+		"id": txn_id,
+		"object": "payment_intent",
+		"status": "succeeded" if succeeded else "requires_payment_method",
+		"amount_received": round(frappe.utils.flt(attempt.amount) * 100) if succeeded else 0,
+		"currency": (attempt.currency or "INR").lower(),
+		**fields,
+	}

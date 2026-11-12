@@ -1,0 +1,74 @@
+<script setup lang="ts">
+import { computed } from 'vue'
+import RowActionsMenu from '@/components/common/RowActionsMenu.vue'
+import type { ConsoleMode, VirtualMachineRow } from '@/composables/useServers'
+import { getServerActions } from '@/lib/capabilities'
+import { getServerMenu, type ServerMenuVerb } from '@/lib/serverMenu'
+
+// The lifecycle menu for one server row. Presentational: it emits the chosen verb and
+// the page owns the calls.
+const props = defineProps<{
+	server: VirtualMachineRow
+	canOpen: boolean
+	canPower: boolean
+	canResize: boolean
+	canTerminate: boolean
+	canSnapshot?: boolean
+	canOpenConsole?: boolean
+	busy?: boolean
+	opening?: boolean
+	/** The address of the site this machine carries. Open goes to that site, not the bench. */
+	site?: string | null
+}>()
+
+const emit = defineEmits<{
+	overview: [server: VirtualMachineRow]
+	open: [server: VirtualMachineRow]
+	pilot: [server: VirtualMachineRow]
+	start: [server: VirtualMachineRow]
+	stop: [server: VirtualMachineRow]
+	restart: [server: VirtualMachineRow]
+	resize: [server: VirtualMachineRow]
+	snapshot: [server: VirtualMachineRow]
+	console: [server: VirtualMachineRow, mode: ConsoleMode]
+	terminate: [server: VirtualMachineRow]
+}>()
+
+const handlers: Partial<Record<ServerMenuVerb, () => void>> = {
+	overview: () => emit('overview', props.server),
+	open: () => emit('open', props.server),
+	pilot: () => emit('pilot', props.server),
+	start: () => emit('start', props.server),
+	stop: () => emit('stop', props.server),
+	restart: () => emit('restart', props.server),
+	resize: () => emit('resize', props.server),
+	snapshot: () => emit('snapshot', props.server),
+	'ssh-console': () => emit('console', props.server, 'ssh'),
+	'tty-console': () => emit('console', props.server, 'tty'),
+	terminate: () => emit('terminate', props.server),
+}
+
+const options = computed(() =>
+	getServerMenu(
+		props.server,
+		getServerActions(props.server, {
+			open: props.canOpen,
+			power: props.canPower,
+			resize: props.canResize,
+			snapshot: !!props.canSnapshot,
+			terminate: props.canTerminate,
+			console: !!props.canOpenConsole,
+		}),
+		(verb: ServerMenuVerb) => handlers[verb]?.(),
+		{ site: props.site },
+	),
+)
+</script>
+
+<template>
+	<RowActionsMenu
+		:options="options"
+		label="Server actions"
+		:busy="busy || opening"
+	/>
+</template>

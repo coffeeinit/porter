@@ -1,0 +1,135 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-06-02 00:00:00",
+ "description": "A flat-rate bundle with one immutable identity forever. The rate is the price; a rate change never forks a new plan. Named by an opaque hash (sync-stable); the title is the human label.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "category",
+  "sub_category",
+  "column_break_head",
+  "is_active",
+  "available_on_trial",
+  "billing_cycle",
+  "annual_discount_pct",
+  "section_break_includes",
+  "includes"
+ ],
+ "fields": [
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "column_break_head",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "available_on_trial",
+   "fieldtype": "Check",
+   "label": "Available on Trial",
+   "description": "Offer this plan to staging-trial teams. If no plan is flagged, trials are not narrowed and every otherwise-eligible plan qualifies."
+  },
+  {
+   "default": "Monthly",
+   "fieldname": "billing_cycle",
+   "fieldtype": "Select",
+   "label": "Billing Cycle",
+   "options": "Monthly\nAnnual",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "annual_discount_pct",
+   "fieldtype": "Float",
+   "label": "Annual Discount %"
+  },
+  {
+   "fieldname": "section_break_includes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "includes",
+   "fieldtype": "Table",
+   "label": "Includes",
+   "options": "Plan Includes",
+   "reqd": 1
+  },
+  {
+   "default": "VM Plans",
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Plan Category",
+   "reqd": 1,
+   "description": "The Plan Category this plan belongs to (ADR 0007)."
+  },
+  {
+   "fieldname": "sub_category",
+   "fieldtype": "Link",
+   "label": "Sub-Category",
+   "options": "Plan Sub-Category",
+   "description": "Optional sub-category within the Plan Category; only categories with a sub-category axis use it."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Pricing",
+   "link_doctype": "Catalog Rate",
+   "link_fieldname": "priced_for"
+  },
+  {
+   "group": "Usage",
+   "link_doctype": "Subscription",
+   "link_fieldname": "plan"
+  },
+  {
+   "group": "Usage",
+   "link_doctype": "Virtual Machine",
+   "link_fieldname": "plan"
+  }
+ ],
+ "modified": "2026-06-18 12:07:51.148692",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Plan",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "show_title_field_in_link": 1,
+ "title_field": "title",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

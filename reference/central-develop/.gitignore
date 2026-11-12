@@ -1,0 +1,76 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.py~
+
+# Distribution / packaging
+.Python
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+tags
+MANIFEST
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# IDEs and editors
+.vscode/
+.vs/
+.idea/
+.kdev4/
+*.kdev4
+*.DS_Store
+*.swp
+*.comp.js
+.wnf-lang-status
+*debug.log
+
+# Helix Editor
+.helix/
+
+# Aider AI Chat
+.aider*
+
+# Previous Central dashboard SPA (produced by `cd dashboard && yarn build`)
+central/public/legacy-dashboard/
+central/www/legacy-dashboard.html
+
+# Primary Central dashboard SPA (produced by `cd console && yarn build`)
+central/public/dashboard/
+central/www/dashboard.html
+central/public/node_modules
+
+central/public/css/email.css
+
+# Obsolete pre-migration build output.
+central/public/console/
+central/www/console.html
+
+# Playwright e2e suite artifacts (see e2e/README.md)
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

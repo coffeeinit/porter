@@ -1,0 +1,101 @@
+import frappe
+from frappe import _
+
+from central.errors import handle_resource_operation
+from central.iam import can_on_any_server
+from central.infrastructure.doctype.virtual_machine.virtual_machine import VirtualMachine
+
+
+def require_access(team: str, capability: str) -> None:
+	# The key library is team-wide, so viewing any server of the team reads it. Changing
+	# keys needs server:ssh-key, which a grant cannot scope, so it stays team-wide.
+	if not can_on_any_server(frappe.session.user, team, capability):
+		frappe.throw(
+			_("You cannot manage SSH keys for this team. Ask a team admin to review your access."),
+			frappe.PermissionError,
+		)
+
+
+@frappe.whitelist(methods=["GET"])
+def list_team_ssh_keys(team: str) -> list[dict]:
+	"""Return the public keys that this Team can select for servers."""
+	require_access(team, "server:view")
+	keys = frappe.get_list(
+		"Team SSH Key",
+		filters={"team": team},
+		fields=["name", "title", "public_key", "fingerprint", "last_sync_error"],
+		order_by="title asc",
+		limit_page_length=0,
+	)
+	if not keys:
+		return []
+	links = frappe.get_all(
+		"Server SSH Key",
+		filters={"team_ssh_key": ["in", [key.name for key in keys]]},
+		fields=["team_ssh_key", "parent"],
+	)
+	for key in keys:
+		key["server_count"] = len({link.parent for link in links if link.team_ssh_key == key.name})
+
+	return keys
+
+
+@frappe.whitelist(methods=["POST"])
+def create_team_ssh_key(team: str, title: str, public_key: str) -> dict:
+	"""Create one public key for a Team."""
+	require_access(team, "server:ssh-key")
+	key = frappe.get_doc(
+		{"doctype": "Team SSH Key", "team": team, "title": title, "public_key": public_key}
+	).insert()
+
+	return {
+		"name": key.name,
+		"title": key.title,
+		"public_key": key.public_key,
+		"fingerprint": key.fingerprint,
+		"server_count": 0,
+	}
+
+
+@frappe.whitelist(methods=["POST"])
+def rotate_team_ssh_key(team: str, name: str, public_key: str) -> dict:
+	"""Save a new public key and queue replacement on selected servers."""
+	require_access(team, "server:ssh-key")
+	key = frappe.get_doc("Team SSH Key", name)
+	if key.team != team:
+		frappe.throw(_("This SSH key does not belong to the team."), frappe.PermissionError)
+	if public_key.strip() == key.public_key:
+		frappe.throw(_("The replacement SSH key must be different."))
+	key.public_key = public_key
+	key.save()
+
+	return {"name": key.name, "fingerprint": key.fingerprint}
+
+
+@frappe.whitelist(methods=["POST"])
+def retry_team_ssh_key_sync(team: str, name: str) -> None:
+	"""Retry replacing the desired keys on servers that use this key."""
+	require_access(team, "server:ssh-key")
+	key = frappe.get_doc("Team SSH Key", name)
+	if key.team != team:
+		frappe.throw(_("This SSH key does not belong to the team."), frappe.PermissionError)
+	key.queue_sync()
+
+
+@frappe.whitelist(methods=["POST"])
+def delete_team_ssh_key(team: str, name: str) -> None:
+	"""Delete a key after it is removed from all servers."""
+	require_access(team, "server:ssh-key")
+	key = frappe.get_doc("Team SSH Key", name)
+	if key.team != team:
+		frappe.throw(_("This SSH key does not belong to the team."), frappe.PermissionError)
+	key.delete()
+
+
+@frappe.whitelist(methods=["POST"])
+@handle_resource_operation
+def set_server_ssh_keys(team: str, resource_id: str, ssh_keys: list[str] | str) -> None:
+	"""Replace the team keys that can sign in to one server."""
+	require_access(team, "server:ssh-key")
+	server = frappe.get_doc("Virtual Machine", VirtualMachine.get_team_server_name(team, resource_id))
+	server.set_ssh_keys(frappe.parse_json(ssh_keys) or [])

@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, BinaryIO, TextIO, TYPE_CHECKING, Generator
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+from ..models.image_download_response_artifact import ImageDownloadResponseArtifact
+
+
+
+
+
+
+T = TypeVar("T", bound="ImageDownloadResponse")
+
+
+
+@_attrs_define
+class ImageDownloadResponse:
+    """ Signed downloads for one image.
+
+        Attributes:
+            artifact (ImageDownloadResponseArtifact): Image artifact represented by this URL.
+            expires_at (int): URL expiry time as Unix seconds.
+            expires_in (int): Seconds until the URL expires.
+            sha256 (str): Lowercase SHA-256 digest.
+            size_mib (int): Artifact size in MiB.
+            url (str): Temporary signed download URL.
+     """
+
+    artifact: ImageDownloadResponseArtifact
+    expires_at: int
+    expires_in: int
+    sha256: str
+    size_mib: int
+    url: str
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+
+
+
+
+    def to_dict(self) -> dict[str, Any]:
+        artifact = self.artifact.value
+
+        expires_at = self.expires_at
+
+        expires_in = self.expires_in
+
+        sha256 = self.sha256
+
+        size_mib = self.size_mib
+
+        url = self.url
+
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update({
+            "artifact": artifact,
+            "expires_at": expires_at,
+            "expires_in": expires_in,
+            "sha256": sha256,
+            "size_mib": size_mib,
+            "url": url,
+        })
+
+        return field_dict
+
+
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        d = dict(src_dict)
+        artifact = ImageDownloadResponseArtifact(d.pop("artifact"))
+
+
+
+
+        expires_at = d.pop("expires_at")
+
+        expires_in = d.pop("expires_in")
+
+        sha256 = d.pop("sha256")
+
+        size_mib = d.pop("size_mib")
+
+        url = d.pop("url")
+
+        image_download_response = cls(
+            artifact=artifact,
+            expires_at=expires_at,
+            expires_in=expires_in,
+            sha256=sha256,
+            size_mib=size_mib,
+            url=url,
+        )
+
+
+        image_download_response.additional_properties = d
+        return image_download_response
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

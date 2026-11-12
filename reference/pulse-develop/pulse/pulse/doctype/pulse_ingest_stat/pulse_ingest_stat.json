@@ -1,0 +1,165 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-07-20 12:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "hour",
+  "requests",
+  "failed_requests",
+  "retries",
+  "column_break_counts",
+  "accepted",
+  "dropped",
+  "rejected",
+  "section_break_request",
+  "request_p50_ms",
+  "request_p95_ms",
+  "request_max_ms",
+  "section_break_insert",
+  "insert_p50_ms",
+  "insert_p95_ms",
+  "insert_max_ms"
+ ],
+ "fields": [
+  {
+   "fieldname": "hour",
+   "fieldtype": "Datetime",
+   "in_list_view": 1,
+   "label": "Hour",
+   "read_only": 1
+  },
+  {
+   "description": "Ingest requests received.",
+   "fieldname": "requests",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Requests",
+   "read_only": 1
+  },
+  {
+   "description": "Requests that ended in an error, such as a 503.",
+   "fieldname": "failed_requests",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Failed Requests",
+   "read_only": 1
+  },
+  {
+   "description": "Inserts retried within a request.",
+   "fieldname": "retries",
+   "fieldtype": "Int",
+   "label": "Retries",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_counts",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Events stored.",
+   "fieldname": "accepted",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Accepted",
+   "read_only": 1
+  },
+  {
+   "description": "Events discarded by a Pulse Capture Rule. A number climbing here without a rule change means a rule is matching more than it was meant to.",
+   "fieldname": "dropped",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Dropped",
+   "read_only": 1
+  },
+  {
+   "description": "Events turned away by validation. Steady traffic here is a call site sending malformed events — see Pulse Log for which.",
+   "fieldname": "rejected",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Rejected",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_request",
+   "fieldtype": "Section Break",
+   "label": "Request Duration"
+  },
+  {
+   "description": "Upper bound of the duration bucket holding this rank, capped at the maximum.",
+   "fieldname": "request_p50_ms",
+   "fieldtype": "Float",
+   "label": "Request p50 (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Upper bound of the duration bucket holding this rank, capped at the maximum.",
+   "fieldname": "request_p95_ms",
+   "fieldtype": "Float",
+   "label": "Request p95 (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "request_max_ms",
+   "fieldtype": "Float",
+   "label": "Request Max (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_insert",
+   "fieldtype": "Section Break",
+   "label": "Insert Duration"
+  },
+  {
+   "description": "Upper bound of the duration bucket holding this rank, capped at the maximum.",
+   "fieldname": "insert_p50_ms",
+   "fieldtype": "Float",
+   "label": "Insert p50 (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Upper bound of the duration bucket holding this rank, capped at the maximum.",
+   "fieldname": "insert_p95_ms",
+   "fieldtype": "Float",
+   "label": "Insert p95 (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "insert_max_ms",
+   "fieldtype": "Float",
+   "label": "Insert Max (ms)",
+   "non_negative": 1,
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "in_create": 1,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-09-16 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Pulse",
+ "name": "Pulse Ingest Stat",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "hour",
+ "sort_order": "DESC",
+ "states": []
+}

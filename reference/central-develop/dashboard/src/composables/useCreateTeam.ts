@@ -1,0 +1,39 @@
+import { computed, ref } from 'vue'
+import { useSession } from '@/composables/useSession'
+import { useTeamSettings } from '@/composables/useTeamSettings'
+
+// Naming and creating a team, shared by the places that offer it: the create
+// team dialog and the first step of console onboarding. The rule that a name
+// must be unique among your teams lives here so both can't drift apart on it.
+export function useCreateTeam() {
+	const { saving, error, clearError, createTeam } = useTeamSettings()
+	const { teams } = useSession()
+
+	const teamName = ref('')
+	const name = computed(() => teamName.value.trim())
+
+	// Duplicate names are legal, but a switcher of identical rows is unusable —
+	// so say so before the team exists rather than after.
+	const duplicate = computed(() =>
+		teams.value.some(
+			(team) => team.label.toLowerCase() === name.value.toLowerCase(),
+		),
+	)
+	const canSubmit = computed(() => name.value.length > 0 && !duplicate.value)
+
+	const reset = (): void => {
+		teamName.value = ''
+		clearError()
+	}
+
+	// Resolves true once the team exists; useTeamSettings.createTeam switches to
+	// it and re-pulls the session.
+	const submit = async (): Promise<boolean> => {
+		if (!canSubmit.value) return false
+		if (!(await createTeam(name.value))) return false
+		reset()
+		return true
+	}
+
+	return { teamName, name, duplicate, canSubmit, saving, error, submit, reset }
+}

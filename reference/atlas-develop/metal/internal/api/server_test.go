@@ -1,0 +1,1297 @@
+package api
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"testing"
+	"time"
+
+	"github.com/frappe/atlas/metal/internal/console"
+	"github.com/frappe/atlas/metal/internal/host"
+	"github.com/frappe/atlas/metal/internal/metrics"
+	"github.com/frappe/atlas/metal/internal/network"
+	"github.com/frappe/atlas/metal/internal/storage"
+	"github.com/frappe/atlas/metal/internal/vm"
+
+	"github.com/frappe/atlas/metal/internal/telemetry"
+)
+
+type fakeVM struct {
+	info vm.Information
+}
+
+type fakeVirtualMachineManager struct {
+	metricsStore    *metrics.Store
+	virtualMachines map[string]*fakeVM
+	listError       error
+	services        *fakeRuntimeServices
+	deferMetadata   bool
+	sshSession      vm.SSHSession
+}
+
+func (manager *fakeVirtualMachineManager) OffloadSleepState(context.Context, string, vm.SleepStateRequest) error {
+	return vm.ErrConflict
+}
+
+func (manager *fakeVirtualMachineManager) RefreshSleepState(context.Context, string, vm.SleepStateRequest) error {
+	return vm.ErrConflict
+}
+
+func (manager *fakeVirtualMachineManager) Create(_ context.Context, id string, specification vm.Specification) (vm.Information, error) {
+	if existing, found := manager.virtualMachines[id]; found {
+		return existing.info, nil
+	}
+
+	virtualMachine := &fakeVM{info: vm.Information{
+		ID:                            id,
+		State:                         vm.StateUnknown,
+		DesiredState:                  vm.StateRunning,
+		CPUMillicores:                 specification.CPUMillicores,
+		MemoryMiB:                     specification.MemoryMiB,
+		DiskMiB:                       specification.DiskMiB,
+		Image:                         specification.Image,
+		SSHKeys:                       append([]string(nil), specification.SSHKeys...),
+		MAC:                           "06:00:00:00:00:01",
+		PublicIPv4:                    specification.Network.PublicIPv4,
+		Routes:                        specification.Network.Routes,
+		WireGuardMeshIPv6:             specification.Network.WireGuardMeshIPv6,
+		PrivateNetworkThroughputMiBps: specification.Network.PrivateNetworkThroughputMiBps,
+		PublicNetworkThroughputMiBps:  specification.Network.PublicNetworkThroughputMiBps,
+		Firewall:                      specification.Network.Firewall,
+		SleepAfterIdleSeconds:         specification.SleepAfterIdleSeconds,
+		DesiredGeneration:             1,
+	}}
+	manager.virtualMachines[id] = virtualMachine
+
+	return virtualMachine.info, nil
+}
+
+func (manager *fakeVirtualMachineManager) Information(_ context.Context, id string) (vm.Information, error) {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.Information{}, vm.ErrNotFound
+	}
+
+	return virtualMachine.info, nil
+}
+
+func (manager *fakeVirtualMachineManager) List(context.Context) ([]vm.Information, []string, error) {
+	if manager.listError != nil {
+		return nil, nil, manager.listError
+	}
+
+	virtualMachines := make([]vm.Information, 0, len(manager.virtualMachines))
+	for _, virtualMachine := range manager.virtualMachines {
+		virtualMachines = append(virtualMachines, virtualMachine.info)
+	}
+
+	return virtualMachines, nil, nil
+}
+
+func (manager *fakeVirtualMachineManager) SetPowerState(_ context.Context, id string, state vm.State) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+
+	virtualMachine.info.DesiredState = state
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) ReplaceSSHKeys(
+	_ context.Context,
+	id string,
+	sshKeys []string,
+) (bool, error) {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return false, vm.ErrNotFound
+	}
+	virtualMachine.info.SSHKeys = append([]string(nil), sshKeys...)
+	virtualMachine.info.DesiredGeneration++
+	return !manager.deferMetadata, nil
+}
+
+func (manager *fakeVirtualMachineManager) ReplaceMetadata(
+	_ context.Context,
+	id string,
+	metadata map[string]string,
+) (bool, error) {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return false, vm.ErrNotFound
+	}
+	virtualMachine.info.Metadata = maps.Clone(metadata)
+	virtualMachine.info.DesiredGeneration++
+	return !manager.deferMetadata, nil
+}
+
+func (manager *fakeVirtualMachineManager) SetNetwork(_ context.Context, id string, configuration vm.NetworkConfiguration) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	virtualMachine.info.Routes = configuration.Routes
+	virtualMachine.info.PublicIPv4 = configuration.PublicIPv4
+	virtualMachine.info.WireGuardMeshIPv6 = configuration.WireGuardMeshIPv6
+	virtualMachine.info.PrivateNetworkThroughputMiBps = configuration.PrivateNetworkThroughputMiBps
+	virtualMachine.info.PublicNetworkThroughputMiBps = configuration.PublicNetworkThroughputMiBps
+	virtualMachine.info.Firewall = configuration.Firewall
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) SetDisk(_ context.Context, id string, diskMiB int, limits vm.Disk) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	virtualMachine.info.DiskThroughputMiBps = limits.ThroughputMiBps
+	virtualMachine.info.DiskIOPS = limits.IOPS
+	if diskMiB < virtualMachine.info.DiskMiB {
+		return vm.ErrConflict
+	}
+	virtualMachine.info.DiskMiB = diskMiB
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) SetCompute(_ context.Context, id string, compute vm.Compute) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	// A shape change needs a stopped VM. An idle timeout change does not.
+	shapeChanged := virtualMachine.info.CPUMillicores != compute.CPUMillicores ||
+		virtualMachine.info.MemoryMiB != compute.MemoryMiB
+	if shapeChanged {
+		if virtualMachine.info.State != vm.StateStopped {
+			return vm.ErrConflict
+		}
+		virtualMachine.info.CPUMillicores = compute.CPUMillicores
+		virtualMachine.info.MemoryMiB = compute.MemoryMiB
+		virtualMachine.info.DesiredState = vm.StateRunning
+	}
+
+	virtualMachine.info.SleepAfterIdleSeconds = compute.SleepAfterIdleSeconds
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) Resize(_ context.Context, id string, compute vm.Compute, diskMiB int) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	shapeChanged := virtualMachine.info.CPUMillicores != compute.CPUMillicores ||
+		virtualMachine.info.MemoryMiB != compute.MemoryMiB ||
+		virtualMachine.info.DiskMiB != diskMiB
+	if (shapeChanged && virtualMachine.info.State != vm.StateStopped) || diskMiB < virtualMachine.info.DiskMiB {
+		return vm.ErrConflict
+	}
+	virtualMachine.info.CPUMillicores = compute.CPUMillicores
+	virtualMachine.info.MemoryMiB = compute.MemoryMiB
+	virtualMachine.info.DiskMiB = diskMiB
+	virtualMachine.info.SleepAfterIdleSeconds = compute.SleepAfterIdleSeconds
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) RequestRestart(_ context.Context, id string) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	if virtualMachine.info.DesiredState != vm.StateRunning {
+		return vm.ErrConflict
+	}
+	virtualMachine.info.State = vm.StateRunning
+	virtualMachine.info.DesiredRestartGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) Delete(_ context.Context, id string) error {
+	virtualMachine, found := manager.virtualMachines[id]
+	if !found {
+		return vm.ErrNotFound
+	}
+	virtualMachine.info.DesiredState = vm.StateDestroyed
+	virtualMachine.info.DesiredGeneration++
+	return nil
+}
+
+func (manager *fakeVirtualMachineManager) CreateSnapshot(_ context.Context, id string) (vm.StagedSnapshot, error) {
+	snapshotID := "01900000-0000-7000-8000-000000000001"
+	manager.services.snapshots[snapshotID] = storage.StagedSnapshot{
+		ID: snapshotID, SourceVirtualMachineID: id,
+		Rootfs: storage.ArtifactSize{SizeBytes: 1024}, Kernel: storage.ArtifactSize{SizeBytes: 512},
+	}
+	return vm.StagedSnapshot{ID: snapshotID, SourceVirtualMachineID: id, RootfsSizeBytes: 1024, KernelSizeBytes: 512}, nil
+}
+
+func (manager *fakeVirtualMachineManager) ConnectSSH(context.Context, string, string) (vm.SSHSession, error) {
+	if manager.sshSession != nil {
+		return manager.sshSession, nil
+	}
+	return nil, errors.New("ssh unavailable")
+}
+
+type fakeRuntimeServices struct {
+	policies   []vm.Image
+	privileged []string
+	unicast    bool
+	peerSyncs  int
+	snapshots  map[string]storage.StagedSnapshot
+
+	gatewayRoutes []vm.Route
+}
+
+func (services *fakeRuntimeServices) SetWireGuardGatewayRoutes(_ context.Context, routes []vm.Route) error {
+	services.gatewayRoutes = append([]vm.Route(nil), routes...)
+	return nil
+}
+
+func (*fakeRuntimeServices) EnsureHooks(context.Context) error { return nil }
+
+func (services *fakeRuntimeServices) ApplyPrivilegedAddresses(
+	_ context.Context,
+	addresses []string,
+) error {
+	services.privileged = append([]string(nil), addresses...)
+	return nil
+}
+
+func (services *fakeRuntimeServices) SyncPeerState(_ context.Context, unicast bool) error {
+	services.unicast = unicast
+	services.peerSyncs++
+	return nil
+}
+
+func (services *fakeRuntimeServices) PrivateNetworkMAC() (string, error) {
+	return "02:00:00:00:00:01", nil
+}
+
+func newFakeRuntimeServices() *fakeRuntimeServices {
+	return &fakeRuntimeServices{snapshots: make(map[string]storage.StagedSnapshot)}
+}
+
+func (services *fakeRuntimeServices) CreateSnapshot(
+	_ context.Context,
+	virtualMachineID string,
+) (storage.StagedSnapshot, error) {
+	snapshotID := "01900000-0000-7000-8000-000000000001"
+	snapshot := storage.StagedSnapshot{
+		ID:                     snapshotID,
+		SourceVirtualMachineID: virtualMachineID,
+		Rootfs:                 storage.ArtifactSize{SizeBytes: 1024},
+		Kernel:                 storage.ArtifactSize{SizeBytes: 512},
+	}
+	services.snapshots[snapshotID] = snapshot
+	return snapshot, nil
+}
+
+func (services *fakeRuntimeServices) StartUpload(
+	_ context.Context,
+	snapshotID string,
+	_ storage.SnapshotUploadRequest,
+) error {
+	if _, found := services.snapshots[snapshotID]; !found {
+		return storage.ErrNotFound
+	}
+	return nil
+}
+
+func (services *fakeRuntimeServices) UploadStatus(
+	_ context.Context,
+	snapshotID string,
+) (storage.SnapshotUploadStatus, error) {
+	if _, found := services.snapshots[snapshotID]; !found {
+		return storage.SnapshotUploadStatus{}, storage.ErrNotFound
+	}
+	return storage.SnapshotUploadStatus{ID: snapshotID, State: storage.UploadStateUploading}, nil
+}
+
+func (services *fakeRuntimeServices) DeleteSnapshot(_ context.Context, snapshotID string) error {
+	delete(services.snapshots, snapshotID)
+	return nil
+}
+
+func (services *fakeRuntimeServices) SetImagePolicies(_ context.Context, images []vm.Image) error {
+	services.policies = append([]vm.Image(nil), images...)
+	return nil
+}
+
+type fakeWireGuardManager struct {
+	peers []network.WireGuardPeer
+}
+
+func (manager *fakeWireGuardManager) Apply(_ context.Context, peers []network.WireGuardPeer) error {
+	manager.peers = append([]network.WireGuardPeer(nil), peers...)
+	return nil
+}
+
+type fakeCapacityProvider struct{}
+
+func (fakeCapacityProvider) Capacity(context.Context) (storage.Capacity, error) {
+	return storage.Capacity{TotalMiB: 2000, AvailableMiB: 750}, nil
+}
+
+func newTestServer(t *testing.T) http.Handler {
+	t.Helper()
+	return newServer(t, &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}})
+}
+
+func newServer(t *testing.T, virtualMachineManager VirtualMachineManager) http.Handler {
+	t.Helper()
+	return newServerWithServices(t, virtualMachineManager, newFakeRuntimeServices(), &fakeWireGuardManager{})
+}
+
+func newServerWithServices(
+	t *testing.T,
+	virtualMachineManager VirtualMachineManager,
+	services *fakeRuntimeServices,
+	wireGuardManager *fakeWireGuardManager,
+) http.Handler {
+	t.Helper()
+
+	store := newTestMetricsStore(t)
+	if manager, ok := virtualMachineManager.(*fakeVirtualMachineManager); ok {
+		manager.metricsStore = store
+		manager.services = services
+	}
+	hostService, err := host.NewService(host.Dependencies{
+		Mesh: services, WireGuard: wireGuardManager, Images: services, GatewayRoutes: services,
+		VirtualMachines: virtualMachineManager, Storage: fakeCapacityProvider{}, Wake: func() {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server, err := New(Config{Telemetry: telemetry.NewRegistry(nil)}, Dependencies{
+		MetricsStore:          store,
+		VirtualMachineManager: virtualMachineManager,
+		MigrationManager:      &stubMigrationManager{},
+		SnapshotStore:         services,
+		WakeReconciler:        func() {},
+		HostService:           hostService,
+		SerialBroker:          stubSerialBroker{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return server
+}
+
+func TestCorrelationHeadersAreGeneratedAndPreserveSafeValues(t *testing.T) {
+	server := newTestServer(t)
+	request := httptest.NewRequest(http.MethodGet, "/health", nil)
+	request.Header.Set("X-Request-ID", "request-123")
+	request.Header.Set("X-Operation-ID", "operation-456")
+	recorder := httptest.NewRecorder()
+
+	server.ServeHTTP(recorder, request)
+
+	if got := recorder.Header().Get("X-Request-ID"); got != "request-123" {
+		t.Fatalf("request ID: got %q", got)
+	}
+	if got := recorder.Header().Get("X-Operation-ID"); got != "operation-456" {
+		t.Fatalf("operation ID: got %q", got)
+	}
+}
+
+type stubSerialBroker struct{}
+
+// openConsoleID names the one console that stays attached until its viewer leaves.
+const openConsoleID = "vm-open-console"
+
+func (stubSerialBroker) Attach(ctx context.Context, id string, _ io.ReadWriter, _ <-chan console.Winsize) error {
+	if id != openConsoleID {
+		return console.ErrConsoleNotFound
+	}
+	<-ctx.Done()
+	return nil
+}
+
+const (
+	validCreateRequest = `{"compute":{"cpu_millicores":1000,"memory_mib":512},"disk":{"size_mib":1024,"throughput_mibps":0,"iops":0},"image":{"ref":"ubuntu","architecture":"amd64","rootfs":{"url":"https://atlas.example/ubuntu.ext4?signature=secret","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"kernel":{"url":"https://atlas.example/vmlinux?signature=secret","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},"network":{"wireguard_mesh_ipv6":"fdaa:1:0:7::1","routes":[{"destination":"0.0.0.0/0","via":"host"}],"firewall":{"enabled":false,"inbound":[],"outbound":[]}},"guest":{"hostname":"vm1","ssh_keys":[],"metadata":{},"user_data":""}}`
+	validSSHKey        = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA user@example"
+)
+
+func TestReplaceSSHKeysReturnsUpdatedVirtualMachine(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"ssh_keys":["` + validSSHKey + `"]}`
+	recorder := do(t, server, http.MethodPut, "/v1/vms/vm1/ssh-keys", body, http.StatusOK)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Desired.Guest.SSHKeys) != 1 || response.Desired.Guest.SSHKeys[0] != validSSHKey {
+		t.Fatalf("ssh keys = %v", response.Desired.Guest.SSHKeys)
+	}
+
+	recorder = do(t, server, http.MethodGet, "/v1/vms/vm1", "", http.StatusOK)
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Desired.Guest.SSHKeys) != 1 || response.Desired.Guest.SSHKeys[0] != validSSHKey {
+		t.Fatalf("info ssh keys = %v", response.Desired.Guest.SSHKeys)
+	}
+}
+
+func TestReplaceSSHKeysRejectsMissingAndDuplicateLists(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	do(t, server, http.MethodPut, "/v1/vms/vm1/ssh-keys", `{}`, http.StatusBadRequest)
+	body := `{"ssh_keys":["` + validSSHKey + `","` + validSSHKey + `"]}`
+	do(t, server, http.MethodPut, "/v1/vms/vm1/ssh-keys", body, http.StatusBadRequest)
+	do(t, server, http.MethodPut, "/v1/vms/vm1/ssh-keys", `{"ssh_keys":[]}`, http.StatusOK)
+}
+
+func TestReplaceMetadataReturnsUpdatedVirtualMachine(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"metadata":{"env":"prod","team":"platform"}}`
+	recorder := do(t, server, http.MethodPut, "/v1/vms/vm1/metadata", body, http.StatusOK)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Guest.Metadata["env"] != "prod" || response.Desired.Guest.Metadata["team"] != "platform" {
+		t.Fatalf("metadata = %v", response.Desired.Guest.Metadata)
+	}
+}
+
+func TestReplaceMetadataRejectsEmptyKeyAndAllowsClearing(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	do(t, server, http.MethodPut, "/v1/vms/vm1/metadata", `{"metadata":{"":"value"}}`, http.StatusBadRequest)
+	do(t, server, http.MethodPut, "/v1/vms/vm1/metadata", `{"metadata":{}}`, http.StatusOK)
+}
+
+func TestImmediateMetadataUpdateReturnsAcceptedWhenReconciliationMustContinue(t *testing.T) {
+	manager := &fakeVirtualMachineManager{
+		virtualMachines: map[string]*fakeVM{},
+		deferMetadata:   true,
+	}
+	server := newServer(t, manager)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	do(t, server, http.MethodPut, "/v1/vms/vm1/metadata", `{"metadata":{"env":"prod"}}`, http.StatusAccepted)
+	do(t, server, http.MethodPut, "/v1/vms/vm1/ssh-keys", `{"ssh_keys":[]}`, http.StatusAccepted)
+}
+
+func TestCreateIsIdempotentAndReturnsAccepted(t *testing.T) {
+	srv := newTestServer(t)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	var got virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "vm1" {
+		t.Errorf("id = %q, want vm1", got.ID)
+	}
+	if got.Observed.State != "unknown" || got.Desired.State != "running" {
+		t.Errorf("state/desired = %q/%q, want unknown/running", got.Observed.State, got.Desired.State)
+	}
+	if got.Desired.Image.Ref != "ubuntu" || got.Desired.Image.Architecture != "amd64" {
+		t.Fatalf("image = %+v", got.Desired.Image)
+	}
+	if got.Desired.Image.Rootfs.SHA256 != strings.Repeat("a", 64) || got.Desired.Image.Kernel.SHA256 != strings.Repeat("a", 64) {
+		t.Fatalf("image artifacts = %+v", got.Desired.Image)
+	}
+
+	var response map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := response["ip"]; found {
+		t.Fatal("response contains internal guest IP")
+	}
+	if _, found := response["pid"]; found {
+		t.Fatal("response contains Firecracker PID")
+	}
+	for _, field := range []string{"state", "desired_state", "vcpus", "memory_mib", "disk", "network", "user_data"} {
+		if _, found := response[field]; found {
+			t.Fatalf("response contains old or private top-level field %q", field)
+		}
+	}
+	if strings.Contains(recorder.Body.String(), "signature=secret") {
+		t.Fatal("response contains a signed image URL")
+	}
+
+	getRecorder := do(t, srv, http.MethodGet, "/v1/vms/vm1", "", http.StatusOK)
+	if err := json.Unmarshal(getRecorder.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Observed.Network.MAC != "06:00:00:00:00:01" {
+		t.Fatalf("network MAC = %q", got.Observed.Network.MAC)
+	}
+}
+
+func TestListReturnsAnArrayOfNestedResources(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	recorder := do(t, server, http.MethodGet, "/v1/vms", "", http.StatusOK)
+
+	var response []virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response) != 1 || response[0].Desired.Compute.CPUMillicores != 1000 {
+		t.Fatalf("virtual machine list = %+v", response)
+	}
+}
+
+func TestMutationRequestsIgnoreUnknownFieldsAndRejectTrailingJSON(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	do(t, server, http.MethodPut, "/v1/vms/vm1/power", `{"state":"stopped","unknown":true}`, http.StatusAccepted)
+	do(t, server, http.MethodPut, "/v1/vms/vm1/power", `{"state":"stopped"}{}`, http.StatusBadRequest)
+}
+
+func TestCreateRejectsLongID(t *testing.T) {
+	id := strings.Repeat("a", maximumResourceIDLength+1)
+	do(t, newTestServer(t), http.MethodPut, "/v1/vms/"+id, validCreateRequest, http.StatusBadRequest)
+}
+
+func TestGetUnknownIs404(t *testing.T) {
+	recorder := do(t, newTestServer(t), http.MethodGet, "/v1/vms/nope", "", http.StatusNotFound)
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "not_found" {
+		t.Errorf("error code = %q, want not_found", response.Error.Code)
+	}
+}
+
+func TestInternalErrorDoesNotLeakDetails(t *testing.T) {
+	driver := &fakeVirtualMachineManager{
+		virtualMachines: map[string]*fakeVM{},
+		listError:       errors.New("download https://images.example/rootfs?signature=secret failed"),
+	}
+	recorder := do(t, newServer(t, driver), http.MethodGet, "/v1/vms", "", http.StatusInternalServerError)
+	if strings.Contains(recorder.Body.String(), "secret") || strings.Contains(recorder.Body.String(), "images.example") {
+		t.Fatalf("response leaked internal details: %s", recorder.Body.String())
+	}
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != "internal_error" {
+		t.Errorf("error code = %q, want internal_error", response.Error.Code)
+	}
+	if !response.Error.Retryable {
+		t.Fatal("internal error must be retryable")
+	}
+}
+
+func TestCreateRejectsInvalidNetwork(t *testing.T) {
+	srv := newTestServer(t)
+	hostRoute := `"routes":[{"destination":"0.0.0.0/0","via":"host"}]`
+	invalidAddress := strings.Replace(validCreateRequest, "fdaa:1:0:7::1", "2001:db8::1", 1)
+	invalidVia := strings.Replace(validCreateRequest, hostRoute, `"routes":[{"destination":"0.0.0.0/0","via":"server"}]`, 1)
+	ipv4ThroughGateway := strings.Replace(validCreateRequest, hostRoute, `"routes":[{"destination":"0.0.0.0/0","via":"fdaa:1::56"}]`, 1)
+	duplicateRoute := strings.Replace(validCreateRequest, hostRoute, `"routes":[{"destination":"2000::/3","via":"host"},{"destination":"2000::/3","via":"fdaa:1::56"}]`, 1)
+	negativePrivateThroughput := strings.Replace(validCreateRequest, hostRoute, `"private_network_throughput_mibps":-1,`+hostRoute, 1)
+	negativePublicThroughput := strings.Replace(validCreateRequest, hostRoute, `"public_network_throughput_mibps":-1,`+hostRoute, 1)
+	for _, body := range []string{invalidAddress, invalidVia, ipv4ThroughGateway, duplicateRoute, negativePrivateThroughput, negativePublicThroughput} {
+		do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusBadRequest)
+	}
+}
+
+func TestCreateReturnsNetworkThroughput(t *testing.T) {
+	srv := newTestServer(t)
+	body := strings.Replace(validCreateRequest, `"routes":[{"destination":"0.0.0.0/0","via":"host"}]`, `"private_network_throughput_mibps":100,"public_network_throughput_mibps":50,"routes":[{"destination":"0.0.0.0/0","via":"host"}]`, 1)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusAccepted)
+
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Network.PrivateNetworkThroughputMiBps != 100 || response.Desired.Network.PublicNetworkThroughputMiBps != 50 {
+		t.Fatalf("network throughput = %+v", response.Desired.Network)
+	}
+}
+
+// A public address needs a host route, because its replies leave through the host uplink.
+func TestCreateRejectsPublicAddressesWithoutAHostRoute(t *testing.T) {
+	srv := newTestServer(t)
+	hostRoute := `"routes":[{"destination":"0.0.0.0/0","via":"host"}]`
+	for _, network := range []string{
+		`"public_ipv4":"203.0.113.10","routes":[]`,
+		`"public_ipv6":"2001:db8::7/128",` + hostRoute,
+		`"public_ipv6":"2001:db8::7/128","routes":[{"destination":"2000::/3","via":"fdaa:1::56"}]`,
+	} {
+		body := strings.Replace(validCreateRequest, hostRoute, network, 1)
+		do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusBadRequest)
+	}
+
+	body := strings.Replace(validCreateRequest, hostRoute,
+		`"public_ipv6":"2001:db8::7/128","routes":[{"destination":"2000::/3","via":"host"}]`, 1)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusAccepted)
+}
+
+// A VM without host routes keeps, but does not apply, public limits.
+func TestCreateKeepsThePublicThroughputWithoutAHostRoute(t *testing.T) {
+	srv := newTestServer(t)
+	body := strings.Replace(validCreateRequest, `"routes":[{"destination":"0.0.0.0/0","via":"host"}]`,
+		`"public_network_throughput_mibps":50,"routes":[]`, 1)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusAccepted)
+
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Network.PublicNetworkThroughputMiBps != 50 {
+		t.Fatalf("public throughput = %+v", response.Desired.Network)
+	}
+}
+
+func TestCreateStoresAndReturnsTheIdleTimeout(t *testing.T) {
+	srv := newTestServer(t)
+	body := strings.Replace(validCreateRequest,
+		`"compute":{"cpu_millicores":1000,"memory_mib":512}`,
+		`"compute":{"cpu_millicores":1000,"memory_mib":512,"sleep_after_idle_seconds":1800}`, 1)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusAccepted)
+
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Compute.SleepAfterIdleSeconds != 1800 {
+		t.Fatalf("sleep_after_idle_seconds = %d, want 1800", response.Desired.Compute.SleepAfterIdleSeconds)
+	}
+}
+
+func TestCreateDefaultsToNoIdleShutdown(t *testing.T) {
+	srv := newTestServer(t)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Compute.SleepAfterIdleSeconds != 0 {
+		t.Fatalf("sleep_after_idle_seconds = %d, want 0", response.Desired.Compute.SleepAfterIdleSeconds)
+	}
+}
+
+func TestPowerRequestRejectsUnknownState(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/power", `{"state":"sleeping"}`, http.StatusBadRequest)
+}
+
+func TestSetComputeStoresTheIdleTimeout(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"cpu_millicores":1000,"memory_mib":512,"sleep_after_idle_seconds":1800}`
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", body, http.StatusAccepted)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Compute.SleepAfterIdleSeconds != 1800 {
+		t.Errorf("compute.sleep_after_idle_seconds = %d, want 1800", response.Desired.Compute.SleepAfterIdleSeconds)
+	}
+}
+
+func TestResizeStoresTheCompleteShape(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/resize", `{"cpu_millicores":1000,"memory_mib":512,"disk_mib":1024,"sleep_after_idle_seconds":1800}`, http.StatusAccepted)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Compute.CPUMillicores != 1000 || response.Desired.Compute.MemoryMiB != 512 || response.Desired.Disk.SizeMiB != 1024 || response.Desired.Compute.SleepAfterIdleSeconds != 1800 {
+		t.Fatalf("resized shape = %+v", response.Desired)
+	}
+}
+
+func TestSetComputeRejectsANegativeIdleTimeout(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"cpu_millicores":1000,"memory_mib":512,"sleep_after_idle_seconds":-1}`
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", body, http.StatusBadRequest)
+}
+
+func TestSetComputeRejectsAnUnsafeIdleTimeout(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"cpu_millicores":1000,"memory_mib":512,"sleep_after_idle_seconds":9223372037}`
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", body, http.StatusBadRequest)
+}
+
+func TestSetNetworkStoresTheCompleteSpecification(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	body := `{"routes":[{"destination":"0.0.0.0/0","via":"host"}],"public_ipv4":"203.0.113.10","wireguard_mesh_ipv6":"fdaa:1:0:7::1","private_network_throughput_mibps":100,"public_network_throughput_mibps":50,"firewall":{"enabled":true,"inbound":[{"protocol":"tcp","ports":"22","cidrs":["203.0.113.0/24"]}],"outbound":[]}}`
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/network", body, http.StatusAccepted)
+
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Desired.Network.Routes) != 1 || response.Desired.Network.PublicIPv4 != "203.0.113.10" {
+		t.Fatalf("network = %+v", response.Desired.Network)
+	}
+	if response.Desired.Network.PrivateNetworkThroughputMiBps != 100 || response.Desired.Network.PublicNetworkThroughputMiBps != 50 {
+		t.Fatalf("network throughput = %+v", response.Desired.Network)
+	}
+	if !response.Desired.Network.Firewall.Enabled || len(response.Desired.Network.Firewall.Inbound) != 1 {
+		t.Fatalf("firewall = %+v", response.Desired.Network.Firewall)
+	}
+}
+
+func TestSetNetworkAcceptsNoRoutesAndRejectsPublicIPv4(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/network",
+		`{"routes":[],"wireguard_mesh_ipv6":"fdaa:1:0:7::1","private_network_throughput_mibps":100,"public_network_throughput_mibps":50,"firewall":{"enabled":false,"inbound":[],"outbound":[]}}`, http.StatusAccepted)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Desired.Network.Routes) != 0 {
+		t.Fatalf("routes = %v, want none", response.Desired.Network.Routes)
+	}
+
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/network",
+		`{"routes":[],"public_ipv4":"203.0.113.10","wireguard_mesh_ipv6":"fdaa:1:0:7::1","firewall":{"enabled":false,"inbound":[],"outbound":[]}}`, http.StatusBadRequest)
+}
+
+func TestSetDiskAppliesCompleteSpecificationAndRejectsInvalidLimits(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":1024,"throughput_mibps":50,"iops":2000}`, http.StatusAccepted)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.Disk.ThroughputMiBps != 50 || response.Desired.Disk.IOPS != 2000 {
+		t.Fatalf("disk = %+v", response.Desired.Disk)
+	}
+
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":1024,"throughput_mibps":-1}`, http.StatusBadRequest)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":1024,"iops":-1}`, http.StatusBadRequest)
+}
+
+func TestSetDiskGrows(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	rec := do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":1500,"throughput_mibps":0,"iops":0}`, http.StatusAccepted)
+	var got virtualMachineResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Desired.Disk.SizeMiB != 1500 {
+		t.Fatalf("disk size = %d, want 1500", got.Desired.Disk.SizeMiB)
+	}
+}
+
+func TestSetDiskRejectsInsufficientCapacity(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":2048,"throughput_mibps":0,"iops":0}`, http.StatusConflict)
+
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != insufficientCapacityCode {
+		t.Fatalf("error code = %q, want %q", response.Error.Code, insufficientCapacityCode)
+	}
+}
+
+func TestResizeRejectsInsufficientCapacity(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	recorder := do(t, srv, http.MethodPut, "/v1/vms/vm1/resize", `{"cpu_millicores":1000,"memory_mib":512,"disk_mib":2048}`, http.StatusConflict)
+
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Error.Code != insufficientCapacityCode {
+		t.Fatalf("error code = %q, want %q", response.Error.Code, insufficientCapacityCode)
+	}
+}
+
+func TestSetDiskRejectsShrink(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/disk", `{"size_mib":512,"throughput_mibps":0,"iops":0}`, http.StatusConflict)
+}
+
+func TestSetComputeNeedsStoppedVM(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", `{"cpu_millicores":500,"memory_mib":512}`, http.StatusConflict)
+}
+
+func TestSetComputeRequiresBothValues(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", `{"cpu_millicores":500}`, http.StatusBadRequest)
+}
+
+func TestSetComputeChecksOnlyAdditionalCapacity(t *testing.T) {
+	if needsMoreThanAvailable(1024, 512, 512) {
+		t.Fatal("exact memory growth capacity was rejected")
+	}
+	if !needsMoreThanAvailable(1025, 512, 512) {
+		t.Fatal("memory growth above capacity was accepted")
+	}
+	if needsMoreThanAvailable(256, 512, 0) {
+		t.Fatal("resource reduction required free capacity")
+	}
+}
+
+func TestPublicAPIErrorMapsUploadAndShutdownErrors(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{name: "invalid upload", err: storage.ErrInvalidUpload, status: http.StatusBadRequest, code: "invalid_request"},
+		{name: "shutdown", err: storage.ErrShuttingDown, status: http.StatusServiceUnavailable, code: "unavailable"},
+		{name: "full host storage", err: fmt.Errorf("write record: %w", &os.PathError{Op: "write", Path: "config.json", Err: syscall.ENOSPC}), status: http.StatusInsufficientStorage, code: "host_storage_full"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			apiError := publicAPIError(testCase.err)
+			if apiError.status != testCase.status || apiError.code != testCase.code {
+				t.Fatalf("api error = %d/%q, want %d/%q", apiError.status, apiError.code, testCase.status, testCase.code)
+			}
+		})
+	}
+}
+
+func TestSetComputeUpdatesStoppedVM(t *testing.T) {
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	srv := newServer(t, driver)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	driver.virtualMachines["vm1"].info.State = vm.StateStopped
+
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", `{"cpu_millicores":500,"memory_mib":256}`, http.StatusAccepted)
+
+	m := driver.virtualMachines["vm1"]
+	if m.info.MemoryMiB != 256 {
+		t.Errorf("memory = %d, want 256", m.info.MemoryMiB)
+	}
+	if m.info.DesiredState != vm.StateRunning {
+		t.Errorf("desired = %q, want running", m.info.DesiredState)
+	}
+}
+
+func TestSetComputeAcceptsMaximumCPUEntitlement(t *testing.T) {
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	srv := newServer(t, driver)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	driver.virtualMachines["vm1"].info.State = vm.StateStopped
+
+	do(t, srv, http.MethodPut, "/v1/vms/vm1/compute", `{"cpu_millicores":32000,"memory_mib":256}`, http.StatusAccepted)
+
+	if got := driver.virtualMachines["vm1"].info.CPUMillicores; got != 32000 {
+		t.Errorf("CPU millicores = %d, want 32000", got)
+	}
+}
+
+func TestComputeRejectsCPUEntitlementOutsideFirecrackerRange(t *testing.T) {
+	srv := newTestServer(t)
+
+	for _, cpuMillicores := range []int{99, 32001} {
+		body := strings.Replace(validCreateRequest, `"cpu_millicores":1000`,
+			fmt.Sprintf(`"cpu_millicores":%d`, cpuMillicores), 1)
+		do(t, srv, http.MethodPut, "/v1/vms/vm1", body, http.StatusBadRequest)
+	}
+}
+
+func TestHealth(t *testing.T) {
+	do(t, newTestServer(t), http.MethodGet, "/health", "", http.StatusOK)
+}
+
+func TestNewRequiresAuthenticationHash(t *testing.T) {
+	_, err := New(Config{Telemetry: telemetry.NewRegistry(nil)}, Dependencies{})
+	if err == nil {
+		t.Fatal("New accepted missing authentication configuration")
+	}
+}
+
+func TestSyncAppliesControllerStateAndReturnsCapacity(t *testing.T) {
+	wireGuardManager := &fakeWireGuardManager{}
+	services := newFakeRuntimeServices()
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServerWithServices(t, driver, services, wireGuardManager)
+
+	request := `{
+		"wireguard_peers":[{"node":"node-2","mesh_address":"fdab:1::2","public_key":"key-2","address":"192.0.2.2:51820","public_address":"192.0.2.2","private_network_mac_address":"02:00:00:00:00:02"}],
+		"images":[{
+			"ref":"sha256:image",
+			"architecture":"amd64",
+			"rootfs":{"url":"https://atlas.example/rootfs","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			"kernel":{"url":"https://atlas.example/kernel","sha256":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},
+			"cache_image":true
+		}],
+		"privileged_vm_addresses":["fdaa:1:0:0::1"],"wireguard_gateway_routes":[]
+	}`
+	recorder := do(t, server, http.MethodPost, "/v1/sync", request, http.StatusOK)
+	if len(services.privileged) != 1 || services.privileged[0] != "fdaa:1:0:0::1" {
+		t.Fatalf("privileged addresses = %+v", services.privileged)
+	}
+	if len(wireGuardManager.peers) != 1 || wireGuardManager.peers[0].Node != "node-2" {
+		t.Fatalf("peers = %+v", wireGuardManager.peers)
+	}
+	if len(services.policies) != 1 || services.policies[0].Name != "sha256:image" {
+		t.Fatalf("image policies = %+v", services.policies)
+	}
+
+	var response syncResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Capacity.TotalStorageMiB != 2000 || response.Capacity.AvailableStorageMiB != 750 {
+		t.Fatalf("storage capacity = %d/%d", response.Capacity.TotalStorageMiB, response.Capacity.AvailableStorageMiB)
+	}
+	if strings.Contains(recorder.Body.String(), "\"host_compatibility\"") {
+		t.Fatal("sync includes unavailable optional compatibility facts")
+	}
+}
+
+// A host not-found has no addressed resource. A 404 tells the controller to
+// stop, so the sync must report a retryable host fault instead.
+func TestSyncReportsHostNotFoundAsUnavailable(t *testing.T) {
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}, listError: vm.ErrNotFound}
+	server := newServerWithServices(t, driver, newFakeRuntimeServices(), &fakeWireGuardManager{})
+
+	recorder := do(
+		t, server, http.MethodPost, "/v1/sync",
+		`{"wireguard_peers":[],"images":[],"privileged_vm_addresses":[],"wireguard_gateway_routes":[]}`,
+		http.StatusServiceUnavailable,
+	)
+
+	var response errorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.Error.Retryable || response.Error.Code != "unavailable" {
+		t.Fatalf("error = %+v", response.Error)
+	}
+}
+
+// A missing collection would read as an empty set and clear host state.
+func TestSyncRequiresControllerCollections(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPost, "/v1/sync", `{}`, http.StatusBadRequest)
+	do(t, server, http.MethodPost, "/v1/sync", `{"wireguard_peers":[]}`, http.StatusBadRequest)
+	do(t, server, http.MethodPost, "/v1/sync", `{"wireguard_peers":[],"images":[]}`, http.StatusBadRequest)
+	do(
+		t, server, http.MethodPost, "/v1/sync",
+		`{"wireguard_peers":[],"images":[],"privileged_vm_addresses":[],"wireguard_gateway_routes":[]}`,
+		http.StatusOK,
+	)
+}
+
+func TestSyncSelectsUnicastNDPMode(t *testing.T) {
+	services := newFakeRuntimeServices()
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServerWithServices(t, driver, services, &fakeWireGuardManager{})
+
+	request := `{
+		"wireguard_peers":[
+			{"node":"server-11","mesh_address":"fdab:1::11","public_key":"key11","address":"10.20.0.11:7373","public_address":"10.20.0.11","private_network_mac_address":"aa:bb:cc:dd:ee:11"}
+		],
+		"images":[],
+		"privileged_vm_addresses":[],"wireguard_gateway_routes":[],
+		"unicast":true
+	}`
+	do(t, server, http.MethodPost, "/v1/sync", request, http.StatusOK)
+
+	if !services.unicast || services.peerSyncs != 1 {
+		t.Fatal("unicast transport was not enabled in unicast mode")
+	}
+}
+
+func TestSyncRejectsAPeerWithoutAPublicIPv4Address(t *testing.T) {
+	server := newTestServer(t)
+	request := `{
+		"wireguard_peers":[
+			{"node":"server-11","mesh_address":"fdab:1::11","public_key":"key11","address":"10.20.0.11:7373","private_network_mac_address":"aa:bb:cc:dd:ee:11"}
+		],
+		"images":[],
+		"privileged_vm_addresses":[],"wireguard_gateway_routes":[]
+	}`
+	do(t, server, http.MethodPost, "/v1/sync", request, http.StatusBadRequest)
+}
+
+func TestSyncStoresTheWireGuardGatewayRoutes(t *testing.T) {
+	services := newFakeRuntimeServices()
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServerWithServices(t, driver, services, &fakeWireGuardManager{})
+
+	do(t, server, http.MethodPost, "/v1/sync", `{"wireguard_peers":[],"images":[],"privileged_vm_addresses":[],
+		"wireguard_gateway_routes":[{"destination":"fdac:1:1::/48","via":"fdaa:1::1"}]}`, http.StatusOK)
+	if len(services.gatewayRoutes) != 1 || services.gatewayRoutes[0].Via != "fdaa:1::1" {
+		t.Fatalf("gateway routes = %+v", services.gatewayRoutes)
+	}
+
+	for _, routes := range []string{"", `,"wireguard_gateway_routes":[{"destination":"fdac:1:1::/48","via":"host"}]`} {
+		do(t, server, http.MethodPost, "/v1/sync",
+			`{"wireguard_peers":[],"images":[],"privileged_vm_addresses":[]`+routes+`}`, http.StatusBadRequest)
+	}
+}
+
+func TestSyncRejectsAPeerWithoutAMACAddress(t *testing.T) {
+	server := newTestServer(t)
+	request := `{
+		"wireguard_peers":[
+			{"node":"server-11","mesh_address":"fdab:1::11","public_key":"key11","address":"10.20.0.11:7373","public_address":"10.20.0.11"}
+		],
+		"images":[],
+		"privileged_vm_addresses":[],"wireguard_gateway_routes":[]
+	}`
+	do(t, server, http.MethodPost, "/v1/sync", request, http.StatusBadRequest)
+}
+
+func TestSyncSelectsMulticastNDPMode(t *testing.T) {
+	services := newFakeRuntimeServices()
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServerWithServices(t, driver, services, &fakeWireGuardManager{})
+
+	do(
+		t, server, http.MethodPost, "/v1/sync",
+		`{"wireguard_peers":[],"images":[],"privileged_vm_addresses":[],"wireguard_gateway_routes":[]}`,
+		http.StatusOK,
+	)
+
+	if services.unicast || services.peerSyncs != 1 {
+		t.Fatalf("unicast = %t, peer syncs = %d", services.unicast, services.peerSyncs)
+	}
+}
+
+func TestOpenAPIDocumentContainsOnlyTheVersionedControllerContract(t *testing.T) {
+	server := newTestServer(t)
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/docs/swagger.json", nil))
+
+	var document struct {
+		Paths map[string]map[string]struct {
+			Security []map[string][]string `json:"security"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	if _, found := document.Paths["/v1/vms/{id}/power"]; !found {
+		t.Fatal("OpenAPI document does not contain the versioned power route")
+	}
+	for _, path := range []string{"/vms", "/sync", "/snapshots/{id}"} {
+		if _, found := document.Paths[path]; found {
+			t.Fatalf("OpenAPI document contains unversioned route %q", path)
+		}
+	}
+	if len(document.Paths["/health"]["get"].Security) != 0 {
+		t.Fatal("OpenAPI health route requires authentication")
+	}
+	if len(document.Paths["/v1/vms"]["get"].Security) != 0 {
+		t.Fatal("OpenAPI virtual machine route advertises token authentication")
+	}
+}
+
+// do sends one request and asserts the status code.
+func do(t *testing.T, srv http.Handler, method, path, body string, want int) *httptest.ResponseRecorder {
+	t.Helper()
+	var r io.Reader
+	if body != "" {
+		r = strings.NewReader(body)
+	}
+	req := httptest.NewRequest(method, path, r)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != want {
+		t.Fatalf("%s %s = %d, want %d (body %s)", method, path, rec.Code, want, rec.Body)
+	}
+	return rec
+}
+
+func TestCreateAndDeleteImageStagingSnapshot(t *testing.T) {
+	services := newFakeRuntimeServices()
+	driver := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServerWithServices(t, driver, services, &fakeWireGuardManager{})
+
+	recorder := do(t, server, http.MethodPost, "/v1/vms/vm1/snapshots", "", http.StatusCreated)
+	var response snapshotCreatedResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.ID != "01900000-0000-7000-8000-000000000001" || response.Rootfs.SizeBytes != 1024 || response.Kernel.SizeBytes != 512 {
+		t.Fatalf("snapshot response = %+v", response)
+	}
+
+	do(t, server, http.MethodDelete, "/v1/snapshots/01900000-0000-7000-8000-000000000001", "", http.StatusNoContent)
+	do(t, server, http.MethodDelete, "/v1/snapshots/01900000-0000-7000-8000-000000000001", "", http.StatusNoContent)
+}
+
+func TestPauseResumeRecordDesired(t *testing.T) {
+	srv := newTestServer(t)
+	do(t, srv, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	rec := do(t, srv, http.MethodPut, "/v1/vms/vm1/power", `{"state":"paused"}`, http.StatusAccepted)
+	var got virtualMachineResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Desired.State != "paused" {
+		t.Errorf("desired = %q, want paused", got.Desired.State)
+	}
+	rec = do(t, srv, http.MethodPut, "/v1/vms/vm1/power", `{"state":"running"}`, http.StatusAccepted)
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Desired.State != "running" {
+		t.Errorf("desired = %q, want running", got.Desired.State)
+	}
+}
+
+func TestRestartAndDeleteReturnUpdatedResources(t *testing.T) {
+	server := newTestServer(t)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+
+	recorder := do(t, server, http.MethodPost, "/v1/vms/vm1/restart", "", http.StatusAccepted)
+	var response virtualMachineResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.RestartGeneration != 1 {
+		t.Fatalf("restart generation = %d, want 1", response.Desired.RestartGeneration)
+	}
+
+	recorder = do(t, server, http.MethodDelete, "/v1/vms/vm1", "", http.StatusAccepted)
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Desired.State != string(vm.StateDestroyed) {
+		t.Fatalf("desired state = %q, want destroyed", response.Desired.State)
+	}
+}
+
+func TestUnversionedControllerRoutesAreNotAvailable(t *testing.T) {
+	server := newTestServer(t)
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodPost, "/sync"},
+		{http.MethodGet, "/vms"},
+		{http.MethodPut, "/vms/vm1"},
+		{http.MethodPost, "/vms/vm1/actions/start"},
+		{http.MethodPost, "/vms/vm1/resize/disk"},
+		{http.MethodGet, "/snapshots/snapshot-1"},
+	} {
+		do(t, server, request.method, request.path, "", http.StatusNotFound)
+	}
+}
+
+func TestRemovedSnapshotAndImageRoutesReturnNotFound(t *testing.T) {
+	server := newTestServer(t)
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{http.MethodGet, "/images"},
+		{http.MethodPost, "/v1/vms/vm1/snapshots/snapshot-1/restore"},
+	} {
+		do(t, server, request.method, request.path, "", http.StatusNotFound)
+	}
+}
+
+func newTestMetricsStore(t *testing.T) *metrics.Store {
+	t.Helper()
+	directory := t.TempDir()
+	for _, identifier := range []string{"vm1", "another"} {
+		if err := os.Mkdir(filepath.Join(directory, identifier), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store, err := metrics.NewStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+func TestMetricsHistoryQuery(t *testing.T) {
+	manager := &fakeVirtualMachineManager{virtualMachines: map[string]*fakeVM{}}
+	server := newServer(t, manager)
+	do(t, server, http.MethodPut, "/v1/vms/vm1", validCreateRequest, http.StatusAccepted)
+	now := time.Now().UTC().Truncate(time.Second)
+	for _, age := range []time.Duration{25 * time.Hour, 2 * time.Hour, time.Hour, 30 * time.Minute} {
+		usage := metrics.Sample{
+			ComputeUsage: metrics.ComputeUsage{MemoryBytes: uint64(age / time.Hour)},
+			NetworkUsage: metrics.NetworkUsage{SentICMPPackets: 4},
+		}
+		if err := manager.metricsStore.Append("vm1", metrics.Record{Timestamp: now.Add(-age), Metrics: usage}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	usage := metrics.Sample{ComputeUsage: metrics.ComputeUsage{MemoryBytes: 999}}
+	if err := manager.metricsStore.Append("another", metrics.Record{Timestamp: now.Add(-time.Hour), Metrics: usage}); err != nil {
+		t.Fatal(err)
+	}
+	path := "/v1/vms/vm1/metrics?start=" + now.Add(-2*time.Hour).Format(time.RFC3339) + "&end=" + now.Add(-time.Hour).Format(time.RFC3339)
+	response := do(t, server, http.MethodGet, path, "", http.StatusOK)
+	var history virtualMachineMetricsResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Samples) != 1 || history.Samples[0].Timestamp != now.Add(-2*time.Hour).Unix() ||
+		history.Samples[0].Compute.MemoryBytes != 2 ||
+		history.Samples[0].Network.SentICMPPackets != 4 {
+		t.Fatalf("history = %+v", history)
+	}
+	response = do(t, server, http.MethodGet, "/v1/vms/vm1/metrics", "", http.StatusOK)
+	if err := json.Unmarshal(response.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Samples) != 3 || history.SampleIntervalSeconds != 300 {
+		t.Fatalf("default range = %+v", history)
+	}
+	response = do(t, server, http.MethodGet, "/v1/vms/vm1/metrics?max_samples=10&start="+now.Add(-26*time.Hour).Format(time.RFC3339), "", http.StatusOK)
+	if err := json.Unmarshal(response.Body.Bytes(), &history); err != nil {
+		t.Fatal(err)
+	}
+	if history.SampleIntervalSeconds != 3*60*60 {
+		t.Fatalf("max samples interval = %d", history.SampleIntervalSeconds)
+	}
+	for _, query := range []string{"start=bad", "start=2026-01-02T00:00:00Z&end=2026-01-01T00:00:00Z", "max_samples=9", "max_samples=2001", "max_samples=all"} {
+		do(t, server, http.MethodGet, "/v1/vms/vm1/metrics?"+query, "", http.StatusBadRequest)
+	}
+}

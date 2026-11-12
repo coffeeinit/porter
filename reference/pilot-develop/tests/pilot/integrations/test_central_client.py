@@ -1,0 +1,433 @@
+from __future__ import annotations
+
+import io
+import json
+import urllib.error
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+from pilot.config import (
+    AppConfig,
+    BenchConfig,
+    MariaDBConfig,
+    RedisConfig,
+    WorkerConfig,
+    WorkerGroup,
+)
+from pilot.core.bench import Bench
+from pilot.integrations.central import CentralClient, CentralClientError
+
+
+def _bench(root: Path, name: str = "b1") -> Bench:
+    bench_dir = root / "benches" / name
+    bench_dir.mkdir(parents=True, exist_ok=True)
+    config = BenchConfig(
+        name=name,
+        python_version="3.14",
+        apps=[AppConfig(name="frappe", repo="https://github.com/frappe/frappe", branch="version-16")],
+        mariadb=MariaDBConfig(root_password="root"),
+        redis=RedisConfig(cache_port=13000, queue_port=11000),
+        workers=WorkerConfig(groups=[WorkerGroup(queues=["default"], count=1)]),
+    )
+    bench = Bench(config, bench_dir)
+    bench.create_directories()
+    config.write(bench_dir)
+    return bench
+
+
+_STAGED: dict[str, str] = {}
+
+
+@pytest.fixture(autouse=True)
+def staged_metadata():
+    """Metadata owns the endpoint and token, so every test stands one in."""
+    _STAGED.clear()
+    with patch(
+        "pilot.integrations.central.metadata.InstanceMetadata.get_credentials",
+        side_effect=lambda *_, **__: dict(_STAGED) or None,
+    ):
+        yield
+
+
+def _stage_credentials(endpoint: str, token: str) -> None:
+    _STAGED.update(
+        central_endpoint=endpoint,
+        central_auth_token=token,
+        jwks_url="https://central.test/jwks",
+        jwks_audience_id="vm-1",
+    )
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict) -> None:
+        self._payload = payload
+
+    def read(self) -> bytes:
+        return json.dumps(self._payload).encode()
+
+    def __enter__(self) -> "_FakeResponse":
+        return self
+
+    def __exit__(self, *exc) -> bool:
+        return False
+
+
+def test_client_reads_and_strips_endpoint() -> None:
+    _stage_credentials("https://central.test/", "tok")
+    assert CentralClient()._credentials() == ("https://central.test", "tok")
+
+
+def test_client_raises_when_metadata_has_no_credential() -> None:
+    with pytest.raises(CentralClientError, match="instance metadata"):
+        CentralClient()._credentials()
+
+
+def test_an_unwrapped_response_comes_back_whole() -> None:
+    _stage_credentials("https://central.test/", "tok-9")
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["headers"] = dict(request.headers)
+        return _FakeResponse({"ok": True, "team": "TEAM-1"})
+
+    with patch("pilot.integrations.central.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        result = CentralClient().forward("central.api.pilot.heartbeat", "GET")
+
+    assert result == {"ok": True, "team": "TEAM-1"}
+    assert captured["url"] == "https://central.test/api/method/central.api.pilot.heartbeat"
+    assert "tok-9" in captured["headers"].values()
+
+
+def test_forward_unwraps_message_and_targets_method_path() -> None:
+    _stage_credentials("https://central.test", "tok-7")
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["method"] = request.method
+        captured["body"] = request.data
+        captured["headers"] = dict(request.headers)
+        return _FakeResponse({"message": {"currency": "INR"}})
+
+    with patch("pilot.integrations.central.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        result = CentralClient().forward(
+            "central.billing.api.billing_api.change_plan", "POST", {"plan": "biz"}
+        )
+
+    assert result == {"currency": "INR"}
+    assert captured["url"] == "https://central.test/api/method/central.billing.api.billing_api.change_plan"
+    assert captured["method"] == "POST"
+    assert json.loads(captured["body"]) == {"plan": "biz"}
+    assert "tok-7" in captured["headers"].values()
+
+
+def test_datum_token_unwraps_message_and_targets_method_path() -> None:
+    _stage_credentials("https://central.test", "tok-8")
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["method"] = request.method
+        return _FakeResponse({"message": {"token": "jwt-123", "expires_in": 604800, "resource_id": "vm-1"}})
+
+    with patch("pilot.integrations.central.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        result = CentralClient().datum_token()
+
+    assert result["token"] == "jwt-123"
+    assert result["resource_id"] == "vm-1"
+    assert captured["url"] == "https://central.test/api/method/central.api.pilot.datum_token"
+    assert captured["method"] == "GET"
+
+
+def test_notify_central_sends_the_event_as_centrals_event_type() -> None:
+    """Central's report_pilot_event requires ``event_type``; an ``event`` key fails the call."""
+    _stage_credentials("https://central.test", "tok-9")
+    captured: dict = {}
+
+    def fake_urlopen(request, timeout=None):
+        captured["url"] = request.full_url
+        captured["method"] = request.method
+        captured["body"] = json.loads(request.data.decode())
+        return _FakeResponse({"message": {"created": True}})
+
+    with patch("pilot.integrations.central.client.urllib.request.urlopen", side_effect=fake_urlopen):
+        CentralClient().notify_central(
+            "backup_failure", "b1: disk full", {"bench": "b1"}, reference_name="b1"
+        )
+
+    assert captured["url"] == "https://central.test/api/method/central.notification.api.report_pilot_event"
+    assert captured["method"] == "POST"
+    assert captured["body"] == {
+        "event_type": "backup_failure",
+        "message": "b1: disk full",
+        "context": {"bench": "b1"},
+        "reference_name": "b1",
+    }
+
+
+def test_a_non_json_response_is_wrapped() -> None:
+    _stage_credentials("https://central.test", "tok")
+
+    class _HtmlResponse:
+        def read(self) -> bytes:
+            return b"<html><body>502 Bad Gateway</body></html>"
+
+        def __enter__(self) -> "_HtmlResponse":
+            return self
+
+        def __exit__(self, *exc) -> bool:
+            return False
+
+    with (
+        patch("pilot.integrations.central.client.urllib.request.urlopen", return_value=_HtmlResponse()),
+        pytest.raises(CentralClientError),
+    ):
+        CentralClient().forward("central.api.pilot.heartbeat", "GET")
+
+
+def _app_client(bench_root: Path):
+    from admin.backend.app import create_app
+    from admin.backend.internal.session import Session
+
+    bench_root.mkdir(parents=True, exist_ok=True)
+    (bench_root / "bench.toml").write_text(
+        BenchConfig.from_flat(bench_root.name, {"admin_enabled": True, "admin_password": "secret"}).dumps()
+    )
+    app = create_app(bench_root)
+    app.config["TESTING"] = True
+    client = app.test_client()
+    client.set_cookie("sid", Session(Bench(bench_root)).issue_session_token()[0])
+    return client
+
+
+def test_proxy_forwards_allowlisted_billing_method(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+    with patch(
+        "admin.backend.api.v1.sites.central.CentralClient.forward",
+        return_value={"currency": "INR"},
+    ) as forward:
+        response = client.get(
+            "/api/v1/sites/s1.localhost/central/central.billing.api.billing_api.get_billing_summary"
+        )
+
+    assert response.status_code == 200
+    assert response.get_json() == {"currency": "INR"}
+    assert forward.call_args.args[0] == "central.billing.api.billing_api.get_billing_summary"
+    assert forward.call_args.args[1] == "GET"
+
+
+def test_proxy_forwards_a_team_identity_token_request(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+    method = "central.api.pilot.get_team_identity_token"
+    body = {"audience": "https://relay.example.test"}
+    with patch(
+        "admin.backend.api.v1.sites.central.CentralClient.forward", return_value={"token": "t"}
+    ) as forward:
+        response = client.post(f"/api/v1/sites/s1.localhost/central/{method}", json=body)
+
+    assert response.status_code == 200
+    forward.assert_called_once_with(method, "POST", body)
+
+
+@pytest.mark.parametrize("method", ["central.api.email_oauth.start", "central.api.email_oauth.relay_token"])
+def test_proxy_forwards_the_mailbox_connect_calls(tmp_path: Path, method: str) -> None:
+    client = _app_client(tmp_path / "bench")
+    body = {"provider": "microsoft", "state": "s1"}
+    with patch(
+        "admin.backend.api.v1.sites.central.CentralClient.forward", return_value={"ok": True}
+    ) as forward:
+        response = client.post(f"/api/v1/sites/s1.localhost/central/{method}", json=body)
+
+    assert response.status_code == 200
+    forward.assert_called_once_with(method, "POST", body)
+
+
+def test_proxy_rejects_the_mailbox_callback(tmp_path: Path) -> None:
+    # the browser goes to Central's callback directly; a site never calls it
+    client = _app_client(tmp_path / "bench")
+    with patch("admin.backend.api.v1.sites.central.CentralClient.forward") as forward:
+        response = client.get("/api/v1/sites/s1.localhost/central/central.api.email_oauth.callback")
+
+    assert response.status_code == 403
+    forward.assert_not_called()
+
+
+def test_proxy_rejects_non_allowlisted_method(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+    with patch("admin.backend.api.v1.sites.central.CentralClient.forward") as forward:
+        response = client.get("/api/v1/sites/s1.localhost/central/central.api.teams.delete_team")
+
+    assert response.status_code == 403
+    forward.assert_not_called()
+
+
+def test_account_url_returns_the_endpoint_from_metadata(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+    _stage_credentials("https://central.test/", "tok")
+
+    response = client.get("/api/v1/sites/s1.localhost/account-url")
+
+    assert response.status_code == 200
+    assert response.get_json() == {
+        "url": "https://central.test",
+        "billing": "https://central.test/dashboard/billing",
+        "change_plan": "https://central.test/dashboard/servers?pilot=vm-1&action=resize",
+        "server": "https://central.test/api/method/central.api.sso.open_bench?pilot=vm-1",
+    }
+
+
+def test_account_url_requires_a_staged_credential(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+
+    response = client.get("/api/v1/sites/s1.localhost/account-url")
+
+    assert response.status_code == 503
+    assert response.get_json()["error"]["code"] == "central_not_configured"
+
+
+def _http_error(code: int, body: bytes) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://central.test/x", code, "err", {}, io.BytesIO(body))
+
+
+def test_rejection_surfaces_centrals_own_message() -> None:
+    """Central validates billing input; reporting only the status code would strand
+    the user with an unactionable "HTTP 417"."""
+    _stage_credentials("https://central.test", "tok")
+    body = json.dumps(
+        {
+            "exception": "frappe.exceptions.ValidationError: 'MH' is not a recognised Indian state.",
+            "_server_messages": json.dumps(
+                [json.dumps({"message": "'MH' is not a recognised Indian state."})]
+            ),
+        }
+    ).encode()
+
+    with (
+        patch(
+            "pilot.integrations.central.client.urllib.request.urlopen",
+            side_effect=_http_error(417, body),
+        ),
+        pytest.raises(CentralClientError) as excinfo,
+    ):
+        CentralClient().forward("central.billing.api.billing_api.save_billing_profile", "POST", {})
+
+    assert str(excinfo.value) == "'MH' is not a recognised Indian state."
+    assert excinfo.value.status_code == 417
+
+
+def test_rejection_without_a_message_falls_back_to_the_status() -> None:
+    _stage_credentials("https://central.test", "tok")
+
+    with (
+        patch(
+            "pilot.integrations.central.client.urllib.request.urlopen",
+            side_effect=_http_error(403, b"<html>nope</html>"),
+        ),
+        pytest.raises(CentralClientError) as excinfo,
+    ):
+        CentralClient().forward("central.billing.api.billing_api.save_billing_profile", "POST", {})
+
+    assert "HTTP 403" in str(excinfo.value)
+    assert excinfo.value.status_code == 403
+
+
+def test_unreachable_central_has_no_status_code() -> None:
+    _stage_credentials("https://central.test", "tok")
+
+    with (
+        patch(
+            "pilot.integrations.central.client.urllib.request.urlopen",
+            side_effect=urllib.error.URLError("connection refused"),
+        ),
+        pytest.raises(CentralClientError) as excinfo,
+    ):
+        CentralClient().forward("central.api.pilot.heartbeat", "GET")
+
+    assert excinfo.value.status_code is None
+
+
+def test_proxy_relays_a_central_rejection_instead_of_a_502(tmp_path: Path) -> None:
+    """A rejection is the caller's problem to show; only an outage is a 502."""
+    client = _app_client(tmp_path / "bench")
+    with patch(
+        "admin.backend.api.v1.sites.central.CentralClient.forward",
+        side_effect=CentralClientError("Pick a state from the list.", status_code=417),
+    ):
+        response = client.post(
+            "/api/v1/sites/s1.localhost/central/central.billing.api.billing_api.save_billing_profile",
+            json={"state": "MH"},
+        )
+
+    assert response.status_code == 417
+    body = response.get_json()["error"]
+    assert body["code"] == "central_rejected"
+    assert body["message"] == "Pick a state from the list."
+
+
+def test_proxy_still_reports_an_outage_as_unreachable(tmp_path: Path) -> None:
+    client = _app_client(tmp_path / "bench")
+    with patch(
+        "admin.backend.api.v1.sites.central.CentralClient.forward",
+        side_effect=CentralClientError("Cannot reach Central"),
+    ):
+        response = client.post(
+            "/api/v1/sites/s1.localhost/central/central.billing.api.billing_api.save_billing_profile",
+            json={},
+        )
+
+    assert response.status_code == 502
+    assert response.get_json()["error"]["code"] == "central_unreachable"
+
+
+@pytest.mark.parametrize(
+    "method, command, fields",
+    [
+        (
+            "save_billing_profile",
+            "frappe.integrations.frappe_providers.cloud_settings.save_billing_profile",
+            {"legal_name": "Acme"},
+        ),
+        (
+            "confirm_payment_method",
+            "frappe.integrations.frappe_providers.cloud_settings.confirm_payment_method",
+            {"payment_method": "pm-1"},
+        ),
+        ("save_billing_profile", "frappe.client.delete", {"legal_name": "Acme"}),
+    ],
+)
+def test_proxy_body_cannot_override_the_allowlisted_method(tmp_path: Path, method, command, fields) -> None:
+    client = _app_client(tmp_path / "bench")
+    _stage_credentials("https://central.test", "tok")
+    method_path = f"central.billing.api.billing_api.{method}"
+
+    with patch(
+        "pilot.integrations.central.client.urllib.request.urlopen",
+        return_value=_FakeResponse({"message": {"saved": True}}),
+    ) as urlopen:
+        response = client.post(
+            f"/api/v1/sites/s1.localhost/central/{method_path}",
+            json={"cmd": command, **fields},
+        )
+
+    assert response.status_code == 200
+    request = urlopen.call_args.args[0]
+    assert request.full_url == f"https://central.test/api/method/{method_path}"
+    assert json.loads(request.data) == fields
+
+
+@pytest.mark.parametrize("body", [[], ["cmd"], "not an object", 42, True])
+def test_proxy_rejects_non_object_body(tmp_path: Path, body) -> None:
+    client = _app_client(tmp_path / "bench")
+    with patch("admin.backend.api.v1.sites.central.CentralClient.forward", return_value={}) as forward:
+        response = client.post(
+            "/api/v1/sites/s1.localhost/central/central.billing.api.billing_api.save_billing_profile",
+            json=body,
+        )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "malformed_body"
+    assert response.get_json()["error"]["message"] == "Request body must be a JSON object."
+    forward.assert_not_called()

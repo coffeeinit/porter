@@ -1,0 +1,34 @@
+# Copyright (c) 2026, Frappe and contributors
+# For license information, please see license.txt
+
+from __future__ import annotations
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+
+
+class MetalServerImage(Document):
+	"""One provider operating system image in the catalog."""
+
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		enabled: DF.Check
+		os: DF.Data | None
+		os_version: DF.Data | None
+		provider_metadata: DF.Code | None
+	# end: auto-generated types
+
+	def get_provider_metadata(self, key: str) -> str:
+		"""Return the provider values this image was created from."""
+		metadata = frappe.parse_json(self.provider_metadata or "{}")
+		value = metadata.get(key)
+		if not isinstance(value, str):
+			frappe.throw(_("Metal Server Image provider metadata has no {0}").format(key))
+		return value

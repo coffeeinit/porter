@@ -1,0 +1,369 @@
+package firecracker
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/frappe/atlas/metal/internal/vm"
+)
+
+func TestInstallSavedStateChecksIdentityBeforePublishing(t *testing.T) {
+	runtime := &Runtime{configuration: Config{MachinesDir: t.TempDir(), FirecrackerBin: "/missing/firecracker"}}
+	machine := vm.RuntimeMachine{ID: "vm-1", UserID: 1001, SpecificationGeneration: 2, RestartGeneration: 3}
+	requirement := runtime.newMachine(machine).savedStateRequirement()
+	savedStateFixture(t, runtime.configuration, requirement)
+	published := runtime.configuration.savedStateDirectory(machine.ID)
+	directory := filepath.Join(runtime.configuration.vmDir(machine.ID), "downloaded")
+	if err := os.Rename(published, directory); err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := os.ReadFile(filepath.Join(directory, savedStateMetadataFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(metadata)
+	if err := runtime.InstallSavedState(t.Context(), machine, directory, "wrong-checkpoint"); err == nil {
+		t.Fatal("different checkpoint was installed")
+	}
+	if _, err := os.Stat(published); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("invalid checkpoint was published: %v", err)
+	}
+	if err := runtime.InstallSavedState(t.Context(), machine, directory, hex.EncodeToString(digest[:])); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.configuration.loadSavedState(requirement); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallMigratedSleepStatePreservesIdentityAndLocalValidation(t *testing.T) {
+	for _, invalid := range []string{"", "identity", "user", "shape", "network", "generation"} {
+		t.Run(invalid, func(t *testing.T) {
+			runtime := &Runtime{configuration: Config{MachinesDir: t.TempDir(), FirecrackerBin: "/destination/firecracker"}}
+			shape := vm.MemorySnapshotConfiguration{VirtualCPUCount: 1, MemoryMiB: 512, DiskMiB: 1024}
+			source := savedStateRequirement{VirtualMachineID: "vm-1", UserID: 1001, SpecificationGeneration: 2, RestartGeneration: 3, FirecrackerCompatibility: "source-build", MigratedShape: &shape}
+			metadata := savedStateFixture(t, runtime.configuration, source)
+			if invalid == "network" {
+				metadata.TapMACAddress = ""
+				data, _ := json.Marshal(metadata)
+				if err := os.WriteFile(filepath.Join(runtime.configuration.savedStateDirectory("vm-1"), savedStateMetadataFileName), data, 0o640); err != nil {
+					t.Fatal(err)
+				}
+			}
+			published := runtime.configuration.savedStateDirectory("vm-1")
+			directory := published + "-downloaded"
+			if err := os.Rename(published, directory); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(directory, savedStateMetadataFileName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(data)
+			identity := hex.EncodeToString(digest[:])
+			machine := vm.RuntimeMachine{ID: "vm-1", UserID: 2001, SavedStateSourceUserID: 1001, SpecificationGeneration: 2, RestartGeneration: 3,
+				Specification: vm.Specification{CPUMillicores: 1000, MemoryMiB: 512, DiskMiB: 1024}}
+			switch invalid {
+			case "identity":
+				identity = "wrong"
+			case "user":
+				machine.SavedStateSourceUserID++
+			case "shape":
+				machine.Specification.MemoryMiB++
+			case "generation":
+				machine.RestartGeneration++
+			}
+			err = runtime.InstallSavedState(t.Context(), machine, directory, identity)
+			if invalid != "" {
+				if err == nil {
+					t.Fatal("invalid imported checkpoint was installed")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			machine.SavedStateSourceUserID = 0
+			if has, err := runtime.hasSavedState(machine); err != nil || !has {
+				t.Fatalf("normal inspection discarded imported state: %v, %v", has, err)
+			}
+			saved, err := runtime.SavedState(t.Context(), machine)
+			if err != nil || saved.Identity != identity {
+				t.Fatalf("retry identity = %+v, %v", saved, err)
+			}
+			runtime.configuration.FirecrackerBin = "/incompatible/firecracker"
+			if _, err := runtime.SavedState(t.Context(), machine); !errors.Is(err, errSavedStateIncompatible) {
+				t.Fatalf("local compatibility check was weakened: %v", err)
+			}
+		})
+	}
+}
+
+func savedStateFixture(t *testing.T, configuration Config, requirement savedStateRequirement) savedStateMetadata {
+	t.Helper()
+	directory := configuration.savedStateDirectory(requirement.VirtualMachineID)
+	if err := os.MkdirAll(directory, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stateSize := writeSavedStateFile(t, filepath.Join(directory, memorySnapshotStateFileName), 128)
+	memorySize := writeSavedStateFile(t, filepath.Join(directory, memorySnapshotMemoryFileName), 256)
+	metadata := savedStateMetadata{
+		VirtualMachineID: requirement.VirtualMachineID, UserID: requirement.UserID,
+		SpecificationGeneration:  requirement.SpecificationGeneration,
+		RestartGeneration:        requirement.RestartGeneration,
+		FirecrackerCompatibility: requirement.FirecrackerCompatibility,
+		CreatedAt:                time.Now().UTC(), StateFileName: memorySnapshotStateFileName,
+		MemoryFileName: memorySnapshotMemoryFileName, StateFileSizeBytes: stateSize,
+		MemoryFileSizeBytes: memorySize,
+		Shape:               requirement.MigratedShape,
+	}
+	if requirement.MigratedShape != nil {
+		metadata.TapMACAddress = "02:11:22:33:44:55"
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, savedStateMetadataFileName), data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	return metadata
+}
+
+func writeSavedStateFile(t *testing.T, path string, size int) int64 {
+	t.Helper()
+	if err := os.WriteFile(path, make([]byte, size), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	return int64(size)
+}
+
+func TestSavedStateUsesOneFixedDirectory(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	if got := configuration.savedStateDirectory("vm-1"); got != filepath.Join(configuration.MachinesDir, "vm-1", "saved-state") {
+		t.Fatalf("saved state directory = %s", got)
+	}
+	if got := configuration.pendingSavedStateDirectory("vm-1"); got != filepath.Join(configuration.chrootRoot("vm-1"), "saved-state-pending") {
+		t.Fatalf("pending directory = %s", got)
+	}
+}
+
+func TestLoadSavedStateValidatesMetadataAndFiles(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{
+		VirtualMachineID: "vm-1", UserID: 1001, SpecificationGeneration: 2,
+		RestartGeneration: 3, FirecrackerCompatibility: "firecracker-test",
+	}
+	savedStateFixture(t, configuration, requirement)
+	state, err := configuration.loadSavedState(requirement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Base(state.StatePath) != "state" || filepath.Base(state.MemoryPath) != "memory" {
+		t.Fatalf("saved state paths = %s and %s", state.StatePath, state.MemoryPath)
+	}
+}
+
+func TestLoadSavedStateRejectsAnIncompatibleGeneration(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1", UserID: 1001, SpecificationGeneration: 2}
+	savedStateFixture(t, configuration, requirement)
+	requirement.SpecificationGeneration = 3
+	if _, err := configuration.loadSavedState(requirement); err == nil {
+		t.Fatal("want an incompatible generation error")
+	}
+}
+
+func TestLoadSavedStateReportsAnIncompatibleFirecracker(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1", UserID: 1001, FirecrackerCompatibility: "firecracker:1"}
+	savedStateFixture(t, configuration, requirement)
+
+	requirement.FirecrackerCompatibility = "firecracker:1:cpu:abc"
+	if _, err := configuration.loadSavedState(requirement); !errors.Is(err, errSavedStateIncompatible) {
+		t.Fatalf("error = %v, want errSavedStateIncompatible", err)
+	}
+
+	requirement.SpecificationGeneration = 3
+	if _, err := configuration.loadSavedState(requirement); errors.Is(err, errSavedStateIncompatible) {
+		t.Fatalf("error = %v, a generation mismatch must stay a hard error", err)
+	}
+}
+
+func TestLoadSavedStateReportsUnknownMetadataAsIncompatible(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1"}
+	savedStateFixture(t, configuration, requirement)
+	path := filepath.Join(configuration.savedStateDirectory(requirement.VirtualMachineID), savedStateMetadataFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)-1] = ','
+	data = append(data, []byte(`"unknown":true}`)...)
+	if err := os.WriteFile(path, data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configuration.loadSavedState(requirement); !errors.Is(err, errSavedStateIncompatible) {
+		t.Fatalf("error = %v, want errSavedStateIncompatible", err)
+	}
+}
+
+func TestLoadSavedStateChecksKnownFieldsBeforeUnknownFields(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1", UserID: 1001}
+	savedStateFixture(t, configuration, requirement)
+	path := filepath.Join(configuration.savedStateDirectory("vm-1"), savedStateMetadataFileName)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)-1] = ','
+	data = append(data, []byte(`"unknown":true}`)...)
+	if err := os.WriteFile(path, data, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	requirement.SpecificationGeneration = 3
+	if _, err := configuration.loadSavedState(requirement); err == nil || errors.Is(err, errSavedStateIncompatible) {
+		t.Fatalf("error = %v, want a hard generation error", err)
+	}
+}
+
+func TestHasSavedStateRemovesAnIncompatibleState(t *testing.T) {
+	runtime := &Runtime{configuration: Config{MachinesDir: t.TempDir(), FirecrackerBin: "/missing/firecracker"}}
+	input := vm.RuntimeMachine{ID: "vm-1", UserID: 1001}
+	requirement := runtime.newMachine(input).savedStateRequirement()
+	savedStateFixture(t, runtime.configuration, requirement)
+
+	runtime.configuration.CPUTemplate = []byte(`{"cpuid_modifiers":[]}`)
+	has, err := runtime.hasSavedState(input)
+	if err != nil || has {
+		t.Fatalf("hasSavedState = %v, %v, want false and no error", has, err)
+	}
+	if _, err := os.Stat(runtime.configuration.savedStateDirectory("vm-1")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("saved state still exists: %v", err)
+	}
+}
+
+func TestLoadSavedStateRejectsMalformedMetadata(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1"}
+	savedStateFixture(t, configuration, requirement)
+	path := filepath.Join(configuration.savedStateDirectory(requirement.VirtualMachineID), savedStateMetadataFileName)
+	if err := os.WriteFile(path, []byte(`{"virtual_machine_id":`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	_, err := configuration.loadSavedState(requirement)
+	if err == nil || errors.Is(err, errSavedStateIncompatible) {
+		t.Fatalf("error = %v, want a hard decode error", err)
+	}
+}
+
+func TestLoadSavedStateRejectsAMissingFile(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1"}
+	savedStateFixture(t, configuration, requirement)
+	path := filepath.Join(configuration.savedStateDirectory(requirement.VirtualMachineID), memorySnapshotMemoryFileName)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configuration.loadSavedState(requirement); err == nil {
+		t.Fatal("want a missing memory file error")
+	}
+}
+
+func TestLoadSavedStateRejectsAChangedFileSize(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1"}
+	savedStateFixture(t, configuration, requirement)
+	path := filepath.Join(configuration.savedStateDirectory(requirement.VirtualMachineID), memorySnapshotStateFileName)
+	if err := os.WriteFile(path, []byte("short"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configuration.loadSavedState(requirement); err == nil {
+		t.Fatal("want a changed state file size error")
+	}
+}
+
+func TestLoadSavedStateReportsAbsence(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	_, err := configuration.loadSavedState(savedStateRequirement{VirtualMachineID: "vm-1"})
+	if !errors.Is(err, errSavedStateNotFound) {
+		t.Fatalf("error = %v, want errSavedStateNotFound", err)
+	}
+}
+
+func TestRemoveSavedStateKeepsVMRecords(t *testing.T) {
+	configuration := Config{MachinesDir: t.TempDir()}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1"}
+	savedStateFixture(t, configuration, requirement)
+	configPath := filepath.Join(configuration.vmDir("vm-1"), "config.json")
+	if err := os.WriteFile(configPath, []byte("{}"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{configuration: configuration}
+	if err := runtime.removeSavedState("vm-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(configPath); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMigrationMetadataValidatesPortableIdentityAndShape(t *testing.T) {
+	shape := vm.MemorySnapshotConfiguration{VirtualCPUCount: 2, MemoryMiB: 1, DiskMiB: 4}
+	requirement := savedStateRequirement{VirtualMachineID: "vm-1", UserID: 1001, SpecificationGeneration: 2, RestartGeneration: 3, MigratedShape: &shape}
+	configuration := Config{MachinesDir: t.TempDir()}
+	metadata := savedStateFixture(t, configuration, requirement)
+	metadata.UserID = 2002
+	metadata.FirecrackerCompatibility = "source-only-build-marker"
+	if err := metadata.validate(requirement); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"cpu", "memory", "disk", "generation", "restart", "vm", "missing_metadata", "missing_mac", "invalid_mac", "multicast_mac", "extended_mac"} {
+		t.Run(field, func(t *testing.T) {
+			candidate := metadata
+			changed := shape
+			candidate.Shape = &changed
+			switch field {
+			case "cpu":
+				changed.VirtualCPUCount++
+			case "memory":
+				changed.MemoryMiB++
+			case "disk":
+				changed.DiskMiB++
+			case "generation":
+				candidate.SpecificationGeneration++
+			case "restart":
+				candidate.RestartGeneration++
+			case "vm":
+				candidate.VirtualMachineID = "another-vm"
+			case "missing_metadata":
+				candidate.Shape = nil
+			case "missing_mac":
+				candidate.TapMACAddress = ""
+			case "invalid_mac":
+				candidate.TapMACAddress = "not-a-mac"
+			case "multicast_mac":
+				candidate.TapMACAddress = "33:33:00:00:00:01"
+			case "extended_mac":
+				candidate.TapMACAddress = "02:11:22:33:44:55:66:77"
+			}
+			if err := candidate.validate(requirement); err == nil {
+				t.Fatal("incompatible migration metadata accepted")
+			}
+		})
+	}
+	// The host-specific user ID remains enforced for ordinary local restores.
+	requirement.MigratedShape = nil
+	if err := metadata.validate(requirement); err == nil {
+		t.Fatal("local restore ignored its host user ID")
+	}
+}

@@ -1,0 +1,250 @@
+from __future__ import annotations
+
+import typing
+from typing import Any, Literal, Self
+
+import frappe
+import requests
+
+from cargo.client_models import PlacementRule
+
+if typing.TYPE_CHECKING:
+	from cargo.cargo.doctype.cargo_settings.cargo_settings import CargoSettings
+
+API_PREFIX = "/api/atlas"
+RUNNING_STATE = "running"
+STOPPED_STATE = "stopped"
+PAUSED_STATE = "paused"
+DEAD_STATES = frozenset({"failed"})
+MIB_PER_GB = 1024
+# Atlas accepts this range; 1000 millicores is one core.
+MINIMUM_CPU_MILLICORES = 100
+MAXIMUM_CPU_MILLICORES = 32_000
+# Atlas names an image by a generated id, so the one to boot on is found by its tags.
+BASE_IMAGE_TAGS = {"purpose": "base", "os": "Ubuntu", "os_version": "24.04"}
+# A Pilot image bakes on the base image, so it carries the same operating system.
+PILOT_IMAGE_OS_TAGS = {key: BASE_IMAGE_TAGS[key] for key in ("os", "os_version")}
+# The most a list route returns in one page.
+IMAGE_PAGE_LIMIT = 100
+
+
+class AtlasError(RuntimeError):
+	"""An Atlas call failed. One argument, so it survives a pickle round trip: that is how
+	the workflow engine carries an exception back to the flow that raised it."""
+
+
+class AtlasNotFound(AtlasError):
+	"""Atlas has no such resource. A terminated machine reads as one."""
+
+
+class AtlasClient:
+	"""Atlas's tenant API. Every route is scoped to the tenant in the header."""
+
+	def __init__(self, url: str, token: str, tenant_id: int, timeout: float = 120) -> None:
+		self.url = url.rstrip("/")
+		self.timeout = timeout
+		self.tenant_id = tenant_id
+		self.headers = {
+			"Authorization": f"Bearer {token}",
+			"X-Tenant-ID": str(tenant_id),
+		}
+
+	@classmethod
+	def from_settings(cls) -> Self:
+		"""The Atlas client for the current site. `get_password`, not the attribute: a
+		Password field reads back as its mask."""
+		settings: CargoSettings = frappe.get_cached_doc("Cargo Settings")
+
+		return cls(
+			url=settings.atlas_url,
+			token=settings.get_password("atlas_token"),
+			tenant_id=settings.atlas_tenant_id,
+		)
+
+	def call(self, method: str, path: str, body: dict[str, Any] | None = None) -> Any:
+		"""One request against the tenant API. 204 and an empty body both return None."""
+		try:
+			response = requests.request(
+				method,
+				f"{self.url}{API_PREFIX}{path}",
+				headers=self.headers,
+				json=body,
+				timeout=self.timeout,
+			)
+		except requests.RequestException as exception:
+			raise AtlasError(f"{method} {path}: {exception}") from exception
+
+		try:
+			payload = response.json()
+		except ValueError:
+			payload = None
+
+		if response.status_code == 404:
+			raise AtlasNotFound(f"{method} {path}: {error_message(payload, response.text)}")
+
+		if not response.ok:
+			raise AtlasError(
+				f"{method} {path} answered {response.status_code}: {error_message(payload, response.text)}"
+			)
+
+		return payload
+
+	def create_vm(
+		self,
+		*,
+		image_id: str,
+		cpu_millicores: int,
+		memory_mib: int,
+		disk_mib: int,
+		public_key: str,
+		hostname: str,
+		metadata: dict[str, str] | None = None,
+		tags: dict[str, str] | None = None,
+		placement_rules: list[PlacementRule] | None = None,
+		is_termination_protected: bool = False,
+	) -> dict[str, Any]:
+		"""Ask Atlas for one machine and return the record it made."""
+		payload = {
+			"image_id": image_id,
+			"cpu_millicores": cpu_millicores,
+			"memory_mib": memory_mib,
+			"disk_mib": disk_mib,
+			"ssh_keys": [public_key],
+			"hostname": hostname,
+			"metadata": metadata or {},
+			"ipv4_internet_access": True,
+		}
+		# Sent only when set: an Atlas without affinity rules rejects unknown fields.
+		if tags:
+			payload["tags"] = tags
+		if placement_rules:
+			payload["placement_rules"] = [rule.asdict() for rule in placement_rules]
+		if is_termination_protected:
+			payload["is_termination_protected"] = True
+
+		created = self.call("POST", "/virtual-machines", payload)
+		if not isinstance(created, dict) or not created.get("id"):
+			raise AtlasError(f"create_virtual_machine returned no id: {created!r}")
+
+		return created
+
+	def get_vm(self, vm_id: str) -> dict[str, Any]:
+		"""The VM as Atlas currently sees it, including `current_state`."""
+		return self.call("GET", f"/virtual-machines/{vm_id}")
+
+	def terminate_vm(self, vm_id: str) -> None:
+		"""Start termination. The VM route answers 404 once cleanup finishes."""
+		self.call("DELETE", f"/virtual-machines/{vm_id}")
+
+	def set_vm_termination_protection(self, vm_id: str, enabled: bool) -> None:
+		"""Set or clear a VM's termination protection. Atlas refuses to terminate a protected VM."""
+		self.call("PATCH", f"/virtual-machines/{vm_id}/termination-protection", {"enabled": enabled})
+
+	def set_power_state(self, vm_id: str, action: str) -> None:
+		"""Ask Atlas to start, stop, pause, resume or restart the VM. It answers before the VM gets there."""
+		self.call("POST", f"/virtual-machines/{vm_id}/actions/{action}")
+
+	def grow_disk(self, vm_id: str, disk_mib: int) -> None:
+		"""Grow the VM's disk while it runs."""
+		self.call("PATCH", f"/virtual-machines/{vm_id}/disk", {"disk_mib": disk_mib})
+
+	def resize_vm(self, vm_id: str, *, cpu_millicores: int, memory_mib: int, disk_mib: int) -> None:
+		"""Change the VM's shape. Atlas only resizes a stopped VM and only grows the disk."""
+		self.call(
+			"POST",
+			f"/virtual-machines/{vm_id}/actions/resize",
+			{"cpu_millicores": cpu_millicores, "memory_mib": memory_mib, "disk_mib": disk_mib},
+		)
+
+	def create_snapshot(
+		self,
+		vm_id: str,
+		title: str,
+		*,
+		image_type: Literal["machine", "system"] = "machine",
+		cache_image: bool = False,
+		memory_snapshot: bool = False,
+		tags: dict[str, str] | None = None,
+	) -> str:
+		"""Freeze a machine's disk into an image Atlas can boot later."""
+		created = self.call(
+			"POST",
+			f"/virtual-machines/{vm_id}/actions/snapshot",
+			{
+				"title": title,
+				"image_type": image_type,
+				"cache_image": cache_image,
+				"memory_snapshot": memory_snapshot,
+				"tags": tags or {},
+			},
+		)
+		if not isinstance(created, dict) or not created.get("id"):
+			raise AtlasError(f"create_snapshot returned no id: {created!r}")
+
+		return created["id"]
+
+	def set_image_termination_protection(self, image_id: str, enabled: bool) -> None:
+		"""Set or clear an image's termination protection. Atlas protects every System image
+		when it makes one, and refuses to delete a protected image."""
+		self.call("PATCH", f"/images/{image_id}/termination-protection", {"enabled": enabled})
+
+	def delete_snapshot(self, image_id: str) -> None:
+		"""Retire an image. Atlas archives one a machine still uses and reclaims it later."""
+		self.call("DELETE", f"/images/{image_id}")
+
+	def find_system_image(self, tags: dict[str, str]) -> str | None:
+		"""The id of the newest available System image carrying every tag, or None.
+
+		Atlas names an image by a generated id, so the one to build on is found by its
+		tags. Atlas matches the tags and returns enabled images newest first, so one
+		page holds every candidate."""
+		tag_filter = ",".join(f"{key}:{value}" for key, value in tags.items())
+		page = self.call("GET", f"/images?image_type=system&tag={tag_filter}&limit={IMAGE_PAGE_LIMIT}")
+		for image in page.get("items") or []:
+			if image.get("status") == "available":
+				return image["id"]
+
+		return None
+
+	def get_snapshot(self, image_id: str) -> dict[str, Any]:
+		"""The image as Atlas currently sees it, to know when it is usable."""
+		return self.call("GET", f"/images/{image_id}")
+
+
+def base_image_id(minimal: bool = False) -> str:
+	"""The Ubuntu system image a Cargo machine boots on, minimal or full. Throws when Atlas
+	has none."""
+	tags = {**BASE_IMAGE_TAGS, "minimal": "true" if minimal else "false"}
+	image_id = AtlasClient.from_settings().find_system_image(tags)
+	if not image_id:
+		frappe.throw(
+			frappe._("Atlas has no available system image tagged {0}.").format(
+				", ".join(f"{key}:{value}" for key, value in tags.items())
+			)
+		)
+
+	return image_id
+
+
+def host_port(address: str, port: int | str) -> str:
+	"""``address:port``, with the brackets an IPv6 address needs to keep its colons."""
+	return f"[{address}]:{port}" if ":" in address else f"{address}:{port}"
+
+
+def error_message(payload: Any, fallback: str) -> str:
+	"""The readable message out of an Atlas or Frappe error body."""
+	if isinstance(payload, dict):
+		error = payload.get("error")
+		if isinstance(error, dict) and error.get("message"):
+			fields = "; ".join(
+				f"{field.get('name')}: {field.get('message')}"
+				for field in error.get("fields") or []
+				if isinstance(field, dict)
+			)
+			return f"{error['message']} ({fields})" if fields else str(error["message"])
+
+		for key in ("exception", "exc_type", "message", "_error_message"):
+			if payload.get(key):
+				return str(payload[key])
+
+	return (fallback or "").strip() or "unknown error"

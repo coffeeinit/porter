@@ -1,0 +1,114 @@
+{
+ "actions": [],
+ "creation": "2026-09-11 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "status",
+  "virtual_machine",
+  "column_break_status",
+  "installation_task",
+  "auto_build_pilot_images",
+  "failure_section",
+  "failure_message",
+  "pilot_release_tracker_pending"
+ ],
+ "fields": [
+  {
+   "default": "Not Provisioned",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "label": "Status",
+   "options": "Not Provisioned\nPending\nProvisioning\nActive\nFailed\nArchived",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_status",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "virtual_machine",
+   "fieldtype": "Link",
+   "label": "Virtual Machine",
+   "options": "Virtual Machine",
+   "read_only": 1
+  },
+  {
+   "fieldname": "installation_task",
+   "fieldtype": "Link",
+   "label": "Installation Task",
+   "options": "SSH Task",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "auto_build_pilot_images",
+   "fieldtype": "Check",
+   "label": "Auto Build Pilot Images",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "pilot_release_tracker_pending",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Is Pilot Release Track Pending",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.failure_message",
+   "fieldname": "failure_section",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "failure_message",
+   "fieldtype": "Small Text",
+   "label": "Failure",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-09-23 23:59:46.337534",
+ "modified_by": "Administrator",
+ "module": "Service",
+ "name": "Cargo Server",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Gray",
+   "title": "Not Provisioned"
+  },
+  {
+   "color": "Orange",
+   "title": "Pending"
+  },
+  {
+   "color": "Blue",
+   "title": "Provisioning"
+  },
+  {
+   "color": "Green",
+   "title": "Active"
+  },
+  {
+   "color": "Red",
+   "title": "Failed"
+  },
+  {
+   "color": "Gray",
+   "title": "Archived"
+  }
+ ]
+}

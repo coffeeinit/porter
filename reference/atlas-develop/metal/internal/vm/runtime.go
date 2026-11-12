@@ -1,0 +1,85 @@
+package vm
+
+import "context"
+
+// HostCompatibility contains runtime facts reported during controller sync.
+type HostCompatibility struct {
+	Architecture string
+	CPUProfile   string
+	CPUVendor    string
+	CPUModel     string
+	CPUFeatures  string
+	SnapshotHost string
+	TSCKHz       int
+	TSCScaling   bool
+	// DefaultCPUTemplateError is empty when the host can run the built-in CPU template.
+	DefaultCPUTemplateError string
+}
+
+// Runtime controls virtual machine processes and guest-facing operations.
+type Runtime interface {
+	Inspect(context.Context, RuntimeMachine) (RuntimeStatus, error)
+	Start(context.Context, RuntimeMachine) error
+	// ColdStart boots the disk without restoring warm memory.
+	ColdStart(context.Context, RuntimeMachine) error
+	Stop(context.Context, RuntimeMachine) error
+	SaveAndStop(context.Context, RuntimeMachine) error
+	Restore(context.Context, RuntimeMachine) error
+	RestorePaused(context.Context, RuntimeMachine) error
+	// RestorePausedFrom loads a transferred memory snapshot with the guest paused.
+	RestorePausedFrom(ctx context.Context, machine RuntimeMachine, directory string) error
+	DeleteSavedState(context.Context, RuntimeMachine) error
+	SavedState(context.Context, RuntimeMachine) (SavedState, error)
+	InstallSavedState(ctx context.Context, machine RuntimeMachine, directory, identity string) error
+	Pause(context.Context, RuntimeMachine) error
+	Resume(context.Context, RuntimeMachine) error
+	Remove(context.Context, RuntimeMachine) error
+	RefreshMetadata(context.Context, RuntimeMachine) error
+	// RefreshDisk applies the machine's disk limits to a live guest. A caller may
+	// lower the limit in the machine specification for a temporary throttle.
+	RefreshDisk(context.Context, RuntimeMachine) error
+	ConnectSSH(context.Context, RuntimeMachine) (SSHSession, error)
+	ResumeSSH(virtualMachineID, sessionID string) (SSHSession, error)
+	// CheckMigratedGuestSSH verifies guest responsiveness when configured on the host.
+	CheckMigratedGuestSSH(context.Context, RuntimeMachine) error
+	GetUsage(context.Context, RuntimeMachine) (RuntimeUsage, error)
+	// Ping returns nil when the guest answers one ICMP echo.
+	Ping(context.Context, RuntimeMachine) error
+}
+
+// RuntimeUsage describes a running machine's current resource use.
+type RuntimeUsage struct {
+	MemoryBytes         uint64
+	CPUTimeMicroseconds uint64
+	DiskReadBytes       uint64
+	DiskWriteBytes      uint64
+	DiskReadOperations  uint64
+	DiskWriteOperations uint64
+}
+
+// RuntimeMachine contains the complete input for one runtime operation.
+type RuntimeMachine struct {
+	ID               string
+	UserID           uint32
+	GroupID          uint32
+	Specification    Specification
+	NetworkInterface NetworkInterface
+	// These generations identify the desired state for a snapshot restore and are
+	// checked before the snapshot loads.
+	SpecificationGeneration uint64
+	RestartGeneration       uint64
+	// SavedStateSourceUserID validates an imported checkpoint before local installation.
+	SavedStateSourceUserID uint32
+}
+
+// RuntimeStatus contains the observed runtime state.
+type RuntimeStatus struct {
+	State         State
+	HasSavedState bool
+}
+
+// SavedState identifies the immutable files of one sleep checkpoint.
+type SavedState struct {
+	Directory string
+	Identity  string
+}

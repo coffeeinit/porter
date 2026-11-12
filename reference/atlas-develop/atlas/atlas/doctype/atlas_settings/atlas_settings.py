@@ -1,0 +1,596 @@
+# Copyright (c) 2026, Frappe and contributors
+# For license information, please see license.txt
+
+from __future__ import annotations
+
+from functools import cached_property
+from math import isfinite
+from typing import TYPE_CHECKING
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+from frappe.utils import add_days, cint, convert_utc_to_system_timezone, flt, get_datetime, now_datetime
+
+from atlas.service.core.proxy.configuration import push_configuration_to_active_proxies
+from atlas.service.core.warpgate.installation import install_warpgate_certificate
+
+if TYPE_CHECKING:
+	from atlas.atlas.core.dns_providers.base import DnsProvider
+	from atlas.atlas.core.server_providers.base import ServerProvider
+	from atlas.atlas.core.tls.letsencrypt import LetsEncrypt
+	from atlas.atlas.object_storage import ObjectStorageClient
+
+WILDCARD_TLS_RENEWAL_WINDOW_DAYS = 30
+CLUSTER_PASSWORD_LENGTH = 48
+# Each service with a control cluster has its own password fields: `<service>_cluster_password` and so on.
+CLUSTER_SERVICES = ("proxy", "wireguard_gateway")
+# A change to one of these reaches every active proxy through its own job.
+PROXY_CONFIGURATION_FIELDS = (
+	"wildcard_tls_certificate",
+	"wildcard_tls_private_key",
+	"proxy_cluster_password",
+	"previous_proxy_cluster_password",
+)
+# Changes can trigger pending image migrations.
+OBJECT_STORAGE_FIELDS = (
+	"object_storage_bucket",
+	"object_storage_access_key_id",
+	"object_storage_secret_access_key",
+	"object_storage_endpoint_url",
+	"object_storage_region",
+)
+# S3 signature version 4 limits a signed URL to seven days.
+MINIMUM_SIGNED_URL_EXPIRY_SECONDS = 3600
+MAXIMUM_SIGNED_URL_EXPIRY_SECONDS = 604800
+
+
+class AtlasSettings(Document):
+	"""Site-wide Atlas configuration and provider credentials."""
+
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		affinity_matching: DF.Literal["Enforced", "Preferred"]
+		atlas_tls_certificate: DF.Password | None
+		atlas_tls_private_key: DF.Password | None
+		auto_spawn_metal_server: DF.Check
+		aws_access_key_id: DF.Data | None
+		aws_availability_zone: DF.Data | None
+		aws_key_pair_name: DF.Data | None
+		aws_region: DF.Data | None
+		aws_secret_access_key: DF.Password | None
+		aws_security_group_id: DF.Data | None
+		aws_subnet_id: DF.Data | None
+		aws_vpc_id: DF.Data | None
+		bmc_driver: DF.Literal["None", "Redfish"]
+		central_jwks: DF.JSON | None
+		central_jwks_url: DF.Data | None
+		default_metal_machine_image: DF.Autocomplete | None
+		default_metal_machine_size: DF.Autocomplete | None
+		dns_provider: DF.Literal["Route53"]
+		http_proxy_package_file: DF.Link | None
+		http_proxy_package_hash: DF.Data | None
+		ipv6_router_package_file: DF.Link | None
+		ipv6_router_package_hash: DF.Data | None
+		is_dns_setup_completed: DF.Check
+		is_letsencrypt_staging: DF.Check
+		is_migration_on_wireguard: DF.Check
+		is_server_provider_setup_completed: DF.Check
+		is_setup_completed: DF.Check
+		is_unicast_network_enabled: DF.Check
+		is_vm_migration_paused: DF.Check
+		is_wildcard_tls_auto_renew_enabled: DF.Check
+		jwt_signing_key_id: DF.Data | None
+		jwt_signing_private_key: DF.Password | None
+		letsencrypt_config_directory: DF.Data | None
+		letsencrypt_email: DF.Data
+		metal_tls_ca_certificate: DF.Password | None
+		metal_tls_ca_private_key: DF.Password | None
+		metald_binary_hash: DF.Data | None
+		metald_binary_x86_64_file: DF.Link | None
+		metald_source_hash: DF.Data | None
+		metald_version: DF.Data | None
+		object_storage_access_key_id: DF.Data | None
+		object_storage_bucket: DF.Data | None
+		object_storage_endpoint_url: DF.Data | None
+		object_storage_region: DF.Data | None
+		object_storage_secret_access_key: DF.Password | None
+		object_storage_signed_url_expiry: DF.Int
+		placement_strategy: DF.Autocomplete
+		previous_proxy_cluster_password: DF.Password | None
+		previous_wireguard_gateway_cluster_password: DF.Password | None
+		private_network_cidr: DF.Data
+		private_network_mtu: DF.Int
+		proxy_cluster_password: DF.Password | None
+		proxy_cluster_password_rotated_on: DF.Datetime | None
+		public_ssh_key: DF.SmallText
+		region_id: DF.Int
+		region_name: DF.Data
+		route53_access_key_id: DF.Data | None
+		route53_access_key_secret: DF.Password | None
+		route53_dns_zone_id: DF.Data | None
+		scaleway_access_key: DF.Data | None
+		scaleway_machine_billing_cycle: DF.Literal["Hourly", "Monthly"]
+		scaleway_organization_id: DF.Data | None
+		scaleway_private_network_id: DF.Data | None
+		scaleway_project_id: DF.Data | None
+		scaleway_secret_key: DF.Password | None
+		scaleway_ssh_key_id: DF.Data | None
+		scaleway_vpc_id: DF.Data | None
+		scaleway_zone: DF.Literal[
+			"fr-par-1",
+			"fr-par-2",
+			"fr-par-3",
+			"nl-ams-1",
+			"nl-ams-2",
+			"nl-ams-3",
+			"pl-waw-1",
+			"pl-waw-2",
+			"pl-waw-3",
+		]
+		server_provider: DF.Literal["Generic", "Scaleway", "AWS"]
+		sleepy_vm_overcommit_factor: DF.Float
+		use_dedicated_sleepy_vm_hosts: DF.Check
+		use_ipv6_router_for_auto_assignment: DF.Check
+		warpgate_api_token: DF.Password | None
+		warpgate_api_token_id: DF.Data | None
+		warpgate_url: DF.Data | None
+		wg_mesh_binary_hash: DF.Data | None
+		wg_mesh_binary_x86_64_file: DF.Link | None
+		wg_mesh_source_hash: DF.Data | None
+		wg_mesh_version: DF.Data | None
+		wildcard_domain: DF.Data
+		wildcard_tls_certificate: DF.Password | None
+		wildcard_tls_expires_on: DF.Datetime | None
+		wildcard_tls_private_key: DF.Password | None
+		wireguard_gateway_cluster_password: DF.Password | None
+		wireguard_gateway_cluster_password_rotated_on: DF.Datetime | None
+		wireguard_gateway_package_file: DF.Link | None
+		wireguard_gateway_package_hash: DF.Data | None
+		wireguard_ip_address: DF.Data | None
+		wireguard_private_key: DF.Password | None
+		wireguard_public_key: DF.Data | None
+	# end: auto-generated types
+
+	@property
+	def resource_name_prefix(self) -> str:
+		"""Return the prefix Atlas puts on provider resource names."""
+		return f"atlas-{self.region_name.lower()}-"
+
+	@property
+	def admin_audience_id(self) -> str:
+		"""Return the audience that a token for the Atlas API must carry."""
+		return f"atlas-admin:{self.region_id}"
+
+	@property
+	def proxy_audience_id(self) -> str:
+		"""Return the audience that a token for a regional proxy must carry."""
+		return f"atlas-proxy:{self.region_id}"
+
+	@property
+	def cargo_audience_id(self) -> str:
+		"""Return the audience that a token for the regional Cargo API must carry."""
+		return f"atlas-cargo:{self.region_id}"
+
+	@property
+	def wg_gateway_audience_id(self) -> str:
+		"""Return the audience that a token for a WireGuard gateway daemon must carry."""
+		return f"atlas-wg-gateway:{self.region_id}"
+
+	@property
+	def datum_audience_id(self) -> str:
+		"""Return the audience that a token for the regional Datum must carry."""
+		return f"atlas-datum:{self.region_id}"
+
+	@property
+	def issuer(self) -> str:
+		"""Return this region's Atlas issuer."""
+		return f"atlas:{self.region_id}"
+
+	@property
+	def jwks_url(self) -> str:
+		"""Return the regional JSON Web Key Set URL that the tenant-0 services fetch."""
+		from atlas.atlas.core.artifacts import get_internal_base_url
+		from atlas.auth.jwks import JWKS_PATH
+
+		return f"{get_internal_base_url().rstrip('/')}{JWKS_PATH}"
+
+	@cached_property
+	def server_provider_controller(self) -> "ServerProvider":
+		"""Return the configured server provider."""
+		from atlas.atlas.core.server_providers import get_server_provider
+
+		return get_server_provider(settings=self)
+
+	@cached_property
+	def dns_provider_controller(self) -> "DnsProvider":
+		"""Return the configured DNS provider."""
+		from atlas.atlas.core.dns_providers import get_dns_provider
+
+		return get_dns_provider(settings=self)
+
+	@cached_property
+	def letsencrypt_controller(self) -> "LetsEncrypt":
+		"""Return the Let's Encrypt issuer for the configured wildcard domain."""
+		from atlas.atlas.core.tls.letsencrypt import LetsEncrypt
+
+		return LetsEncrypt(settings=self)
+
+	@property
+	def is_object_storage_configured(self) -> bool:
+		"""Return whether the bucket and both credentials are set."""
+		return bool(
+			self.object_storage_bucket
+			and self.object_storage_access_key_id
+			and self.get_password("object_storage_secret_access_key", raise_exception=False)
+		)
+
+	def get_object_storage_client(self) -> "ObjectStorageClient":
+		"""Create the configured object storage client."""
+		from atlas.atlas.object_storage import ObjectStorageClient
+
+		return ObjectStorageClient(
+			bucket=self.object_storage_bucket,
+			access_key_id=self.object_storage_access_key_id,
+			secret_access_key=self.get_password("object_storage_secret_access_key", raise_exception=False),
+			endpoint_url=self.object_storage_endpoint_url or "",
+			region=self.object_storage_region or "",
+			signed_url_expiry=self.object_storage_signed_url_expiry or 86400,
+		)
+
+	def validate(self) -> None:
+		"""Reject invalid site settings."""
+		from atlas.vm.core.placement import PlacementStrategy
+
+		if self.placement_strategy not in PlacementStrategy.registered_names():
+			frappe.throw(_("Unknown placement strategy: {0}.").format(self.placement_strategy))
+
+		self._validate_sleepy_vm_overcommit_factor()
+		self._validate_vm_migration_network_change()
+		self._validate_signed_url_expiry()
+
+		if not self.is_new() and self.has_value_changed("region_id"):
+			if frappe.db.exists("Virtual Machine") or frappe.db.exists(
+				"Proxy Server", {"status": ["!=", "Archived"]}
+			):
+				frappe.throw(
+					_(
+						"Region ID cannot change while a Virtual Machine or a non-archived Proxy Server exists."
+					)
+				)
+
+		if self.is_setup_completed and not (
+			self.is_server_provider_setup_completed and self.is_dns_setup_completed
+		):
+			frappe.throw(_("Atlas Settings cannot be marked as completed before provider setup is complete."))
+
+		self.server_provider_controller.validate_settings()
+		self.dns_provider_controller.validate_settings()
+
+		if self.wildcard_domain.startswith("*."):
+			frappe.throw(
+				_(
+					"Remove '*.' from the wildcard domain in Atlas Settings. It is automatically added by Atlas."
+				)
+			)
+
+		self.region_name = self.region_name.strip().lower()
+		self._validate_region_name()
+
+		self.validate_wildcard_certificate()
+
+	def _validate_region_name(self) -> None:
+		from atlas.metal_server.doctype.metal_server.metal_server import HOST_TITLE
+
+		# Host titles are metal-<region name>-<counter>, and the counter only grows.
+		if not HOST_TITLE.fullmatch(f"metal-{self.region_name}-999999"):
+			frappe.throw(
+				_("Region name {0} must make host titles one lowercase DNS label.").format(self.region_name)
+			)
+
+	def _validate_vm_migration_network_change(self) -> None:
+		"""Allow a network change only while VM migrations are paused and none is running."""
+		if self.is_new():
+			return
+
+		if self.has_value_changed("is_vm_migration_paused"):
+			frappe.throw(_("Use Pause or Resume in the Virtual Machine Migration list."))
+
+		if not self.has_value_changed("is_migration_on_wireguard"):
+			return
+
+		from atlas.vm.core.vm_migration import has_running_migration
+
+		if not frappe.db.get_single_value("Atlas Settings", "is_vm_migration_paused", cache=False):
+			frappe.throw(_("Pause VM migrations before you change the migration network."))
+
+		if has_running_migration():
+			frappe.throw(
+				_("Wait for running VM migrations to finish before you change the migration network.")
+			)
+
+	def _validate_signed_url_expiry(self) -> None:
+		expiry = self.object_storage_signed_url_expiry
+		if expiry and not MINIMUM_SIGNED_URL_EXPIRY_SECONDS <= expiry <= MAXIMUM_SIGNED_URL_EXPIRY_SECONDS:
+			frappe.throw(_("Signed URL Expiry must be from one hour to seven days (3600 to 604800 seconds)."))
+
+	def _validate_sleepy_vm_overcommit_factor(self) -> None:
+		factor = flt(self.sleepy_vm_overcommit_factor)
+		if not isfinite(factor) or factor < 1.0:
+			frappe.throw(_("Sleepy VM overcommit factor must be a finite number of at least 1."))
+
+		self.sleepy_vm_overcommit_factor = factor
+
+	def on_update(self) -> None:
+		"""Skip provider checks when the empty settings document is created."""
+		if self.flags.in_insert:
+			return
+
+		if self.has_value_changed("is_migration_on_wireguard"):
+			frappe.msgprint(
+				_(
+					"Each host keeps its old migration network until you run Upgrade Metald on it. "
+					"A migration from a host that is not upgraded fails. "
+					"Upgrade every Metal Server, then click Resume VM Migrations in the Virtual Machine Migration list."
+				),
+				title=_("Upgrade Metald on every host"),
+				indicator="orange",
+			)
+
+		if any(
+			self.has_value_changed(field)
+			for field in (*OBJECT_STORAGE_FIELDS, "object_storage_signed_url_expiry")
+		):
+			# Sleep URLs signed with the old values may no longer work, so sign new ones on the next pass.
+			state = frappe.qb.DocType("Virtual Machine State")
+			frappe.qb.update(state).set(state.download_urls_expire_at, now_datetime()).where(
+				state.download_urls_expire_at.isnotnull()
+			).run()
+
+		if any(self.has_value_changed(field) for field in self.server_provider_controller.credential_fields):
+			self.server_provider_controller.validate_credentials()
+
+		if any(self.has_value_changed(field) for field in self.dns_provider_controller.credential_fields):
+			self.dns_provider_controller.validate_credentials()
+
+		if self.has_value_changed("central_jwks_url"):
+			frappe.enqueue(
+				"atlas.auth.jwks.sync_central_jwks",
+				job_id="atlas-sync-central-jwks",
+				deduplicate=True,
+				enqueue_after_commit=True,
+			)
+
+		if any(self.has_value_changed(field) for field in PROXY_CONFIGURATION_FIELDS):
+			push_configuration_to_active_proxies()
+
+		if any(self.has_value_changed(field) for field in OBJECT_STORAGE_FIELDS):
+			from atlas.vm.core.vm_image_storage_migration import enqueue_site_file_image_migrations
+
+			enqueue_site_file_image_migrations()
+
+	def before_save(self) -> None:
+		"""Create the regional credentials and apply provider setup when the credentials change."""
+		from atlas.atlas.core.tls.metal import (
+			ensure_atlas_client_certificate,
+			ensure_certificate_authority,
+		)
+		from atlas.auth.issuer import initialize_signing_key
+
+		ensure_certificate_authority(self)
+		ensure_atlas_client_certificate(self)
+		for service in CLUSTER_SERVICES:
+			self.initialize_cluster_password(service)
+		initialize_signing_key(self)
+
+		if (
+			self.is_dns_setup_completed
+			and self.is_server_provider_setup_completed
+			and not self.is_setup_completed
+		):
+			self.is_setup_completed = True
+
+	def validate_wildcard_certificate(self) -> None:
+		"""Keep the stored certificate, its private key, and the expiry consistent."""
+		from atlas.atlas.core.tls.certificate import CertificateError, read_certificate, verify_key_pair
+
+		certificate = self.get_password("wildcard_tls_certificate", raise_exception=False)
+		private_key = self.get_password("wildcard_tls_private_key", raise_exception=False)
+		if not certificate:
+			self.wildcard_tls_private_key = None
+			self.wildcard_tls_expires_on = None
+			return
+
+		if not private_key:
+			frappe.throw(_("Set the wildcard TLS private key together with the certificate."))
+
+		try:
+			verify_key_pair(certificate, private_key)
+			details = read_certificate(certificate)
+		except CertificateError as error:
+			frappe.throw(str(error))
+
+		if f"*.{self.wildcard_domain}" not in details.dns_names:
+			frappe.throw(
+				_("The certificate covers {0} and not the wildcard domain.").format(
+					", ".join(details.dns_names)
+				)
+			)
+
+		self.wildcard_tls_expires_on = convert_utc_to_system_timezone(details.expires_on).replace(tzinfo=None)
+
+	@frappe.whitelist()
+	def get_form_autocomplete_options(self) -> dict[str, list[str]]:
+		"""Return the autocomplete options for Atlas Settings."""
+		from atlas.vm.core.placement import PlacementStrategy
+
+		frappe.only_for("System Manager")
+		return {
+			"placement_strategies": list(PlacementStrategy.registered_names()),
+			"available_metal_machine_sizes": frappe.get_all(
+				"Metal Server Size", {"enabled": 1}, pluck="name"
+			),
+			"available_metal_machine_images": frappe.get_all(
+				"Metal Server Image", {"enabled": 1}, pluck="name"
+			),
+		}
+
+	@frappe.whitelist(methods=["POST"])
+	def setup_server_provider(self) -> None:
+		"""Prepare the provider account for Atlas use."""
+		frappe.only_for("System Manager")
+		try:
+			self.server_provider_controller.setup_infrastructure()
+		except Exception:
+			# Keep completed setup work when a later step fails.
+			frappe.db.commit()  # nosemgrep
+			raise
+
+	@frappe.whitelist(methods=["POST"])
+	def setup_dns_provider(self) -> None:
+		"""Prepare the DNS zone for Atlas use."""
+		frappe.only_for("System Manager")
+		self.dns_provider_controller.bootstrap()
+
+	@frappe.whitelist(methods=["POST"])
+	def sync_server_sizes(self) -> None:
+		"""Refresh the Metal Server Size catalog from the provider."""
+		frappe.only_for("System Manager")
+		if not self.is_setup_completed:
+			frappe.throw(_("Atlas Settings must be fully set up before syncing server sizes."))
+
+		frappe.enqueue_doc(
+			self.doctype,
+			self.name,
+			"_sync_server_sizes",
+			queue="default",
+			job_id="atlas-sync-server-sizes",
+			deduplicate=True,
+			enqueue_after_commit=True,
+		)
+		frappe.msgprint(_("Metal Server sizes sync has been queued. Please check after some time."))
+
+	@frappe.whitelist(methods=["POST"])
+	def sync_server_images(self) -> None:
+		"""Refresh the Metal Server Image catalog from the provider."""
+		frappe.only_for("System Manager")
+		if not self.is_setup_completed:
+			frappe.throw(_("Atlas Settings must be fully set up before syncing server images."))
+
+		frappe.enqueue_doc(
+			self.doctype,
+			self.name,
+			"_sync_server_images",
+			queue="default",
+			job_id="atlas-sync-server-images",
+			deduplicate=True,
+			enqueue_after_commit=True,
+		)
+		frappe.msgprint(_("Metal Server images sync has been queued. Please check after some time."))
+
+	@frappe.whitelist(methods=["POST"])
+	def renew_wildcard_certificate(self) -> None:
+		"""Issue a new wildcard certificate from Let's Encrypt."""
+		frappe.only_for("System Manager")
+		self.enqueue_wildcard_certificate_renewal()
+		frappe.msgprint(_("Wildcard TLS certificate renewal has been queued. Please check after some time."))
+
+	@frappe.whitelist(methods=["POST"])
+	def view_proxy_cluster_password(self) -> None:
+		"""Show the current regional proxy password to a System Manager."""
+		frappe.only_for("System Manager")
+		password = self.get_password("proxy_cluster_password", raise_exception=False)
+		if not password:
+			frappe.throw(_("The proxy cluster password is not set."))
+		frappe.msgprint(_("The current proxy cluster password is: {0}").format(password))
+
+	@frappe.whitelist(methods=["POST"])
+	def rotate_proxy_cluster_password(self) -> None:
+		"""Let a System Manager rotate the regional proxy password."""
+		frappe.only_for("System Manager")
+		self._rotate_cluster_password("proxy")
+		frappe.msgprint(_("The proxy cluster password was rotated."))
+
+	def initialize_cluster_password(self, service: str) -> bool:
+		"""Create the regional cluster password of one service when it is missing."""
+		if self.get_password(f"{service}_cluster_password", raise_exception=False):
+			return False
+
+		self.set(f"{service}_cluster_password", frappe.generate_hash(length=CLUSTER_PASSWORD_LENGTH))
+		self.set(f"{service}_cluster_password_rotated_on", now_datetime())
+		return True
+
+	def enqueue_wildcard_certificate_renewal(self) -> None:
+		"""Queue one issuance. A wildcard order waits for DNS, so it cannot run in a request."""
+		if not self.is_dns_setup_completed:
+			frappe.throw(_("Complete the DNS setup before renewing the wildcard TLS certificate."))
+
+		frappe.enqueue_doc(
+			self.doctype,
+			self.name,
+			"_renew_wildcard_certificate",
+			queue="long",
+			timeout=1800,
+			job_id="atlas-renew-wildcard-certificate",
+			deduplicate=True,
+			enqueue_after_commit=True,
+		)
+
+	def issue_wildcard_certificate(self) -> None:
+		"""Issue and store one wildcard TLS certificate now."""
+		issued = self.letsencrypt_controller.issue_wildcard_certificate()
+		self.wildcard_tls_certificate = issued.certificate_pem
+		self.wildcard_tls_private_key = issued.private_key_pem
+		self.save(ignore_permissions=True)
+		install_warpgate_certificate(self)
+
+	# Internal methods
+
+	def _sync_server_images(self) -> None:
+		from atlas.metal_server.core.catalog_sync import CatalogSynchronizer
+
+		CatalogSynchronizer(self.server_provider_controller).sync_server_images()
+
+	def _sync_server_sizes(self) -> None:
+		from atlas.metal_server.core.catalog_sync import CatalogSynchronizer
+
+		CatalogSynchronizer(self.server_provider_controller).sync_server_sizes()
+
+	def _rotate_cluster_password(self, service: str) -> None:
+		"""Rotate the regional cluster password of one service and retain the previous value."""
+		current_password = self.get_password(f"{service}_cluster_password", raise_exception=False)
+		if current_password:
+			self.set(f"previous_{service}_cluster_password", current_password)
+			self.set(f"{service}_cluster_password", frappe.generate_hash(length=CLUSTER_PASSWORD_LENGTH))
+			self.set(f"{service}_cluster_password_rotated_on", now_datetime())
+
+		self.save(ignore_permissions=True)
+
+	def _renew_wildcard_certificate(self) -> None:
+		self.issue_wildcard_certificate()
+
+
+def renew_expiring_wildcard_certificate() -> None:
+	"""Queue a renewal when auto renew is on and the certificate expires inside the window."""
+	settings: AtlasSettings = frappe.get_single("Atlas Settings")
+	if not settings.is_wildcard_tls_auto_renew_enabled:
+		return
+
+	renew_after = add_days(now_datetime(), WILDCARD_TLS_RENEWAL_WINDOW_DAYS)
+	if settings.wildcard_tls_expires_on and get_datetime(settings.wildcard_tls_expires_on) > renew_after:
+		return
+
+	settings.enqueue_wildcard_certificate_renewal()
+
+
+def rotate_cluster_passwords() -> None:
+	"""Rotate the regional cluster password of each service on schedule."""
+	settings: AtlasSettings = frappe.get_single("Atlas Settings")
+	for service in CLUSTER_SERVICES:
+		settings._rotate_cluster_password(service)

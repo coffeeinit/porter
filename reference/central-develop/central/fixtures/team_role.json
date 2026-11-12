@@ -1,0 +1,219 @@
+[
+ {
+  "capabilities": [
+   {
+    "capability": "team:edit"
+   },
+   {
+    "capability": "team:manage_members"
+   },
+   {
+    "capability": "team:delete"
+   },
+   {
+    "capability": "billing:view"
+   },
+   {
+    "capability": "billing:manage"
+   },
+   {
+    "capability": "cluster:view"
+   },
+   {
+    "capability": "server:view"
+   },
+   {
+    "capability": "server:create"
+   },
+   {
+    "capability": "server:power"
+   },
+   {
+    "capability": "server:resize"
+   },
+   {
+    "capability": "server:snapshot"
+   },
+   {
+    "capability": "server:network"
+   },
+   {
+    "capability": "server:terminate"
+   },
+   {
+    "capability": "service:view"
+   },
+   {
+    "capability": "service:manage"
+   },
+   {
+    "capability": "server:ssh-key"
+   },
+   {
+    "capability": "server:console"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Team Role",
+  "is_system": 1,
+  "modified": "2026-10-11 14:00:00",
+  "name": "Owner",
+  "role_name": "Owner",
+  "team": null
+ },
+ {
+  "capabilities": [
+   {
+    "capability": "team:edit"
+   },
+   {
+    "capability": "team:manage_members"
+   },
+   {
+    "capability": "billing:view"
+   },
+   {
+    "capability": "billing:manage"
+   },
+   {
+    "capability": "cluster:view"
+   },
+   {
+    "capability": "server:view"
+   },
+   {
+    "capability": "server:create"
+   },
+   {
+    "capability": "server:power"
+   },
+   {
+    "capability": "server:resize"
+   },
+   {
+    "capability": "server:snapshot"
+   },
+   {
+    "capability": "server:network"
+   },
+   {
+    "capability": "server:terminate"
+   },
+   {
+    "capability": "service:view"
+   },
+   {
+    "capability": "service:manage"
+   },
+   {
+    "capability": "server:ssh-key"
+   },
+   {
+    "capability": "server:console"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Team Role",
+  "is_system": 1,
+  "modified": "2026-10-11 14:00:00",
+  "name": "Admin",
+  "role_name": "Admin",
+  "team": null
+ },
+ {
+  "capabilities": [
+   {
+    "capability": "cluster:view"
+   },
+   {
+    "capability": "server:view"
+   },
+   {
+    "capability": "server:create"
+   },
+   {
+    "capability": "server:power"
+   },
+   {
+    "capability": "server:resize"
+   },
+   {
+    "capability": "server:snapshot"
+   },
+   {
+    "capability": "server:network"
+   },
+   {
+    "capability": "server:terminate"
+   },
+   {
+    "capability": "service:view"
+   },
+   {
+    "capability": "service:manage"
+   },
+   {
+    "capability": "server:ssh-key"
+   },
+   {
+    "capability": "server:console"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Team Role",
+  "is_system": 1,
+  "modified": "2026-10-11 14:00:00",
+  "name": "Developer",
+  "role_name": "Developer",
+  "team": null
+ },
+ {
+  "capabilities": [
+   {
+    "capability": "cluster:view"
+   },
+   {
+    "capability": "server:view"
+   },
+   {
+    "capability": "service:view"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Team Role",
+  "is_system": 1,
+  "modified": "2026-06-30 00:00:00",
+  "name": "Viewer",
+  "role_name": "Viewer",
+  "team": null
+ },
+ {
+  "capabilities": [
+   {
+    "capability": "billing:view"
+   },
+   {
+    "capability": "billing:manage"
+   },
+   {
+    "capability": "cluster:view"
+   },
+   {
+    "capability": "server:view"
+   },
+   {
+    "capability": "service:view"
+   },
+   {
+    "capability": "service:manage"
+   }
+  ],
+  "docstatus": 0,
+  "doctype": "Team Role",
+  "is_system": 1,
+  "modified": "2026-06-30 00:00:00",
+  "name": "Billing",
+  "role_name": "Billing",
+  "team": null
+ }
+]

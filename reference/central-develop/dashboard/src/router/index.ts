@@ -1,0 +1,239 @@
+import { nextTick } from 'vue'
+import { createRouter, createWebHistory } from 'vue-router'
+import { useAuth } from '@/composables/useAuth'
+import { useSession } from '@/composables/useSession'
+import { fetchBillingSetup } from '@/data/billingSetup'
+import { rememberFirstTouch } from '@/lib/attribution'
+import { carriedQuery } from '@/lib/authRedirect'
+import { features } from '@/lib/features'
+
+const routes = [
+	{
+		path: '/login',
+		name: 'Login',
+		component: () => import('@/pages/auth/LoginPage.vue'),
+		meta: { public: true },
+	},
+	{
+		path: '/signup',
+		name: 'Signup',
+		component: () => import('@/pages/auth/SignupPage.vue'),
+		meta: { public: true },
+	},
+	{
+		path: '/verify',
+		name: 'VerifyEmail',
+		component: () => import('@/pages/auth/VerifyEmailPage.vue'),
+		meta: { public: true },
+	},
+	{
+		// Emailed invitation link, open to guests and signed-in users.
+		path: '/join/:token',
+		name: 'JoinTeam',
+		component: () => import('@/pages/team/JoinTeamPage.vue'),
+		meta: { public: true, allowSignedIn: true },
+	},
+	{
+		path: '/onboarding/site',
+		name: 'OnboardingSite',
+		component: () => import('@/pages/onboarding/SiteNamePage.vue'),
+	},
+	{
+		// No name in the path: the site's address follows from a machine that does not
+		// exist yet, so the wait asks about the team instead.
+		path: '/onboarding/provisioning',
+		name: 'OnboardingProvisioning',
+		component: () => import('@/pages/onboarding/SiteReadyPage.vue'),
+	},
+	{
+		path: '/github/connect/:attempt?',
+		name: 'ConnectGitHub',
+		component: () => import('@/pages/github/ConnectGitHubPage.vue'),
+	},
+	// authenticated routes -> AppShell
+	{
+		path: '/',
+		component: () => import('@/layouts/AppShell.vue'),
+		children: [
+			{ path: '', redirect: '/servers' },
+			{
+				path: 'home',
+				name: 'Home',
+				component: () => import('@/pages/home/HomePage.vue'),
+				meta: { title: 'Home' },
+			},
+			{
+				path: 'servers',
+				name: 'Servers',
+				component: () => import('@/pages/servers/ServersPage.vue'),
+				meta: { title: 'Servers' },
+			},
+			// Team-wide snapshots, including those of terminated servers. Reached only
+			// from the archive-team checks, which list the snapshots still billing.
+			{
+				path: 'servers/snapshots',
+				name: 'Snapshots',
+				component: () => import('@/pages/servers/SnapshotsPage.vue'),
+				meta: { title: 'Team snapshots' },
+			},
+			{
+				path: 'servers/new',
+				name: 'NewServer',
+				component: () => import('@/pages/servers/NewServerPage.vue'),
+				meta: { title: 'New server' },
+			},
+			{
+				path: 'servers/:id/:tab(networking|access|snapshots|settings)?',
+				name: 'Server',
+				component: () => import('@/pages/servers/ServerPage.vue'),
+				meta: { title: 'Servers' },
+			},
+			{
+				path: 'llm',
+				name: 'LLM',
+				component: () => import('@/pages/services/AIInference.vue'),
+				meta: { title: 'LLM', feature: ['addons', 'llm'] },
+			},
+			{
+				path: 'object-storage',
+				name: 'ObjectStorage',
+				component: () => import('@/pages/addons/ObjectStorage.vue'),
+				meta: { title: 'Object Storage', feature: ['addons', 'storage'] },
+			},
+			{
+				path: 'object-storage/:name',
+				name: 'Bucket',
+				component: () => import('@/pages/addons/BucketPage.vue'),
+				meta: { title: 'Object Storage', feature: ['addons', 'storage'] },
+			},
+			{
+				path: 'billing',
+				name: 'Billing',
+				component: () => import('@/pages/billing/BillingOverviewPage.vue'),
+				meta: { title: 'Billing' },
+			},
+			{
+				path: 'billing/invoices',
+				name: 'BillingInvoices',
+				component: () => import('@/pages/billing/BillingInvoicesPage.vue'),
+				meta: { title: 'Invoices' },
+			},
+			{
+				path: 'settings',
+				name: 'Settings',
+				component: () => import('@/pages/settings/SettingsPage.vue'),
+				meta: { title: 'Settings' },
+			},
+			// Mobile opens each settings tab as its own page — no dialog on a
+			// phone. Desktop reaches the same tabs through the settings dialog,
+			// but these routes stay valid there (deep links, browser Back).
+			{
+				path: 'settings/:tab',
+				name: 'SettingsTab',
+				component: () => import('@/pages/settings/SettingsDetailPage.vue'),
+				meta: { title: 'Settings' },
+			},
+			{ path: 'team', redirect: '/team/members' },
+			// Members + roles share one tabbed page. Settings fold into this surface
+			// (rename beside the title, transfer on member rows, delete in team menu).
+			// /team/roles and /team/settings stay as aliases.
+			{
+				path: 'team/members',
+				name: 'Members',
+				component: () => import('@/pages/team/AccessPage.vue'),
+				meta: { title: 'Team' },
+			},
+			{ path: 'team/roles', redirect: '/team/members' },
+			{ path: 'team/settings', redirect: '/team/members' },
+		],
+	},
+]
+
+export const router = createRouter({
+	history: createWebHistory('/dashboard/'),
+	routes,
+})
+
+// Route pairs that animate, keyed by the name their CSS selects on (see style.css).
+const ROUTE_TRANSITIONS: Record<string, string> = {
+	'Servers>Server': 'server-open',
+	'Server>Servers': 'server-open-back',
+	'Servers>NewServer': 'server-create',
+	'NewServer>Servers': 'server-create-back',
+	// A finished creation opens its server the same way the list does.
+	'NewServer>Server': 'server-open',
+	'Login>VerifyEmail': 'auth-step',
+	'Signup>VerifyEmail': 'auth-step',
+	'VerifyEmail>OnboardingSite': 'auth-step',
+	'OnboardingSite>OnboardingProvisioning': 'auth-step',
+	'VerifyEmail>Login': 'auth-step-back',
+}
+
+router.beforeResolve((to, from) => {
+	const transition =
+		ROUTE_TRANSITIONS[`${String(from.name)}>${String(to.name)}`]
+	if (!document.startViewTransition || !transition) return
+
+	const root = document.documentElement
+	root.dataset.routeTransition = transition
+	return new Promise<void>((resolve) => {
+		const viewTransition = document.startViewTransition(
+			() =>
+				new Promise<void>((rendered) => {
+					const stop = router.afterEach(() => {
+						stop()
+						nextTick(rendered)
+					})
+
+					resolve()
+				}),
+		)
+		viewTransition.finished.finally(() => delete root.dataset.routeTransition)
+	})
+})
+
+// Session state is seeded synchronously from boot data (window.user), so the
+// guard can decide without awaiting. Sign-in and logout reload the page, except a
+// product signup, which enters its new session in place (useAuth.enterSession).
+router.beforeEach((to) => {
+	const { isGuest } = useAuth()
+	// Only a product signup has an onboarding funnel, which ends in its free trial site.
+	// A direct Central signup buys its servers from the console.
+	const productSignup = Boolean(carriedQuery(to.query).product)
+
+	if (to.meta.public) {
+		if (isGuest.value) rememberFirstTouch(to.query)
+		if (isGuest.value || to.meta.allowSignedIn) return true
+		// Logged in but on an auth page, such as browser-Back after verifying.
+		return productSignup
+			? { path: '/onboarding/site', query: carriedQuery(to.query) }
+			: '/servers'
+	}
+
+	if (isGuest.value) {
+		return {
+			path: '/login',
+			query: { 'redirect-to': `/dashboard${to.fullPath}` },
+		}
+	}
+
+	// A route behind a disabled feature flag doesn't exist for this session.
+	// `feature` may name one flag or several; any one off redirects away.
+	if (to.meta.feature) {
+		const required = Array.isArray(to.meta.feature)
+			? to.meta.feature
+			: [to.meta.feature]
+		if (required.some((flag) => !features[flag as keyof typeof features]))
+			return '/servers'
+	}
+
+	if (to.path.startsWith('/onboarding') && !productSignup) return '/servers'
+
+	// Warm the billing-profile completeness cache for the active team, non-blocking
+	// (mirrors the legacy guard): money-moving actions gate on it via
+	// useBillingSetup.requireSetup, but navigation stays open. Never redirects.
+	const { activeTeam } = useSession()
+	if (activeTeam.value) void fetchBillingSetup(activeTeam.value)
+
+	return true
+})

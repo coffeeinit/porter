@@ -1,0 +1,211 @@
+import { computed, type Ref, ref } from 'vue'
+
+import { sitesApi } from '@/api/sites'
+import type { SiteApp } from '@/types/siteApps'
+import type { Backup } from '@/types/siteBackups'
+import type { SiteDetail } from '@/types/sites'
+import { openSiteLink } from '@/utils/siteLogin'
+import { errorMessage } from '@/utils/error'
+
+type SiteWithConfig = SiteDetail & { site_config: Record<string, unknown> }
+
+interface SiteStore {
+  site: Ref<SiteWithConfig | null>
+  apps: Ref<SiteApp[]>
+  canDisableApps: Ref<boolean>
+  backups: Ref<Backup[]>
+  installable: Ref<string[]>
+  nginxEnabled: Ref<boolean>
+  adminTls: Ref<boolean>
+  loading: Ref<boolean>
+  error: Ref<string>
+  appsLoading: Ref<boolean>
+  backupsLoading: Ref<boolean>
+  backupsLimit: Ref<number>
+  backupsHasMore: Ref<boolean>
+}
+
+interface SiteLoginOptions {
+  onHint?: (hint: string) => void
+}
+
+const cache = new Map<string, SiteStore>()
+const BACKUPS_PAGE_SIZE = 20
+
+const getStore = (name: string): SiteStore => {
+  const existing = cache.get(name)
+  if (existing) return existing
+
+  const store: SiteStore = {
+    site: ref<SiteWithConfig | null>(null),
+    apps: ref<SiteApp[]>([]),
+    canDisableApps: ref(false),
+    backups: ref<Backup[]>([]),
+    installable: ref<string[]>([]),
+    nginxEnabled: ref(false),
+    adminTls: ref(false),
+    loading: ref(false),
+    error: ref(''),
+    appsLoading: ref(false),
+    backupsLoading: ref(false),
+    backupsLimit: ref(BACKUPS_PAGE_SIZE),
+    backupsHasMore: ref(false),
+  }
+  cache.set(name, store)
+  return store
+}
+
+export const useSite = (name: string) => {
+  const store = getStore(name)
+
+  const load = async () => {
+    store.loading.value = true
+    store.error.value = ''
+    try {
+      const [data, configuration] = await Promise.all([
+        sitesApi.detail(name),
+        sitesApi.configuration.get(name),
+      ])
+      store.site.value = { ...data, site_config: configuration }
+      store.installable.value = data.installable_apps || []
+      store.nginxEnabled.value = data.nginx_enabled ?? false
+      store.adminTls.value = data.admin_tls ?? false
+    } catch (caught) {
+      store.error.value = errorMessage(caught, 'Failed to load site')
+      store.site.value = null
+    } finally {
+      store.loading.value = false
+    }
+  }
+
+  const reload = async () => {
+    try {
+      const [data, configuration] = await Promise.all([
+        sitesApi.detail(name),
+        sitesApi.configuration.get(name),
+      ])
+      store.site.value = { ...data, site_config: configuration }
+      store.installable.value = data.installable_apps || []
+      store.nginxEnabled.value = data.nginx_enabled ?? false
+      store.adminTls.value = data.admin_tls ?? false
+    } catch {
+      /* silent */
+    }
+  }
+
+  const loadApps = async () => {
+    store.appsLoading.value = true
+    try {
+      const data = await sitesApi.apps.list(name)
+      store.apps.value = data.apps || []
+      store.canDisableApps.value = data.can_disable ?? false
+    } catch {
+      store.apps.value = []
+      store.canDisableApps.value = false
+    } finally {
+      store.appsLoading.value = false
+    }
+  }
+
+  const _fetchBackups = async () => {
+    store.backupsLoading.value = true
+    try {
+      const data = await sitesApi.backups.list(name, store.backupsLimit.value)
+      store.backups.value = data
+      // A full page suggests there may be more months of offsite history to fetch.
+      store.backupsHasMore.value = data.length >= store.backupsLimit.value
+    } catch {
+      store.backups.value = []
+      store.backupsHasMore.value = false
+    } finally {
+      store.backupsLoading.value = false
+    }
+  }
+
+  const loadBackups = async () => {
+    store.backupsLimit.value = BACKUPS_PAGE_SIZE
+    await _fetchBackups()
+  }
+
+  /** Re-fetches with a larger `limit` - the backups page-length control. */
+  const setBackupsPageLength = async (pageLength: number) => {
+    store.backupsLimit.value = pageLength
+    await _fetchBackups()
+  }
+
+  /** "Load more" - grows the page by one more page-length step. */
+  const loadMoreBackups = async () => {
+    store.backupsLimit.value += BACKUPS_PAGE_SIZE
+    await _fetchBackups()
+  }
+
+  const login = async (options: SiteLoginOptions = {}) => {
+    return openSiteLink(() => sitesApi.loginLink(name), options)
+  }
+
+  const backup = async () => {
+    return sitesApi.backups.create(name)
+  }
+
+  const drop = async () => {
+    return sitesApi.drop(name)
+  }
+
+  const reinstall = async () => {
+    return sitesApi.reinstall(name)
+  }
+
+  const saveConfig = async (config: Record<string, unknown>) => {
+    return sitesApi.configuration.update(name, config)
+  }
+
+  // Active apps are what the UI calls installed - a disabled app reads as uninstalled.
+  const installedApps = computed(() => store.site.value?.active_apps || [])
+
+  const status = computed(() => {
+    if (!store.site.value) return 'unknown'
+    // Provisioning wins over "offline": the site dir/site_config.json may not
+    // exist yet in the earliest moments of a new-site/reinstall task.
+    if (store.site.value.provisioning) return 'provisioning'
+    if (!store.site.value.exists) return 'offline'
+    if (store.site.value.broken) return 'broken'
+    return 'online'
+  })
+
+  const version = computed(() => {
+    const branch = store.site.value?.site_config?.frappe_branch
+    if (typeof branch !== 'string' || !branch) return ''
+    const match = /^version-(\d+)/.exec(branch)
+    return match ? `Version ${match[1]}` : branch
+  })
+
+  return {
+    site: store.site,
+    apps: store.apps,
+    canDisableApps: store.canDisableApps,
+    backups: store.backups,
+    installable: store.installable,
+    nginxEnabled: store.nginxEnabled,
+    adminTls: store.adminTls,
+    loading: store.loading,
+    error: store.error,
+    appsLoading: store.appsLoading,
+    backupsLoading: store.backupsLoading,
+    backupsHasMore: store.backupsHasMore,
+    backupsLimit: store.backupsLimit,
+    installedApps,
+    status,
+    version,
+    load,
+    reload,
+    loadApps,
+    loadBackups,
+    loadMoreBackups,
+    setBackupsPageLength,
+    login,
+    backup,
+    drop,
+    reinstall,
+    saveConfig,
+  }
+}

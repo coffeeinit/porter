@@ -1,0 +1,38 @@
+{
+  "name": "bench-admin-ui-v2",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preinstall": "cd \"$(git rev-parse --show-toplevel)\" && uv run --extra admin python scripts/generate_ts_types.py",
+    "prebuild": "cd \"$(git rev-parse --show-toplevel)\" && uv run --extra admin python scripts/generate_ts_types.py",
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "test": "node --test src/utils/*.test.ts",
+    "typecheck": "vue-tsc --noEmit",
+    "test:e2e": "playwright test",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/lang-sql": "^6.10.0",
+    "@codemirror/state": "^6.7.0",
+    "@codemirror/view": "^6.43.4",
+    "frappe-ui": "^1.0.0-rc.1",
+    "ky": "^2.0.2",
+    "qrcode.vue": "^3.10.0",
+    "vue": "^3.5.0",
+    "vue-codemirror": "^6.1.1",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.1.5",
+    "vue-tsc": "^3.3.7"
+  }
+}

@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from flask import Flask, render_template, send_file, send_from_directory
+from werkzeug.exceptions import NotFound
+
+from admin.backend.api.errors import install_api_error_handlers
+from admin.backend.api.responses import error_response
+from admin.backend.api.routes import API_V1_PREFIX
+from admin.backend.internal.rate_limiter import UsedTokens
+from admin.backend.middleware import allow_unauthenticated, install_auth_guard
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+def _immutable(response):
+    """Mark a content-hashed asset as cacheable forever."""
+    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
+def _revalidate(response):
+    """Cache a fixed-name asset but force revalidation, so a rebuild is picked up.
+
+    `send_file`/`send_from_directory` already attach ETag and Last-Modified, so
+    revalidation costs a 304 until the file changes. Never `_immutable` for a
+    fixed filename: the browser would pin the old bytes for a year."""
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
+
+def create_app(bench_root: Path) -> Flask:
+    app = Flask(__name__, static_folder=str(STATIC_DIR), static_url_path="/static")
+    app.config["BENCH_ROOT"] = bench_root
+    app.config["TEMPLATES_AUTO_RELOAD"] = False
+    app.config["TRUSTED_PROXY_PEERS"] = trusted_proxy_peers(bench_root)
+    app.config["SESSION_COOKIE_SECURE"] = is_secure_cookie(bench_root)
+
+    app.extensions["used_logins"] = UsedTokens()
+
+    from admin.backend.middleware import request_audit_context
+    from pilot.core.bench.audit_log import set_audit_context_provider
+
+    set_audit_context_provider(request_audit_context)
+
+    install_auth_guard(app, bench_root)
+    register_blueprints(app)
+    register_editor_frontend(app)
+    register_in_app_embed_frontend(app)
+    register_frontend(app)
+    install_api_error_handlers(app)
+
+    return app
+
+
+def register_blueprints(app: Flask) -> None:
+    from admin.backend.api.v1.apps import apps_bp, marketplace_bp
+    from admin.backend.api.v1.auth import auth_bp
+    from admin.backend.api.v1.benches import bench_readiness_bp, benches_bp
+    from admin.backend.api.v1.core import core_bp
+    from admin.backend.api.v1.databases import database_bp
+    from admin.backend.api.v1.editor import editor_bp
+    from admin.backend.api.v1.git import git_bp
+    from admin.backend.api.v1.logs import logs_bp
+    from admin.backend.api.v1.migrations import migrations_bp
+    from admin.backend.api.v1.notifications import notifications_bp
+    from admin.backend.api.v1.settings import audit_bp, network_bp, settings_bp
+    from admin.backend.api.v1.setup import setup_bp
+    from admin.backend.api.v1.sites import sites_bp
+    from admin.backend.api.v1.ssh_keys import ssh_keys_bp
+    from admin.backend.api.v1.stats import stats_bp
+    from admin.backend.api.v1.tasks import task_worker_bp, tasks_bp
+    from admin.backend.api.v1.updates import updates_bp
+
+    app.register_blueprint(core_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(setup_bp, url_prefix=f"{API_V1_PREFIX}/setup")
+    app.register_blueprint(apps_bp, url_prefix=f"{API_V1_PREFIX}/apps")
+    app.register_blueprint(marketplace_bp, url_prefix=f"{API_V1_PREFIX}/marketplace")
+    app.register_blueprint(benches_bp, url_prefix=f"{API_V1_PREFIX}/benches")
+    app.register_blueprint(bench_readiness_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(sites_bp, url_prefix=f"{API_V1_PREFIX}/sites")
+    app.register_blueprint(logs_bp, url_prefix=f"{API_V1_PREFIX}/logs")
+    app.register_blueprint(database_bp, url_prefix=f"{API_V1_PREFIX}/database")
+    app.register_blueprint(tasks_bp, url_prefix=f"{API_V1_PREFIX}/tasks")
+    app.register_blueprint(task_worker_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(settings_bp, url_prefix=f"{API_V1_PREFIX}/settings")
+    app.register_blueprint(auth_bp, url_prefix=f"{API_V1_PREFIX}/auth")
+    app.register_blueprint(audit_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(network_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(updates_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(migrations_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(git_bp, url_prefix=f"{API_V1_PREFIX}/git")
+    app.register_blueprint(editor_bp, url_prefix=f"{API_V1_PREFIX}/editor")
+    app.register_blueprint(ssh_keys_bp, url_prefix=f"{API_V1_PREFIX}/ssh-keys")
+    app.register_blueprint(stats_bp, url_prefix=API_V1_PREFIX)
+    app.register_blueprint(notifications_bp, url_prefix=API_V1_PREFIX)
+
+
+def register_editor_frontend(app: Flask) -> None:
+    """Serve the isolated full-page code editor, scoped by /editor/<app_name>."""
+    editor_dist = STATIC_DIR / "editor"
+
+    @app.route("/editor/<app_name>")
+    @allow_unauthenticated
+    def serve_editor(app_name):
+        from admin.backend.api.v1.editor import is_developer_mode_enabled
+
+        if not is_developer_mode_enabled(Path(app.config["BENCH_ROOT"])):
+            return "Code editor is disabled. Enable Developer Mode in Settings.", 404
+        index = editor_dist / "index.html"
+        if not index.exists():
+            return "Editor not built. Run: cd admin/frontend/editor && npm install && npm run build", 503
+        return send_file(str(index))
+
+    @app.route("/editor-assets/<path:path>")
+    @allow_unauthenticated
+    def serve_editor_assets(path):
+        try:
+            return _immutable(send_from_directory(editor_dist, path))
+        except NotFound:
+            return error_response("not_found", "Asset not found.", 404)
+
+
+def register_in_app_embed_frontend(app: Flask) -> None:
+    """Serve Desk's Cloud Settings IIFE at the URL Frappe boots into desk.
+
+    Desk loads `{cloud_settings_embed_url}/embed/cloud-settings/cloud-settings.js` cross-origin.
+    This must be registered before the dashboard SPA catch-all, which would otherwise
+    answer with index.html and break script load.
+    """
+    in_app_embed_dist = STATIC_DIR / "in-app-embed" / "cloud-settings"
+
+    @app.route("/embed/cloud-settings/<path:path>")
+    @allow_unauthenticated
+    def serve_cloud_settings_in_app_embed(path):
+        if not in_app_embed_dist.exists():
+            return (
+                "Cloud Settings in-app embed not built. "
+                "Run: cd admin/frontend/in-app-embed && npm install && npm run build",
+                503,
+            )
+        try:
+            # Fixed filename, so it must revalidate — a rebuild changes the bytes
+            # but not the URL. `?v=cloud_settings_embed_version` is an extra hint
+            # for CDNs/hard reloads, not something to pin bytes on.
+            return _revalidate(send_from_directory(in_app_embed_dist, path))
+        except NotFound:
+            return error_response("not_found", "In-app embed asset not found.", 404)
+
+
+def register_frontend(app: Flask) -> None:
+    """Serve the built single-page app for every path the API doesn't own."""
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    @allow_unauthenticated
+    def serve_frontend(path):
+        if path == "api" or path.startswith("api/"):
+            return error_response("not_found", "API route not found.", 404)
+        dashboard_dir = STATIC_DIR / "dashboard"
+        if path:
+            try:
+                # send_from_directory, never `dir / path`: it is what keeps a traversing
+                # path inside the build instead of reaching bench.toml.
+                response = send_from_directory(dashboard_dir, path)
+            except NotFound:
+                # A rebuild deletes old hashed chunks; index.html in their place fails as a script.
+                if path.startswith("assets/"):
+                    return "Asset not found.", 404
+            else:
+                return _immutable(response) if path.startswith("assets/") else response
+        try:
+            return send_file(str(dashboard_dir / "index.html"))
+        except FileNotFoundError:
+            return render_template("startup.html")
+
+
+def configure_idle_watchdog(
+    app: Flask,
+    bench_root: Path | None = None,
+):
+    raw = os.environ.get("BENCH_ADMIN_IDLE_TIMEOUT")
+    if not raw:
+        return None
+    timeout = int(raw)
+    if timeout <= 0:
+        return None
+    from admin.backend.watchdog import (
+        AdminProcessOwner,
+        install_idle_watchdog,
+    )
+
+    root = bench_root or app.config.get("BENCH_ROOT")
+    if root is None:
+        raise ValueError("Bench root is required for the Admin idle watchdog")
+    return install_idle_watchdog(
+        app,
+        Path(root),
+        timeout,
+        AdminProcessOwner.parent(),
+    )
+
+
+def trusted_proxy_peers(bench_root: Path) -> tuple[str, ...]:
+    """Immediate peers allowed to supply nginx's forwarded client headers."""
+    from pilot.config import BenchConfig
+
+    try:
+        production_enabled = BenchConfig.read(bench_root).production.enabled
+    except Exception:
+        production_enabled = False
+    if not production_enabled:
+        return ()
+    # Production nginx reaches the admin over loopback or a Unix socket. An
+    # empty REMOTE_ADDR is how the latter is represented by the WSGI server.
+    return ("127.0.0.1", "::1", "")
+
+
+def is_secure_cookie(bench_root: Path) -> bool:
+    """Whether the browser reaches Admin over explicitly configured HTTPS."""
+    from pilot.config import BenchConfig
+
+    try:
+        config = BenchConfig.read(bench_root)
+    except Exception:
+        return False
+    if not config.production.enabled:
+        return False
+    if route := getattr(config.admin, "route", None):
+        return route.public_tls
+    if config.admin.tls:
+        return True
+
+    from pilot.core.adapters.domain_provider import DomainRouteProvider
+
+    try:
+        return bool(DomainRouteProvider.proxy_servers())
+    except Exception:
+        return False

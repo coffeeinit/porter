@@ -1,0 +1,31 @@
+{
+	"name": "central-dashboard",
+	"private": true,
+	"version": "0.2.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"lint": "biome check --config-path=biome.json src",
+		"type-check": "vue-tsc --noEmit",
+		"preview": "vite preview"
+	},
+	"dependencies": {
+		"@stripe/stripe-js": "^9.10.0",
+		"frappe-ui": "github:frappe/frappe-ui#v1.0.1",
+		"reka-ui": "^2.10.1",
+		"socket.io-client": "^4.8.1",
+		"vue": "^3.5.39",
+		"vue-router": "^4.6.4"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.6",
+		"@vitejs/plugin-vue": "^6.0.8",
+		"autoprefixer": "^10.5.3",
+		"postcss": "^8.5.19",
+		"tailwindcss": "^3.4.19",
+		"typescript": "^6.0.3",
+		"vite": "^8.1.4",
+		"vue-tsc": "^3.3.7"
+	}
+}

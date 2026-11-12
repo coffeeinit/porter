@@ -1,0 +1,159 @@
+# Copyright (c) 2026, Frappe and contributors
+# For license information, please see license.txt
+"""Pilot hosted checkout: create stores what Central asked for, and the poll settles
+only that record, for the credential's own team."""
+
+import inspect
+from unittest.mock import MagicMock, patch
+
+import frappe
+
+from central.billing.api import billing_api
+from central.billing.gateways.base import VerifiedPayment
+from central.billing.revenue import credits
+from central.billing.tests.test_stripe_adapter import make_stripe_gateway
+from central.billing.tests.utils import BillingTestCase, complete_billing_profile, ensure_team
+
+TEAM = "team-hosted"
+OTHER = "team-hosted-other"
+
+
+class TestHostedCheckout(BillingTestCase):
+	def setUp(self):
+		make_stripe_gateway(currencies=(("INR", 1),))
+		for team in (TEAM, OTHER):
+			ensure_team(team)
+			complete_billing_profile(team)
+			for doctype in (
+				"Top-up Order",
+				"Credit Ledger Entry",
+				"Credit Wallet",
+				"Invoice",
+				"Payment Attempt",
+			):
+				frappe.db.delete(doctype, {"team": team})
+		self.create_topup = inspect.unwrap(billing_api.create_topup_checkout)
+		self.create_invoice = inspect.unwrap(billing_api.create_invoice_checkout)
+		self.status = inspect.unwrap(billing_api.get_checkout_status)
+		self.adapter = MagicMock()
+		self.adapter.create_customer.return_value = "cus_hosted"
+		self.enterContext(patch("central.billing.gateways.registry.get_adapter", return_value=self.adapter))
+		self._act_as(TEAM)
+
+	def _act_as(self, team):
+		frappe.local.pilot_credential = frappe._dict(team=team)
+
+	def _session(self, session_id):
+		self.adapter.create_checkout_session.return_value = {
+			"checkout_url": "https://pay",
+			"session_id": session_id,
+		}
+
+	def _paid(self, session_id, amount):
+		self.adapter.checkout_payment.return_value = VerifiedPayment(
+			f"pi_{session_id}", True, amount, "INR", order_id=session_id
+		)
+
+	def test_a_paid_top_up_credits_the_teams_own_wallet(self):
+		self._session("cs_top")
+		reference = self.create_topup(amount=500, redirect_url="https://site")["reference"]
+		self.assertEqual(
+			self.adapter.create_checkout_session.call_args.args[2],
+			frappe.db.get_value("Top-up Order", {"gateway_order_id": "cs_top"}, "name"),
+		)  # our stored order is the receipt
+		self._paid("cs_top", 500)
+
+		out = self.status(reference=reference)
+
+		self.assertEqual(out["status"], "paid")
+		self.assertEqual(credits.get_balance(TEAM)["balance"], 500)
+
+	def test_an_unpaid_checkout_is_pending(self):
+		self._session("cs_wait")
+		reference = self.create_topup(amount=500, redirect_url="https://site")["reference"]
+		self.adapter.checkout_payment.return_value = None
+
+		self.assertEqual(self.status(reference=reference)["status"], "pending")
+
+	def test_another_teams_session_is_refused(self):
+		self._session("cs_theirs")
+		reference = self.create_topup(amount=500, redirect_url="https://site")["reference"]
+		self._paid("cs_theirs", 500)
+
+		self._act_as(OTHER)
+		# A reference rewritten to name the other team still resolves to the stored owner.
+		with self.assertRaises(frappe.PermissionError):
+			self.status(reference=reference.replace(f"|{TEAM}", f"|{OTHER}"))
+		self.assertEqual(credits.get_balance(OTHER)["balance"], 0)
+
+	def test_a_session_central_never_created_is_refused(self):
+		with self.assertRaises(frappe.DoesNotExistError):
+			self.status(reference=f"Stripe|cs_forged|topup|{TEAM}")
+
+	def test_a_reference_with_no_session_id_is_refused(self):
+		from central.billing.doctype.top_up_order.top_up_order import TopupOrder
+
+		# An order whose gateway call never returned has no session id yet.
+		TopupOrder.start(TEAM, "Stripe", "INR", 500)
+
+		for reference in ("", "Stripe||topup|" + TEAM, "  "):
+			with self.assertRaises(frappe.DoesNotExistError):
+				self.status(reference=reference)
+		self.adapter.checkout_payment.assert_not_called()
+
+	def test_a_checkout_the_gateway_refuses_frees_the_invoice(self):
+		invoice = self._open_invoice()
+		self.adapter.create_checkout_session.side_effect = RuntimeError("gateway down")
+
+		with self.assertRaises(RuntimeError):
+			self.create_invoice(invoice=invoice.name, redirect_url="https://site")
+
+		self.assertEqual(
+			frappe.db.get_value("Payment Attempt", {"invoice": invoice.name}, "status"), "Failed"
+		)
+		self.adapter.create_checkout_session.side_effect = None
+		self._session("cs_again")
+		self.assertTrue(self.create_invoice(invoice=invoice.name, redirect_url="https://site")["reference"])
+
+	def _open_invoice(self):
+		return frappe.get_doc(
+			{
+				"doctype": "Invoice",
+				"team": TEAM,
+				"invoice_type": "Billable",
+				"status": "Open",
+				"period_start": "2026-09-01",
+				"period_end": "2026-09-30",
+				"currency": "INR",
+				"subtotal": 800,
+				"total": 800,
+				"expected_collection": 800,
+			}
+		).insert(ignore_permissions=True)
+
+	def test_a_paid_invoice_checkout_settles_the_invoice(self):
+		invoice = frappe.get_doc(
+			{
+				"doctype": "Invoice",
+				"team": TEAM,
+				"invoice_type": "Billable",
+				"status": "Open",
+				"period_start": "2026-09-01",
+				"period_end": "2026-09-30",
+				"currency": "INR",
+				"subtotal": 800,
+				"total": 800,
+				"expected_collection": 800,
+			}
+		).insert(ignore_permissions=True)
+		self._session("cs_inv")
+		reference = self.create_invoice(invoice=invoice.name, redirect_url="https://site")["reference"]
+		self._paid("cs_inv", 800)
+
+		out = self.status(reference=reference)
+
+		self.assertEqual(out["invoice_status"], "Paid")
+		attempt = frappe.db.get_value(
+			"Payment Attempt", {"gateway_order_id": "cs_inv"}, "gateway_transaction_id"
+		)
+		self.assertEqual(attempt, "pi_cs_inv")  # recorded, so a refund can find the charge

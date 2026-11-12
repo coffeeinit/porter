@@ -1,0 +1,155 @@
+{
+ "actions": [],
+ "creation": "2026-07-14 00:00:00",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "issuer_section",
+  "issuer_url",
+  "atlas_signing_section",
+  "atlas_key_id",
+  "atlas_public_key",
+  "atlas_private_key",
+  "pilot_signing_section",
+  "pilot_key_id",
+  "pilot_public_key",
+  "pilot_private_key",
+  "oidc_signing_section",
+  "oidc_key_id",
+  "oidc_public_key",
+  "oidc_private_key"
+ ],
+ "fields": [
+  {
+   "fieldname": "issuer_section",
+   "fieldtype": "Section Break",
+   "label": "Issuer"
+  },
+  {
+   "description": "Public Central URL used as the Pilot token issuer and to build the Pilot public-key URL. Leave blank to use the site URL. Atlas tokens use the fixed issuer central.",
+   "fieldname": "issuer_url",
+   "fieldtype": "Data",
+   "label": "Central Public URL"
+  },
+  {
+   "collapsible": 1,
+   "description": "Ed25519 key for regional Atlas requests. Initialize once before configuring Atlas trust.",
+   "fieldname": "atlas_signing_section",
+   "fieldtype": "Section Break",
+   "label": "Atlas Signing Key (Ed25519)"
+  },
+  {
+   "description": "Public key identifier in the central: namespace.",
+   "fieldname": "atlas_key_id",
+   "fieldtype": "Data",
+   "label": "Atlas Key ID",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Public Ed25519 verification key published for Atlas.",
+   "fieldname": "atlas_public_key",
+   "fieldtype": "Code",
+   "label": "Atlas Public Key (Ed25519 PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Encrypted signing key. Never sent to Atlas.",
+   "fieldname": "atlas_private_key",
+   "fieldtype": "Password",
+   "label": "Atlas Private Key (Ed25519 PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "Ed25519 key for Pilot login, site login, and enrollment tokens. Initialize once before creating servers.",
+   "fieldname": "pilot_signing_section",
+   "fieldtype": "Section Break",
+   "label": "Pilot Signing Key (Ed25519)"
+  },
+  {
+   "description": "Public key identifier in the central: namespace.",
+   "fieldname": "pilot_key_id",
+   "fieldtype": "Data",
+   "label": "Pilot Key ID",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Public Ed25519 verification key published for Pilot.",
+   "fieldname": "pilot_public_key",
+   "fieldtype": "Code",
+   "label": "Pilot Public Key (Ed25519 PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Encrypted signing key. Never sent to Pilot.",
+   "fieldname": "pilot_private_key",
+   "fieldtype": "Password",
+   "label": "Pilot Private Key (Ed25519 PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "description": "RS256 key for OpenID Connect ID tokens, such as Warpgate sign-in. Initialize once before you register an OIDC client.",
+   "fieldname": "oidc_signing_section",
+   "fieldtype": "Section Break",
+   "label": "OIDC Signing Key (RS256)"
+  },
+  {
+   "description": "Public key identifier in the central: namespace.",
+   "fieldname": "oidc_key_id",
+   "fieldtype": "Data",
+   "label": "OIDC Key ID",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Public RSA verification key published at the OIDC JWKS endpoint.",
+   "fieldname": "oidc_public_key",
+   "fieldtype": "Code",
+   "label": "OIDC Public Key (RSA PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "description": "Encrypted signing key. Never sent to an OIDC client.",
+   "fieldname": "oidc_private_key",
+   "fieldtype": "Password",
+   "label": "OIDC Private Key (RSA PEM)",
+   "no_copy": 1,
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-10 10:27:25.616292",
+ "modified_by": "Administrator",
+ "module": "Central",
+ "name": "Central SSO Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

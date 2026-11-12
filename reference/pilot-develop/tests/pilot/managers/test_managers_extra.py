@@ -1,0 +1,961 @@
+"""Unit tests for RedisManager and SupervisorProcessManager."""
+
+from __future__ import annotations
+
+import contextlib
+from pathlib import Path
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pytest
+
+from pilot.config import AppConfig, BenchConfig, MariaDBConfig, RedisConfig, WorkerConfig, WorkerGroup
+from pilot.core.bench import Bench
+from pilot.exceptions import CommandError, ConfigError
+from pilot.managers.processes.systemd import _ADMIN_IDLE_TIMEOUT
+from pilot.managers.redis import RedisManager
+
+
+def make_bench(tmp_path: Path) -> Bench:
+    config = BenchConfig(
+        name="test-bench",
+        python_version="3.14",
+        apps=[AppConfig(name="frappe", repo="https://github.com/frappe/frappe", branch="version-16")],
+        mariadb=MariaDBConfig(root_password="root"),
+        redis=RedisConfig(cache_port=13000, queue_port=11000),
+        workers=WorkerConfig(
+            groups=[
+                WorkerGroup(queues=["default"], count=1),
+                WorkerGroup(queues=["short"], count=1),
+                WorkerGroup(queues=["long"], count=1),
+            ]
+        ),
+    )
+    bench = Bench(config, tmp_path)
+    bench.config_path.mkdir(parents=True, exist_ok=True)
+    bench.logs_path.mkdir(parents=True, exist_ok=True)
+    return bench
+
+
+def test_redis_manager_writes_two_configs(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    redis_cfg = RedisConfig(cache_port=13000, queue_port=11000)
+
+    manager = RedisManager(redis_cfg, bench)
+    manager.generate_configs()
+
+    assert (bench.config_path / "redis_cache.conf").exists()
+    assert (bench.config_path / "redis_queue.conf").exists()
+    assert not (bench.config_path / "redis_socketio.conf").exists()
+    assert not (bench.config_path / "redis.conf").exists()
+
+
+def test_redis_manager_multi_config_ports(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    redis_cfg = RedisConfig(cache_port=13000, queue_port=11000)
+    RedisManager(redis_cfg, bench).generate_configs()
+
+    assert "port 13000" in (bench.config_path / "redis_cache.conf").read_text()
+    assert "port 11000" in (bench.config_path / "redis_queue.conf").read_text()
+
+
+def test_redis_manager_cache_config_has_no_save(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    redis_cfg = RedisConfig(cache_port=13000, queue_port=11000)
+    RedisManager(redis_cfg, bench).generate_configs()
+
+    cache = (bench.config_path / "redis_cache.conf").read_text()
+    assert 'save ""' in cache
+
+
+def test_redis_manager_keeps_lines_outside_its_block(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    RedisManager(RedisConfig(cache_port=13000, queue_port=11000), bench).generate_configs()
+    path = bench.config_path / "redis_cache.conf"
+    path.write_text("# mine\n" + path.read_text() + "loadmodule /opt/redisearch.so\n")
+
+    RedisManager(RedisConfig(cache_port=14000, queue_port=11000), bench).generate_configs()
+
+    lines = path.read_text().splitlines()
+    assert lines[0] == "# mine"
+    assert lines[-1] == "loadmodule /opt/redisearch.so"
+    assert "port 14000" in lines
+    assert "port 13000" not in lines
+
+
+def test_redis_manager_upgrades_a_config_without_its_block(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    path = bench.config_path / "redis_cache.conf"
+    path.write_text('port 13000\nbind 127.0.0.1\nsave ""\nloadmodule /opt/redisearch.so\n')
+
+    RedisManager(RedisConfig(cache_port=13000, queue_port=11000), bench).generate_configs()
+
+    lines = path.read_text().splitlines()
+    assert lines.count("port 13000") == 1
+    assert lines[-1] == "loadmodule /opt/redisearch.so"
+
+
+def test_redis_manager_rejects_a_block_without_its_end(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    manager = RedisManager(RedisConfig(cache_port=13000, queue_port=11000), bench)
+    manager.generate_configs()
+    path = bench.config_path / "redis_cache.conf"
+    path.write_text(path.read_text().replace("# END PILOT MANAGED BLOCK", ""))
+
+    with pytest.raises(ConfigError):
+        manager.generate_configs()
+
+
+def test_redis_manager_brew_package_with_version() -> None:
+    bench = MagicMock()
+    redis_cfg = RedisConfig(version="7.2")
+    manager = RedisManager(redis_cfg, bench)
+    assert manager._brew_package() == "redis@7.2"
+
+
+def test_redis_manager_brew_package_no_version() -> None:
+    bench = MagicMock()
+    redis_cfg = RedisConfig()
+    manager = RedisManager(redis_cfg, bench)
+    assert manager._brew_package() == "redis"
+
+
+def test_redis_manager_is_installed_true() -> None:
+    bench = MagicMock()
+    manager = RedisManager(RedisConfig(), bench)
+    with patch("shutil.which", return_value="/usr/bin/redis-server"):
+        assert manager.is_installed() is True
+
+
+def test_redis_manager_is_installed_false() -> None:
+    bench = MagicMock()
+    manager = RedisManager(RedisConfig(), bench)
+    with patch("shutil.which", return_value=None):
+        assert manager.is_installed() is False
+
+
+def _make_supervisor_manager(tmp_path: Path):
+    from pilot.managers.processes.supervisor import SupervisorProcessManager
+
+    bench = make_bench(tmp_path)
+    (tmp_path / "config" / "services").mkdir(parents=True, exist_ok=True)
+    return SupervisorProcessManager(bench)
+
+
+def test_supervisor_program_renders_working_dir(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    pd = ProcessDefinition(
+        name="web",
+        argv=["/env/bin/python", "-m", "frappe.utils.bench_helper", "frappe", "serve"],
+        log_file=tmp_path / "logs" / "web.log",
+        working_dir=Path("/sites"),
+    )
+    block = SupervisorRenderer("test-bench", tmp_path / "logs").render(pd)
+    assert "directory=/sites" in block
+    assert "command=/env/bin/python" in block
+    assert "cd /sites" not in block
+
+
+def test_supervisor_program_renders_env_vars(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    pd = ProcessDefinition(
+        name="admin",
+        argv=["/env/bin/python", "-m", "admin.backend.run_server"],
+        log_file=tmp_path / "logs" / "admin.log",
+        env={"PYTHONPATH": "/cli", "FOO": "bar"},
+    )
+    block = SupervisorRenderer("test-bench", tmp_path / "logs").render(pd)
+    assert "environment=" in block
+    assert 'PYTHONPATH="/cli"' in block
+    assert 'FOO="bar"' in block
+    assert "command=/env/bin/python" in block
+
+
+def test_supervisor_program_no_prefix(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    pd = ProcessDefinition(
+        name="redis_cache",
+        argv=["redis-server", "/config/redis_cache.conf"],
+        log_file=tmp_path / "logs" / "redis_cache.log",
+    )
+    block = SupervisorRenderer("test-bench", tmp_path / "logs").render(pd)
+    assert "command=redis-server" in block
+    assert "directory=" not in block
+    assert "environment=" not in block
+
+
+def test_supervisor_conf_has_group_section(tmp_path: Path) -> None:
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        [], tmp_path / "s.sock", tmp_path / "s.pid"
+    )
+    assert "[group:test-bench]" in conf
+
+
+def test_supervisor_conf_separates_admin_group(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    fake_defs = [
+        ProcessDefinition("web", ["cmd_web"], tmp_path / "logs" / "web.log"),
+        ProcessDefinition("admin", ["cmd_admin"], tmp_path / "logs" / "admin.log"),
+    ]
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        fake_defs, tmp_path / "s.sock", tmp_path / "s.pid"
+    )
+    assert "[group:test-bench]" in conf
+    assert "[group:test-bench-admin]" in conf
+    # The workload group must not include the admin program.
+    workload_line = next(ln for ln in conf.splitlines() if ln.startswith("programs="))
+    assert "test-bench-admin" not in workload_line
+    assert "test-bench-web" in workload_line
+
+
+def test_supervisor_conf_has_unix_http_server(tmp_path: Path) -> None:
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    sock = tmp_path / "s.sock"
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf([], sock, tmp_path / "s.pid")
+    assert "[unix_http_server]" in conf
+    assert f"file={sock}" in conf
+
+
+def test_supervisor_conf_program_names_in_group(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    fake_defs = [
+        ProcessDefinition("web", ["cmd_web"], tmp_path / "logs" / "web.log"),
+        ProcessDefinition("worker_default_1", ["cmd_worker"], tmp_path / "logs" / "w.log"),
+    ]
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        fake_defs, tmp_path / "s.sock", tmp_path / "s.pid"
+    )
+    assert "test-bench-web" in conf
+    assert "test-bench-worker-default-1" in conf
+
+
+def test_supervisor_conf_includes_persistent_extension_directory(tmp_path: Path) -> None:
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        [], tmp_path / "services" / "s.sock", tmp_path / "services" / "s.pid"
+    )
+
+    assert "[include]" in conf
+    assert f"files={tmp_path}/services/supervisor.d/*.conf" in conf
+
+
+def test_supervisor_conf_redis_gets_stop_timeout(tmp_path: Path) -> None:
+    """The redis stop grace must reach the supervisor renderer, not just systemd
+    (the consistency fix: stop_timeout lives on the definition now)."""
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    fake_defs = [
+        ProcessDefinition("redis_cache", ["redis-server", "x.conf"], tmp_path / "r.log", stop_timeout=300)
+    ]
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        fake_defs, tmp_path / "s.sock", tmp_path / "s.pid"
+    )
+    assert "stopwaitsecs=300" in conf
+
+
+def test_supervisor_conf_path(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    assert mgr.supervisor_conf_path == tmp_path / "config" / "services" / "supervisord.conf"
+
+
+def test_supervisor_sock_path(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    assert mgr.supervisor_sock == tmp_path / "config" / "services" / "supervisord.sock"
+
+
+def test_supervisor_pid_path(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    assert mgr.supervisor_pid == tmp_path / "config" / "services" / "supervisord.pid"
+
+
+def test_supervisor_generate_config_writes_file(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    with (
+        patch("pilot.managers.processes.supervisor.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", return_value=[]),
+    ):
+        mgr.write_config()
+    assert mgr.supervisor_conf_path.exists()
+
+
+def test_supervisor_generate_config_preserves_extension_fragments(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    fragment = mgr.supervisor_include_dir / "custom.conf"
+    fragment.parent.mkdir(parents=True)
+    fragment.write_text("[program:custom]\ncommand=/bin/true\n")
+
+    with (
+        patch("pilot.managers.processes.supervisor.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", return_value=[]),
+    ):
+        mgr.write_config()
+
+    assert fragment.read_text() == "[program:custom]\ncommand=/bin/true\n"
+
+
+def test_supervisor_conf_no_user_directive(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    fake_defs = [ProcessDefinition("web", ["cmd_web"], tmp_path / "logs" / "web.log")]
+    conf = SupervisorRenderer("test-bench", tmp_path / "logs").render_supervisord_conf(
+        fake_defs, tmp_path / "s.sock", tmp_path / "s.pid"
+    )
+    assert "user=" not in conf
+
+
+def test_supervisor_is_configured_false_when_no_conf(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    assert mgr.is_configured() is False
+
+
+def test_supervisor_is_configured_true_when_conf_exists(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_conf_path.write_text("[supervisord]\n")
+    assert mgr.is_configured() is True
+
+
+def test_supervisor_supervisorctl_uses_local_conf(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    cmd = mgr._supervisorctl()
+    assert cmd == ["supervisorctl", "-c", str(mgr.supervisor_conf_path)]
+
+
+def _make_systemd_manager(tmp_path: Path):
+    from pilot.managers.processes.systemd import SystemdProcessManager
+
+    bench = make_bench(tmp_path)
+    return SystemdProcessManager(bench)
+
+
+def test_systemd_unit_name(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    assert mgr._unit_name("web") == "test-bench-web.service"
+
+
+def test_systemd_target_name(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    assert mgr._target_name() == "test-bench.target"
+
+
+def test_systemd_user_unit_dir(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    assert mgr.user_unit_dir == Path.home() / ".config" / "systemd" / "user"
+
+
+def test_systemd_systemctl_cmd_includes_user_flag(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    assert mgr._systemctl("start", "foo.target") == ["systemctl", "--user", "start", "foo.target"]
+
+
+def test_systemd_env_sets_xdg_runtime_dir(tmp_path: Path) -> None:
+    import os
+
+    mgr = _make_systemd_manager(tmp_path)
+    env = mgr._systemctl_env()
+    assert env["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"
+
+
+def test_systemd_unit_renders_working_dir(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition(
+        name="web",
+        argv=["/env/bin/python", "-m", "frappe.utils.bench_helper", "frappe", "serve"],
+        log_file=tmp_path / "logs" / "web.log",
+        working_dir=Path("/sites"),
+    )
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert "WorkingDirectory=/sites" in unit
+    assert "ExecStart=/env/bin/python" in unit
+    assert "cd /sites" not in unit
+
+
+def test_central_bootstrap_unit_runs_once_at_boot(tmp_path: Path) -> None:
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    unit = SystemdRenderer("test-bench").render_central_bootstrap(
+        "/cli/.admin-venv/bin/python",
+        "/cli",
+        "/home/frappe/pilot/benches/test-bench",
+        str(tmp_path / "logs" / "central-bootstrap.log"),
+    )
+
+    assert "Type=simple" in unit
+    assert "WantedBy=default.target" in unit
+    assert "Environment=PYTHONPATH=/cli" in unit
+    assert "WorkingDirectory=/cli" in unit
+    assert (
+        "ExecStart=/cli/.admin-venv/bin/python -m admin.backend.central_bootstrap "
+        "--bench-root /home/frappe/pilot/benches/test-bench" in unit
+    )
+
+
+def test_systemd_unit_renders_env_vars(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition(
+        name="admin",
+        argv=["/env/bin/python", "-m", "admin.backend.run_server"],
+        log_file=tmp_path / "logs" / "admin.log",
+        env={"PYTHONPATH": "/cli", "FOO": "bar"},
+    )
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert 'Environment="PYTHONPATH=/cli"' in unit
+    assert 'Environment="FOO=bar"' in unit
+    assert "ExecStart=/env/bin/python" in unit
+
+
+def test_systemd_unit_no_user_directive(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition(
+        name="web", argv=["/env/bin/python", "serve"], log_file=tmp_path / "logs" / "web.log"
+    )
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert "User=" not in unit
+
+
+def test_systemd_unit_part_of_target(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition(
+        name="web", argv=["/env/bin/python", "serve"], log_file=tmp_path / "logs" / "web.log"
+    )
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert "PartOf=test-bench.target" in unit
+
+
+def test_systemd_workload_stops_before_redis(tmp_path: Path) -> None:
+    """Stopped together, a lite runner's job worker retries redis until its drain timeout."""
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    renderer = SystemdRenderer("test-bench")
+    web = renderer.render(ProcessDefinition(name="web", argv=["web"], log_file=tmp_path / "web.log"))
+    redis = renderer.render(ProcessDefinition(name="redis_queue", argv=["redis"], log_file=tmp_path / "r.log"))
+
+    assert "After=test-bench-redis_cache.service test-bench-redis_queue.service" in web
+    assert "After=" not in redis
+
+
+def test_supervisor_redis_starts_first_and_stops_last(tmp_path: Path) -> None:
+    """A group signals all its programs at once, so redis lives in a group stopped after the workload."""
+    from pilot.managers.processes.base import UnitGroup
+    from pilot.managers.processes.supervisor import SupervisorProcessManager
+
+    mgr = _make_supervisor_manager(tmp_path)
+    with (
+        patch.object(mgr, "is_alive", return_value=True),
+        patch.object(
+            SupervisorProcessManager,
+            "loaded_groups",
+            new_callable=PropertyMock,
+            return_value={"test-bench", "test-bench-apps", "test-bench-redis"},
+        ),
+        patch("pilot.managers.processes.supervisor.run_command") as run,
+    ):
+        mgr.apply_unit_action("restart", UnitGroup.WORKLOAD)
+
+    commands = [call.args[0][3:] for call in run.call_args_list]
+    assert commands == [
+        ["stop", "test-bench:*", "test-bench-apps:*", "test-bench-redis:*"],
+        ["start", "test-bench-redis:*", "test-bench-apps:*", "test-bench:*"],
+    ]
+
+
+def test_systemd_unit_redis_gets_stop_timeout(tmp_path: Path) -> None:
+    """The redis stop grace reaches the systemd renderer from the definition."""
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition("redis_cache", ["redis-server", "x.conf"], tmp_path / "r.log", stop_timeout=300)
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert "TimeoutStopSec=300" in unit
+
+
+def test_systemd_unit_raises_descriptor_limit(tmp_path: Path) -> None:
+    """A workload unit gets more descriptors than the default of a user unit."""
+    from pilot.managers.processes.local import ProcessDefinition
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    pd = ProcessDefinition(
+        name="web", argv=["/env/bin/python", "serve"], log_file=tmp_path / "logs" / "web.log"
+    )
+    unit = SystemdRenderer("test-bench").render(pd)
+    assert "LimitNOFILE=65535" in unit
+
+
+def test_systemd_target_wanted_by_default(tmp_path: Path) -> None:
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    target = SystemdRenderer("test-bench").render_target([])
+    assert "WantedBy=default.target" in target
+
+
+def test_systemd_generate_config_writes_unit_files(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+
+    mgr = _make_systemd_manager(tmp_path)
+    mgr.systemd_conf_dir.mkdir(parents=True, exist_ok=True)
+    fake_defs = [ProcessDefinition("web", ["/env/bin/python", "serve"], tmp_path / "logs" / "web.log")]
+    with (
+        patch("pilot.managers.environment.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", return_value=fake_defs),
+    ):
+        mgr.write_config()
+    assert (mgr.systemd_conf_dir / "test-bench-web.service").exists()
+    assert (mgr.systemd_conf_dir / "test-bench.target").exists()
+
+
+def test_systemd_write_config_flushes_units_to_disk(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+
+    mgr = _make_systemd_manager(tmp_path)
+    mgr.systemd_conf_dir.mkdir(parents=True, exist_ok=True)
+    fake_defs = [ProcessDefinition("web", ["/env/bin/python", "serve"], tmp_path / "logs" / "web.log")]
+    flushed = []
+    with (
+        patch("pilot.managers.environment.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", return_value=fake_defs),
+        patch("pilot.managers.processes.systemd.fsync_directory_files", side_effect=flushed.append),
+    ):
+        mgr.write_config()
+    assert flushed == [mgr.systemd_conf_dir]
+
+
+def test_fsync_directory_files_flushes_each_file(tmp_path: Path) -> None:
+    from pilot.internal.atomic_file import fsync_directory_files
+
+    (tmp_path / "a.service").write_text("a")
+    (tmp_path / "b.target").write_text("b")
+    (tmp_path / "link.service").symlink_to(tmp_path / "a.service")
+    with patch("pilot.internal.atomic_file.os.fsync") as fsync:
+        fsync_directory_files(tmp_path)
+    assert fsync.call_count == 3
+
+
+def test_systemd_write_config_keeps_units_when_a_declaration_is_broken(tmp_path: Path) -> None:
+    import pytest
+
+    from pilot.exceptions import BenchError
+
+    mgr = _make_systemd_manager(tmp_path)
+    mgr.systemd_conf_dir.mkdir(parents=True, exist_ok=True)
+    existing = mgr.systemd_conf_dir / "test-bench-mail-stalwart.service"
+    existing.write_text("[Service]\nExecStart=/usr/bin/stalwart\n")
+
+    with (
+        patch("pilot.managers.processes.systemd.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", side_effect=BenchError("broken app")),
+        pytest.raises(BenchError),
+    ):
+        mgr.write_config()
+
+    assert existing.exists()
+
+
+def test_systemd_admin_socket_listens_on_internal_port(tmp_path: Path) -> None:
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    socket_unit = SystemdRenderer("test-bench").render_admin_socket(7001)
+    assert "[Socket]" in socket_unit
+    assert "ListenStream=127.0.0.1:7001" in socket_unit
+    # Independent of the workload target so the admin survives `pilot stop`.
+    assert "WantedBy=default.target" in socket_unit
+    assert "PartOf=" not in socket_unit
+
+
+def test_systemd_admin_service_runs_gunicorn_with_idle_timeout(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    service = mgr._admin_service_text()
+    assert "admin.backend.wsgi:application" in service
+    # The value must outlive an image builder's pre-snapshot window, so assert the
+    # constant reaches the unit rather than pinning a number here.
+    assert f'Environment="BENCH_ADMIN_IDLE_TIMEOUT={_ADMIN_IDLE_TIMEOUT}"' in service
+    assert _ADMIN_IDLE_TIMEOUT >= 600
+    assert "Requires=test-bench-admin.socket" in service
+    assert "After=test-bench-admin.socket" in service
+    # Re-activation is via the socket, not a systemd restart loop.
+    assert "Restart=no" in service
+    assert "KillMode=process" in service
+    # Not PartOf the target - stopping the workload must not stop the admin.
+    assert "PartOf=" not in service
+    assert "[Install]\nWantedBy=default.target" in service
+
+
+def test_systemd_target_excludes_admin(tmp_path: Path) -> None:
+    from pilot.managers.processes.systemd import SystemdRenderer
+
+    # write_config feeds the target only workload unit names (admin excluded).
+    target = SystemdRenderer("test-bench").render_target(["test-bench-web.service"])
+    assert "test-bench-admin.socket" not in target
+    assert "test-bench-admin.service" not in target
+    assert "test-bench-web.service" in target
+
+
+def test_systemd_generate_config_writes_admin_socket(tmp_path: Path) -> None:
+    from pilot.managers.processes.local import ProcessDefinition
+
+    mgr = _make_systemd_manager(tmp_path)
+    mgr.systemd_conf_dir.mkdir(parents=True, exist_ok=True)
+    fake_defs = [
+        ProcessDefinition("web", ["/env/bin/python", "serve"], tmp_path / "logs" / "web.log"),
+        ProcessDefinition("admin", ["/env/bin/python", "-m", "admin"], tmp_path / "logs" / "admin.log"),
+    ]
+    with (
+        patch("pilot.managers.environment.AdminEnvManager"),
+        patch.object(mgr, "_prod_process_definitions", return_value=fake_defs),
+    ):
+        mgr.write_config()
+    assert (mgr.systemd_conf_dir / "test-bench-admin.socket").exists()
+    assert (mgr.systemd_conf_dir / "test-bench-admin.service").exists()
+    assert (mgr.bench.config_path / "admin-gunicorn.conf.py").exists()
+
+
+def test_systemd_is_running_true_when_systemctl_exits_zero(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert mgr.is_running() is True
+
+
+def test_systemd_is_running_false_when_systemctl_exits_nonzero(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
+        assert mgr.is_running() is False
+
+
+def test_systemd_is_running_false_when_systemctl_not_installed(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    with patch("subprocess.run", side_effect=FileNotFoundError):
+        assert mgr.is_running() is False
+
+
+def test_systemd_is_configured_true_when_target_enabled(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=0)
+        assert mgr.is_configured() is True
+
+
+def test_systemd_is_configured_false_when_target_not_enabled(tmp_path: Path) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1)
+        assert mgr.is_configured() is False
+
+
+def test_supervisor_is_alive_false_when_no_pid_file(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    assert mgr.is_alive() is False
+
+
+def test_supervisor_is_alive_true_when_process_running(tmp_path: Path) -> None:
+    import os
+
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_pid.write_text(str(os.getpid()))
+    assert mgr.is_alive() is True
+
+
+def test_supervisor_is_alive_false_when_process_dead(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_pid.write_text("999999")  # non-existent PID
+    assert mgr.is_alive() is False
+
+
+def test_supervisor_is_running_false_when_not_configured(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    # conf file absent - is_configured() short-circuits before any subprocess call
+    with patch("subprocess.run") as mock_run:
+        assert mgr.is_running() is False
+        mock_run.assert_not_called()
+
+
+def test_supervisor_is_running_false_when_not_alive(tmp_path: Path) -> None:
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_conf_path.write_text("[supervisord]\n")
+    # no PID file → is_alive() returns False before subprocess
+    with patch("subprocess.run") as mock_run:
+        assert mgr.is_running() is False
+        mock_run.assert_not_called()
+
+
+def test_supervisor_is_running_true_when_running_in_output(tmp_path: Path) -> None:
+    import os
+
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_conf_path.write_text("[supervisord]\n")
+    mgr.supervisor_pid.write_text(str(os.getpid()))
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="test-bench:test-bench-web  RUNNING  pid 123\n")
+        assert mgr.is_running() is True
+
+
+def test_supervisor_is_running_false_when_no_running_in_output(tmp_path: Path) -> None:
+    import os
+
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.supervisor_conf_path.write_text("[supervisord]\n")
+    mgr.supervisor_pid.write_text(str(os.getpid()))
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="test-bench:test-bench-web  STOPPED\n")
+        assert mgr.is_running() is False
+
+
+def test_supervisor_multiqueue_worker_name_has_no_commas(tmp_path: Path) -> None:
+    """A worker group serving several queues must not produce a comma in the
+    program name - commas break supervisor's `programs=` CSV (regression)."""
+    from pilot.config import WorkerConfig, WorkerGroup
+    from pilot.managers.processes.supervisor import SupervisorRenderer
+
+    mgr = _make_supervisor_manager(tmp_path)
+    mgr.bench.config.workers = WorkerConfig(
+        groups=[WorkerGroup(queues=["default", "short", "long"], count=1)]
+    )
+    renderer = SupervisorRenderer("test-bench", mgr.bench.logs_path)
+    conf = renderer.render_supervisord_conf(mgr._prod_process_definitions(), mgr.supervisor_sock, mgr.supervisor_pid)
+    workload_line = next(ln for ln in conf.splitlines() if ln.startswith("programs="))
+    # Every program named in the group must exist as a [program:...] section.
+    named = workload_line.split("=", 1)[1].split(",")
+    for prog in named:
+        assert f"[program:{prog}]" in conf, f"{prog} has no matching section"
+    # The worker still serves all three queues via --queue.
+    assert "--queue default,short,long" in conf
+
+
+class _FakeProcessManager:
+    """ManagedProcessManager fake that records lifecycle calls."""
+
+    def __init__(self) -> None:
+        from pilot.managers.processes.base import ManagedProcessManager
+
+        self.calls: list[tuple[str, object]] = []
+        self.prepared = 0
+        self.generated = 0
+        self._is_running = True
+        self.is_realtime_stale = False
+
+        fake = self
+
+        class _Impl(ManagedProcessManager):
+            def __init__(self) -> None:
+                self.bench = MagicMock()  # skip Bench wiring; the primitives below are pure recorders
+
+            def write_config(self_impl) -> None:
+                fake.generated += 1
+
+            def install_config(self_impl) -> None:
+                pass
+
+            def reload_manager_config(self_impl) -> None:
+                pass
+
+            def ensure_ready(self_impl) -> None:
+                fake.prepared += 1
+
+            def apply_unit_action(self_impl, action, role) -> None:
+                fake.calls.append((action, role))
+
+            def are_units_running(self_impl, role) -> bool:
+                return fake._is_running
+
+            def _is_realtime_stale(self_impl, definitions) -> bool:
+                return fake.is_realtime_stale
+
+            def restart_processes(self_impl, definitions) -> None:
+                fake.calls.append(("restart", [definition.name for definition in definitions]))
+
+            @property
+            def process_definitions(self_impl):
+                from pilot.managers.processes.definitions import ProcessDefinition
+
+                names = [("web", None), ("socketio", None), ("worker_pool", None), ("redis_cache", None)]
+                names += [("admin", None), ("mail-stalwart", "mail")]
+                return [ProcessDefinition(name, ["x"], Path("/tmp/x.log"), app=app) for name, app in names]
+
+            def _clear_frappe_cache(self_impl) -> None:
+                pass
+
+        self.manager = _Impl()
+
+
+def test_supervised_start_brings_up_admin_then_workload() -> None:
+    from pilot.managers.processes.base import UnitGroup
+
+    fake = _FakeProcessManager()
+    fake.manager.start()
+    assert fake.generated == 1
+    assert fake.prepared == 1
+    assert fake.calls == [("start", UnitGroup.ADMIN), ("start", UnitGroup.WORKLOAD)]
+
+
+def test_supervised_start_workload_preserves_admin() -> None:
+    from pilot.managers.processes.base import UnitGroup
+
+    fake = _FakeProcessManager()
+    fake.manager.start_workload()
+    assert fake.generated == 1
+    assert fake.prepared == 1
+    assert fake.calls == [("start", UnitGroup.WORKLOAD)]
+
+
+def test_supervised_stop_targets_workload_only() -> None:
+    from pilot.managers.processes.base import UnitGroup
+
+    fake = _FakeProcessManager()
+    fake.manager.stop()
+    assert fake.calls == [("stop", UnitGroup.WORKLOAD)]
+
+
+def test_supervised_stop_admin_targets_admin_only() -> None:
+    from pilot.managers.processes.base import UnitGroup
+
+    fake = _FakeProcessManager()
+    fake.manager.stop_admin()
+    assert fake.calls == [("stop", UnitGroup.ADMIN)]
+
+
+def test_supervised_reload_workers_web_only_restarts_web() -> None:
+    fake = _FakeProcessManager()
+    fake.manager.reload_workers(web_only=True)
+    assert fake.calls == [("restart", ["web"])]
+
+
+def test_supervised_reload_workers_keeps_socketio_redis_and_admin_running() -> None:
+    fake = _FakeProcessManager()
+    fake.manager.reload_workers()
+    assert fake.calls == [("restart", ["web", "worker_pool", "mail-stalwart"])]
+
+
+def test_supervised_reload_workers_restarts_socketio_when_realtime_changed() -> None:
+    fake = _FakeProcessManager()
+    fake.is_realtime_stale = True
+    fake.manager.reload_workers()
+    assert fake.calls == [("restart", ["web", "socketio", "worker_pool", "mail-stalwart"])]
+
+
+def test_reload_saves_realtime_folders_only_after_a_successful_restart() -> None:
+    fake = _FakeProcessManager()
+    fake.is_realtime_stale = True
+    fake.manager.reload_workers()
+    fake.manager.bench.processes.save_realtime_folders.assert_called_once_with()
+
+    failing = _FakeProcessManager()
+    failing.is_realtime_stale = True
+    with (
+        patch.object(type(failing.manager), "restart_processes", side_effect=CommandError("restart failed")),
+        pytest.raises(CommandError),
+    ):
+        failing.manager.reload_workers()
+    failing.manager.bench.processes.save_realtime_folders.assert_not_called()
+
+
+def test_supervised_reload_workers_noop_when_not_running() -> None:
+    fake = _FakeProcessManager()
+    fake._is_running = False
+    fake.manager.reload_workers()
+    assert fake.calls == []
+
+
+def _admin_activation(tmp_path: Path, monkeypatch, socket_active: bool, service_changed: bool, socket_changed: bool):
+    """The systemctl calls `pilot start` makes for the admin."""
+    import subprocess
+    from types import SimpleNamespace
+
+    mgr = _make_systemd_manager(tmp_path)
+    mgr.admin_service_changed = service_changed
+    mgr.admin_socket_changed = socket_changed
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **kwargs):
+        calls.append(argv)
+        return SimpleNamespace(returncode=0 if socket_active else 3)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("pilot.managers.processes.systemd.run_command", lambda argv, **kwargs: calls.append(argv))
+    monkeypatch.setattr(type(mgr), "user_unit_dir", tmp_path)
+    (tmp_path / mgr._unit_name("admin")).touch()
+
+    mgr._control_admin("start", {})
+    return [call[2:] for call in calls if call[2] != "is-active"]
+
+
+def test_start_leaves_a_listening_unchanged_admin_alone(tmp_path: Path, monkeypatch) -> None:
+    """Restarting the socket drops queued requests, which nginx turns into 502s."""
+    calls = _admin_activation(tmp_path, monkeypatch, socket_active=True, service_changed=False, socket_changed=False)
+
+    assert calls == []
+
+
+def test_a_changed_admin_service_restarts_behind_its_socket(tmp_path: Path, monkeypatch) -> None:
+    calls = _admin_activation(tmp_path, monkeypatch, socket_active=True, service_changed=True, socket_changed=False)
+
+    assert ["restart", "test-bench-admin.service"] in calls
+    assert not any("test-bench-admin.socket" in call for call in calls)
+
+
+def test_an_idle_admin_socket_is_activated(tmp_path: Path, monkeypatch) -> None:
+    calls = _admin_activation(tmp_path, monkeypatch, socket_active=False, service_changed=False, socket_changed=False)
+
+    assert ["restart", "test-bench-admin.socket"] in calls
+
+
+def test_enable_admin_at_boot_enables_the_admin_service(tmp_path: Path, monkeypatch) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    calls: list[list[str]] = []
+    monkeypatch.setattr("pilot.managers.processes.systemd.run_command", lambda argv, **kwargs: calls.append(argv))
+
+    mgr.enable_admin_at_boot()
+
+    assert calls == [["systemctl", "--user", "enable", "test-bench-admin.service"]]
+
+
+def test_wake_admin_starts_the_admin_service_without_waiting(tmp_path: Path, monkeypatch) -> None:
+    mgr = _make_systemd_manager(tmp_path)
+    calls: list[list[str]] = []
+    monkeypatch.setattr("pilot.managers.processes.systemd.run_command", lambda argv, **kwargs: calls.append(argv))
+
+    mgr.wake_admin()
+
+    assert calls == [["systemctl", "--user", "start", "--no-block", "test-bench-admin.service"]]
+
+
+def test_supervisor_starts_again_after_a_reboot(tmp_path: Path, monkeypatch) -> None:
+    """The bench owns its supervisord, so an @reboot entry brings the bench back."""
+    from pilot.managers.cron import CronManager
+    from pilot.managers.processes.supervisor import SupervisorProcessManager
+
+    crontab: list[str] = []
+    monkeypatch.setattr(CronManager, "_read_crontab", lambda self: list(crontab))
+    monkeypatch.setattr(CronManager, "_write_crontab", lambda self, lines: crontab.__setitem__(slice(None), lines))
+    monkeypatch.setattr(CronManager, "_lock", lambda self: contextlib.nullcontext())
+    manager = SupervisorProcessManager(make_bench(tmp_path))
+    monkeypatch.setattr(manager, "is_alive", lambda: False)
+
+    manager.install_config()
+    entry = next(line for line in crontab if line.startswith("@reboot"))
+    assert f"-c {manager.supervisor_conf_path}" in entry
+
+    manager.shutdown()
+    assert not any(line.startswith("@reboot") for line in crontab)

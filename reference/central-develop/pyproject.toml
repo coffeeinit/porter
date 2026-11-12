@@ -1,0 +1,91 @@
+[project]
+name = "central"
+authors = [
+    { name = "frappe", email = "developers@frappe.io"}
+]
+description = "The one stop console for Frappe Cloud"
+requires-python = ">=3.14"
+readme = "README.md"
+dynamic = ["version"]
+dependencies = [
+    # "frappe~=16.0.0" # Installed and managed by bench.
+    # Gateway SDKs for the vendored `billing` module (issue #41). Pinned to
+    # versions that import on Python 3.14 (old stripe 2.56 vendored `six` and
+    # breaks); the adapters use Stripe's global API.
+    "stripe>=15,<16",
+    "razorpay>=1.4",
+    "dnspython>=2.7",
+    # Reads team bucket objects over S3 (central.integrations.object_storage).
+    "boto3>=1.43,<2",
+    "atlas-proxy-client @ git+https://github.com/frappe/atlas.git@abdde5b62bc8ebecbf38c9aa96a72a848c832fc4#subdirectory=clients/atlas-proxy-client",
+]
+
+[build-system]
+requires = ["flit_core >=3.4,<4"]
+build-backend = "flit_core.buildapi"
+
+# These dependencies are only installed when developer mode is enabled
+[tool.bench.dev-dependencies]
+# Keep in step with the ruff-pre-commit rev in .pre-commit-config.yaml.
+ruff = "==0.16.10"
+[tool.bench.frappe-dependencies]
+frappe = ">=16.0.0,<=17.0.0-dev"
+
+# These apt dependencies will be installed from Ubuntu repositories when you host your app on Frappe Cloud
+[deploy.dependencies.apt]
+packages = []
+
+[tool.ruff]
+line-length = 110
+# The app runs on 3.14 (requires-python). A py313 target keeps `except (A, B):`
+# parenthesized, because ruff drops those parentheses for a py314 target (PEP 758).
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "F",
+    "E",
+    "W",
+    "I",
+    "UP",
+    "B",
+    "RUF",
+]
+ignore = [
+    "B017", # assertRaises(Exception) - should be more specific
+    "B018", # useless expression, not assigned to anything
+    "B023", # function doesn't bind loop variable - will have last iteration's value
+    "B904", # raise inside except without from
+    "E101", # indentation contains mixed spaces and tabs
+    "E402", # module level import not at top of file
+    "E501", # line too long
+    "E741", # ambiguous variable name
+    # F401 (unused imports) is intentionally NOT ignored — enforcing it keeps dead
+    # imports out and backs the dead-code sweep (PRs 2/3).
+    "F403", # can't detect undefined names from * import
+    "F405", # can't detect undefined names from * import
+    "F722", # syntax error in forward type annotation
+    "RUF001", # allow Unicode punctuation in user-facing strings
+    "RUF002", # allow Unicode punctuation in docstrings
+    "RUF003", # allow Unicode punctuation in comments
+    "W191", # indentation contains tabs
+    "UP030", # Use implicit references for positional format fields (translations)
+    "UP031", # Use format specifiers instead of percent format
+    "UP032", # Use f-string instead of `format` call (translations)
+    "UP037", # quoted annotations
+    "UP040", # Use type aliases instead of type annotations
+]
+typing-modules = ["frappe.types.DF"]
+
+[tool.ruff.lint.per-file-ignores]
+# central/billing/** is out of scope for this refactor and re-exports several
+# symbols (e.g. subscriptions.InvalidTransition) that F401 would otherwise strip.
+# Keep F401 enforced everywhere else, but not here.
+"central/billing/**" = ["F401"]
+
+[tool.ruff.format]
+# Ruff formats Python blocks inside Markdown with the code's tab indent. Keep docs as written.
+exclude = ["*.md"]
+quote-style = "double"
+indent-style = "tab"
+docstring-code-format = true

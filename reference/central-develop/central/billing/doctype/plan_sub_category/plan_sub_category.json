@@ -1,0 +1,128 @@
+{
+ "actions": [],
+ "autoname": "field:sub_category_name",
+ "creation": "2026-06-23 00:00:00.000000",
+ "description": "An optional variant within a product family (e.g. VM Plans -> CPU Optimised; Remote Storage -> Backups). Used only where a real variant axis exists; families like AI Tokens have none (ADR 0007). For VM compute profiles it also carries the memory ratio the configurator pins.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sub_category_name",
+  "category",
+  "is_active",
+  "compose_section",
+  "ram_ratio",
+  "vcpu_steps",
+  "column_break_compose",
+  "disk_min",
+  "disk_max",
+  "memory_ratio"
+ ],
+ "fields": [
+  {
+   "fieldname": "sub_category_name",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Sub-Category",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "category",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Category",
+   "options": "Plan Category",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Is Active"
+  },
+  {
+   "fieldname": "compose_section",
+   "fieldtype": "Section Break",
+   "label": "Composed-Config Bounds",
+   "description": "VM compute profiles only (ADR 0009): constraints a design-your-own config is validated against."
+  },
+  {
+   "fieldname": "ram_ratio",
+   "fieldtype": "Int",
+   "label": "RAM Ratio",
+   "description": "GB RAM per vCPU for this profile; source of truth for the configurator's pinned ratio."
+  },
+  {
+   "fieldname": "vcpu_steps",
+   "fieldtype": "Data",
+   "label": "vCPU Steps",
+   "description": "Comma-separated allowed vCPU values, e.g. 1,2,4,8,16. The slider snaps to these."
+  },
+  {
+   "fieldname": "column_break_compose",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "disk_min",
+   "fieldtype": "Int",
+   "label": "Disk Min (GB)"
+  },
+  {
+   "fieldname": "disk_max",
+   "fieldtype": "Int",
+   "label": "Disk Max (GB)"
+  },
+  {
+   "fieldname": "memory_ratio",
+   "fieldtype": "Select",
+   "label": "Memory Ratio (legacy)",
+   "options": "\n1:2\n1:4\n1:6\n1:8",
+   "description": "Legacy 1:N display of ram_ratio (authoritative); kept for backward-compatibility."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Catalog",
+   "link_doctype": "Plan",
+   "link_fieldname": "sub_category"
+  },
+  {
+   "group": "Authoring",
+   "link_doctype": "Plan Configurator",
+   "link_fieldname": "sub_category"
+  },
+  {
+   "group": "Subscriptions",
+   "link_doctype": "Subscription",
+   "link_fieldname": "sub_category"
+  }
+ ],
+ "modified": "2026-06-23 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Plan Sub-Category",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

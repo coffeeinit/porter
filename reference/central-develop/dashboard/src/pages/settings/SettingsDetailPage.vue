@@ -1,0 +1,68 @@
+<script setup lang="ts">
+import { computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useBreadcrumbs } from '@/composables/useBreadcrumbs'
+import { useCapabilities } from '@/composables/useCapabilities'
+import {
+	SETTINGS_TABS,
+	type SettingsTab,
+	useSettingsTabs,
+} from '@/composables/useSettings'
+
+// One settings tab as a full page. Mobile has no room for a dialog with a
+// sidebar, so the tabs become routes: /settings lists them, /settings/:tab is
+// the tab itself, and Back goes where you'd expect.
+const route = useRoute()
+const router = useRouter()
+const { setBreadcrumbs } = useBreadcrumbs()
+const { loading } = useCapabilities()
+const { isAvailable } = useSettingsTabs()
+
+const tab = computed(() =>
+	SETTINGS_TABS.find((t) => t.value === (route.params.tab as SettingsTab)),
+)
+
+// An unknown tab, or one this member can't reach, belongs back at the list
+// rather than on a blank page.
+const allowed = computed(() => !!tab.value && isAvailable(tab.value))
+
+watch(
+	[tab, allowed, loading],
+	() => {
+		// An unknown tab is wrong now; a forbidden one is only wrong once
+		// capabilities have actually landed, or a refresh would bounce every
+		// gated tab before the answer arrives.
+		if (!tab.value || (!loading.value && !allowed.value)) {
+			router.replace('/settings')
+			return
+		}
+		setBreadcrumbs([
+			{ label: 'Settings', route: { path: '/settings' } },
+			{ label: tab.value.label },
+		])
+	},
+	{ immediate: true },
+)
+</script>
+
+<template>
+	<div v-if="tab && allowed" class="h-full overflow-y-auto">
+		<div class="mx-auto max-w-2xl p-3 md:p-4">
+			<header class="flex items-start justify-between gap-4">
+				<div class="min-w-0">
+					<h1 class="text-lg-semibold text-ink-gray-8">{{ tab.title }}</h1>
+					<p
+						v-if="tab.description"
+						class="mt-1 max-w-md text-p-base text-ink-gray-6"
+					>
+						{{ tab.description }}
+					</p>
+				</div>
+
+				<div :id="`settings-actions-${tab.value}`" class="contents" />
+			</header>
+
+			<component :is="tab.component" />
+		</div>
+	</div>
+</template>

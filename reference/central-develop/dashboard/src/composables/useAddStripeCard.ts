@@ -1,0 +1,157 @@
+// Add a card on the Stripe rail (SetupIntent + Stripe Elements). Counterpart to
+// the Razorpay path in useAddPaymentMethod. Ported from the legacy dashboard.
+//
+// The PAN is entered in a Stripe Element — a PCI-scoped iframe Stripe hosts; it
+// never touches our form or server. Flow (#08):
+//   1. initiate_card_setup → an off-session SetupIntent (client_secret) + a
+//      pending Payment Method doc.
+//   2. confirmCardSetup with the card → Stripe attaches the method to the team's
+//      customer (with a mandate in currencies where recurring debits are regulated).
+//   3. confirm_card → backend reads the saved card from Stripe, runs the
+//      micro-charge validation and activates it. The browser sends only the
+//      Payment Method name; the card details come from Stripe.
+//
+// publishableKey + client_secret come from the backend; we never hardcode a key.
+
+import {
+	loadStripe,
+	type Stripe,
+	type StripeCardElement,
+} from '@stripe/stripe-js'
+import { useCall } from 'frappe-ui'
+import { ref } from 'vue'
+import { API, method } from '@/api/methods'
+import { getErrorMessage, successToast } from '@/lib/feedback'
+import { stripeCardElementStyle } from '@/lib/gateway'
+
+interface CardSetupOrder {
+	client_secret?: string
+	payment_method?: string
+}
+
+interface ConfirmCardResult {
+	payment_method: string
+	status: string
+}
+
+interface MountOptions {
+	team: string
+	publishableKey: string | null | undefined
+}
+
+export function useAddStripeCard({
+	onDone,
+}: {
+	onDone?: (res: ConfirmCardResult) => void
+} = {}) {
+	const initiate = useCall<CardSetupOrder, { team: string }>({
+		url: method(API.initiateCardSetup),
+		method: 'POST',
+		immediate: false,
+	})
+	const confirm = useCall<ConfirmCardResult, Record<string, unknown>>({
+		url: method(API.confirmCard),
+		method: 'POST',
+		immediate: false,
+	})
+	const complete = ref(false) // the card field is filled in and valid
+	const submitting = ref(false)
+	const error = ref('')
+
+	let stripe: Stripe | null = null
+	let card: StripeCardElement | null = null
+	let orderPromise: Promise<CardSetupOrder | null> | null = null
+
+	// Load Stripe.js and mount the card Element straight away. The SetupIntent (a
+	// server→Stripe round-trip) is kicked off in parallel and awaited only at
+	// submit — so the card field appears instantly instead of waiting on the
+	// backend, by far the bigger source of perceived load time.
+	async function mount(
+		el: string | HTMLElement,
+		{ team, publishableKey }: MountOptions,
+	): Promise<void> {
+		error.value = ''
+		if (!publishableKey)
+			throw new Error(
+				'The Stripe publishable key is missing, so card setup cannot start. Contact support.',
+			)
+		stripe = await loadStripe(publishableKey)
+		if (!stripe)
+			throw new Error(
+				'The Stripe payment library could not load. Check your connection and reopen this dialog to try again.',
+			)
+
+		// Swallow here so a reject doesn't become an unhandled rejection if the user
+		// cancels before submitting; submit() turns the null into a clean message.
+		// useCall.submit() resolves void — read the order off `.data` once it settles.
+		orderPromise = initiate
+			.submit({ team })
+			.then(() => initiate.data)
+			.catch(() => null)
+		card = stripe.elements().create('card', {
+			hidePostalCode: true,
+			style: stripeCardElementStyle(),
+		})
+		card.on('change', (e) => {
+			complete.value = !!e.complete
+			error.value = e.error?.message ?? ''
+		})
+		card.mount(el)
+	}
+
+	// Confirm the SetupIntent with the entered card, then activate it server-side.
+	async function submit(): Promise<ConfirmCardResult | undefined> {
+		if (!stripe || !card || !orderPromise) return
+		submitting.value = true
+		error.value = ''
+		try {
+			const order = await orderPromise // usually already resolved by now
+			// The setup call's own message says why it failed, such as the provider being down.
+			if (!order?.client_secret)
+				throw (
+					initiate.error ??
+					new Error('Could not start card setup. Please try again.')
+				)
+
+			const { paymentMethod, error: pmError } =
+				await stripe.createPaymentMethod({
+					type: 'card',
+					card,
+				})
+			if (pmError) throw pmError
+
+			const { error: setupError } = await stripe.confirmCardSetup(
+				order.client_secret,
+				{
+					payment_method: paymentMethod.id,
+				},
+			)
+			if (setupError) throw setupError
+
+			await confirm.submit({ payment_method: order.payment_method })
+			if (confirm.error) throw confirm.error
+			const res = confirm.data
+			if (!res || res.status !== 'Active') {
+				error.value = "Couldn't verify that card. Try a different one"
+				return
+			}
+			successToast('Card added')
+			onDone?.(res)
+			return res
+		} catch (e) {
+			error.value = getErrorMessage(e, 'Could not add card')
+		} finally {
+			submitting.value = false
+		}
+	}
+
+	function destroy(): void {
+		card?.destroy()
+		card = null
+		orderPromise = null
+		complete.value = false
+		error.value = ''
+	}
+
+	return { mount, submit, destroy, complete, submitting, error }
+}

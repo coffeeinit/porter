@@ -1,0 +1,69 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1777982114495,
+      "tag": "0000_remarkable_maginty",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1777998972114,
+      "tag": "0001_jittery_mole_man",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778054982723,
+      "tag": "0002_nice_terror",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778062043507,
+      "tag": "0003_dark_charles_xavier",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1778069203779,
+      "tag": "0004_slippery_sentinels",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1778497714570,
+      "tag": "0005_peaceful_frog_thor",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1778497715570,
+      "tag": "0006_rebrand_metric_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786623175543,
+      "tag": "0007_drop_temporal_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786624386736,
+      "tag": "0008_create_missing_api_keys_and_schedules",
+      "breakpoints": true
+    }
+  ]
+}

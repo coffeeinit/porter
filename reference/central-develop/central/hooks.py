@@ -1,0 +1,415 @@
+app_name = "central"
+app_title = "Central"
+app_publisher = "frappe"
+app_description = "The one stop console for Frappe Cloud"
+app_email = "developers@frappe.io"
+app_license = "agpl-3.0"
+
+fixtures = [
+	"Capability",
+	# The trust-tier ladder (Beginner → Elite) with per-currency spend caps and
+	# promotion thresholds — reference data every team's caps resolve against.
+	"Trust Tier Level",
+	{"dt": "Team Role", "filters": [["is_system", "=", 1]]},
+	# Warpgate signs in through the Central OpenID Connect provider and checks the Atlas roles.
+	# Product Operators create and edit products; only System Managers delete them.
+	{
+		"dt": "Role",
+		"filters": [
+			["name", "in", ["Central User", "Atlas Host Access", "Atlas Warpgate Admin", "Product Operator"]]
+		],
+	},
+	"Notification Event Type",
+]
+
+email_css = ["/assets/central/css/email.css"]
+
+# The TypeScript UI owns the product route.
+website_route_rules = [
+	{"from_route": "/dashboard/<path:app_path>", "to_route": "dashboard"},
+]
+
+# Central is a website application. Portal users land in the console; Desk stays
+# reserved for users whose roles explicitly grant desk access.
+website_user_home_page = "dashboard"
+
+# Apps
+# ------------------
+
+# required_apps = []
+
+# Each item in the list will be shown as an app in the apps page
+# add_to_apps_screen = [
+# 	{
+# 		"name": "central",
+# 		"logo": "/assets/central/logo.png",
+# 		"title": "Central",
+# 		"route": "/central",
+# 		"has_permission": "central.api.permission.has_app_permission"
+# 	}
+# ]
+
+# Includes in <head>
+# ------------------
+
+# include js, css files in header of desk.html
+# app_include_css = "/assets/central/css/central.css"
+# app_include_js = "/assets/central/js/central.js"
+
+# include js, css files in header of web template
+# web_include_css = "/assets/central/css/central.css"
+# web_include_js = "/assets/central/js/central.js"
+
+# include custom scss in every website theme (without file extension ".scss")
+# website_theme_scss = "central/public/scss/website"
+
+# include js, css files in header of web form
+# webform_include_js = {"doctype": "public/js/doctype.js"}
+# webform_include_css = {"doctype": "public/css/doctype.css"}
+
+# include js in page
+# page_js = {"page" : "public/js/file.js"}
+
+# include js in doctype views
+# doctype_js = {"doctype" : "public/js/doctype.js"}
+# doctype_list_js = {"doctype" : "public/js/doctype_list.js"}
+# doctype_tree_js = {"doctype" : "public/js/doctype_tree.js"}
+# doctype_calendar_js = {"doctype" : "public/js/doctype_calendar.js"}
+
+# Svg Icons
+# ------------------
+# include app icons in desk
+# app_include_icons = "central/public/icons.svg"
+
+# Home Pages
+# ----------
+
+# application home page (will override Website Settings)
+# home_page = "login"
+
+# website user home page (by Role)
+# role_home_page = {
+# 	"Role": "home_page"
+# }
+
+# Generators
+# ----------
+
+# automatically create page for each record of this doctype
+# website_generators = ["Web Page"]
+
+# automatically load and sync documents of this doctype from downstream apps
+# importable_doctypes = [doctype_1]
+
+# Jinja
+# ----------
+
+# add methods and filters to jinja environment
+jinja = {
+	# The body of the Webhook that carries a team's tier to Grove (AI Settings).
+	"methods": ["central.services.ai.get_team_limits"],
+}
+
+# Installation
+# ------------
+
+# before_install = "central.install.before_install"
+# Seed the catalog taxonomy masters (Plan Category / Sub-Category / Resource Type) on a
+# fresh install — patches are skipped on fresh installs, so the seed can't live only
+# there. Idempotent (ADR 0007).
+#
+# `ensure_constraints` is here for exactly the same reason: a CHECK constraint declared
+# only in a patch would exist on migrated sites and be silently ABSENT on fresh ones.
+# The money invariants are a property of the schema, not of a site's history (ADR 0018).
+after_install = [
+	"central.infrastructure.doctype.blocked_domain.blocked_domain.seed_regional_domains",
+	"central.infrastructure.doctype.image_offering.image_offering.ensure_default_offerings",
+	"central.billing.catalog.taxonomy_setup.ensure_catalog_masters",
+	"central.billing.settings.ensure_snapshot_settings",
+	"central.billing.platform.constraints.ensure_constraints",
+	"central.billing.settings.ensure_welcome_credit_amounts",
+	"central.billing.gateways.setup.ensure_gateway_records",
+	"central.integrations.email_oauth.setup.ensure_email_oauth_providers",
+	"central.billing.navigation.ensure_workspace_sidebars",
+]
+
+# Uninstallation
+# ------------
+
+# before_uninstall = "central.uninstall.before_uninstall"
+# after_uninstall = "central.uninstall.after_uninstall"
+
+# Integration Setup
+# ------------------
+# To set up dependencies/integrations with other apps
+# Name of the app being installed is passed as an argument
+
+# before_app_install = "central.utils.before_app_install"
+# after_app_install = "central.utils.after_app_install"
+
+# Integration Cleanup
+# -------------------
+# To clean up dependencies/integrations with other apps
+# Name of the app being uninstalled is passed as an argument
+
+# before_app_uninstall = "central.utils.before_app_uninstall"
+# after_app_uninstall = "central.utils.after_app_uninstall"
+
+# Build
+# ------------------
+# To hook into the build process
+
+# after_build = "central.build.after_build"
+
+# Desk Notifications
+# ------------------
+# See frappe.core.notifications.get_notification_config
+
+# notification_config = "central.notifications.get_notification_config"
+
+# Permissions
+# -----------
+# Permissions evaluated in scripted ways
+
+# permission_query_conditions = {
+# 	"Event": "frappe.desk.doctype.event.event.get_permission_query_conditions",
+# }
+#
+# has_permission = {
+# 	"Event": "frappe.desk.doctype.event.event.has_permission",
+# }
+
+# Document Events
+# ---------------
+# Hook on document methods and events
+
+doc_events = {
+	"User": {
+		"validate": "central.users.validate_user_image",
+		"after_insert": "central.users.grant_central_user_role",
+	},
+	# A Billing Profile's level reaches Grove by the Webhook AI Settings keeps, with retries.
+	"Trust Tier Level": {
+		# A level's renamed label renames the Tier at Grove.
+		"on_update": "central.services.ai.on_level_update",
+	},
+	"Payment Method": {
+		"on_update": "central.signups.credit.on_payment_method_update",
+	},
+}
+
+# Scheduled Tasks
+# ---------------
+
+scheduler_events = {
+	"all": ["central.integrations.resource_actions.recover_requests"],
+	"cron": {
+		"* * * * *": [
+			"central.infrastructure.doctype.warpgate_access.warpgate_access.revoke_ended_access",
+		],
+		"*/10 * * * *": [
+			# Repair observed state through scoped regional reads.
+			"central.integrations.servers.reconcile",
+			"central.infrastructure.doctype.region.cargo_connection.register_pending_cargo",
+		],
+		# Retry proxy routes that failed or never ran, up to the attempt limit.
+		"*/5 * * * *": [
+			"central.infrastructure.doctype.site_domain.site_domain.retry_failed",
+			"central.infrastructure.doctype.site.site.record_ready_sites",
+			"central.infrastructure.doctype.site.site.poll_site_renames",
+			"central.infrastructure.doctype.vm_snapshot.vm_snapshot.sync_pending_snapshots",
+			"central.infrastructure.doctype.frappemail_service.frappemail_service.refill_mailboxes",
+		],
+	},
+	# Maintenance jobs run once per period at a time Frappe spreads across sites.
+	"hourly_maintenance": [
+		"central.infrastructure.doctype.vm_snapshot.vm_snapshot.delete_expired_snapshots",
+	],
+	"daily_long": [
+		"central.infrastructure.doctype.vm_snapshot.vm_snapshot.take_automatic_snapshots",
+	],
+	"daily": [
+		"central.identity.doctype.team_invitation.team_invitation.expire_pending_invitations",
+		"central.signups.trial.run_trials",
+		"central.billing.revenue.dunning.run_dunning",
+		"central.billing.payments.charges.cleanup_payment_logs",
+		"central.billing.projection.batch.prune",
+		"central.billing.payments.emandate.run_emandate_cycle",
+		"central.billing.catalog.subscriptions.backfill_missing_subscriptions",
+		"central.billing.payments.settlement.run_billing_details_reminder",
+		"central.billing.revenue.credits.run_credit_expiry",
+		"central.billing.revenue.gst_status.run_gst_status_refresh",
+		"central.billing.ingester.customer.sync_pending_profiles",
+		"central.billing.ingester.advance.sync_pending_advances",
+		"central.billing.revenue.storage_usage.record_storage_usage",
+		"central.billing.platform.invariants.run_invariant_audit",
+	],
+	"hourly": [
+		"central.billing.revenue.invoicing.collect_due_invoices",
+		"central.billing.ingester.erpnext_sync.retry_failed_syncs",
+		"central.billing.payments.reconciliation.run_reconciliation",
+		"central.billing.payments.webhooks.retry_failed_webhooks",
+		"central.billing.platform.alerts.run_operator_alerts",
+		"central.signups.alerts.alert_failed_signups",
+	],
+	"monthly": [
+		"central.billing.revenue.invoicing.draft_monthly_invoices",
+		"central.billing.payments.payments.expire_payment_methods",
+	],
+}
+
+after_migrate = [
+	"central.infrastructure.doctype.blocked_domain.blocked_domain.seed_regional_domains",
+	"central.billing.catalog.taxonomy_setup.ensure_catalog_masters",
+	"central.billing.settings.ensure_snapshot_settings",
+	"central.billing.platform.constraints.ensure_constraints",
+	"central.billing.gateways.setup.ensure_gateway_records",
+	"central.integrations.email_oauth.setup.ensure_email_oauth_providers",
+	"central.billing.navigation.ensure_workspace_sidebars",
+	# The Webhook that carries a team's tier to Grove, so an edit to its spec rolls out.
+	"central.services.doctype.ai_settings.ai_settings.sync_webhook",
+]
+
+# Testing
+# -------
+
+# Tests run on a fresh site (patches skipped), so seed the taxonomy masters the test
+# fixtures depend on — and apply the money constraints — before the suite runs.
+before_tests = [
+	"central.billing.catalog.taxonomy_setup.ensure_catalog_masters",
+	"central.billing.settings.ensure_snapshot_settings",
+	"central.billing.platform.constraints.ensure_constraints",
+	"central.billing.settings.ensure_welcome_credit_amounts",
+	"central.billing.gateways.setup.ensure_gateway_records",
+	"central.integrations.email_oauth.setup.ensure_email_oauth_providers",
+	"central.billing.navigation.ensure_workspace_sidebars",
+]
+
+# Extend DocType Class
+# ------------------------------
+#
+# Specify custom mixins to extend the standard doctype controller.
+# extend_doctype_class = {
+# 	"Task": "central.custom.task.CustomTaskMixin"
+# }
+
+# Overriding Methods
+# ------------------------------
+#
+# override_whitelisted_methods = {
+# 	"frappe.desk.doctype.event.event.get_events": "central.event.get_events"
+# }
+override_whitelisted_methods = {
+	"frappe.realtime.has_permission": "central.permissions.realtime_has_permission",
+}
+#
+# each overriding function accepts a `data` argument;
+# generated from the base implementation of the doctype dashboard,
+# along with any modifications made in other Frappe apps
+# override_doctype_dashboards = {
+# 	"Task": "central.task.get_dashboard_data"
+# }
+override_doctype_dashboards = {
+	"Currency": "central.billing.api.dashboard_overrides.currency_dashboard",
+}
+
+# exempt linked doctypes from being automatically cancelled
+#
+# auto_cancel_exempted_doctypes = ["Auto Repeat"]
+
+# Ignore links to specified DocTypes when deleting documents
+# -----------------------------------------------------------
+
+# ignore_links_on_delete = ["Communication", "ToDo"]
+
+# Request Events
+# ----------------
+before_request = ["central.oidc.take_client_credentials"]
+# after_request = ["central.utils.after_request"]
+
+# The OpenID Connect discovery document of the Central issuer.
+page_renderer = ["central.oidc.DiscoveryPage"]
+
+# Job Events
+# ----------
+# before_job = ["central.utils.before_job"]
+# after_job = ["central.utils.after_job"]
+
+# User Data Protection
+# --------------------
+
+# user_data_fields = [
+# 	{
+# 		"doctype": "{doctype_1}",
+# 		"filter_by": "{filter_by}",
+# 		"redact_fields": ["{field_1}", "{field_2}"],
+# 		"partial": 1,
+# 	},
+# 	{
+# 		"doctype": "{doctype_2}",
+# 		"filter_by": "{filter_by}",
+# 		"partial": 1,
+# 	},
+# 	{
+# 		"doctype": "{doctype_3}",
+# 		"strict": False,
+# 	},
+# 	{
+# 		"doctype": "{doctype_4}"
+# 	}
+# ]
+
+# Authentication and authorization
+
+permission_query_conditions = {
+	"Team SSH Key": "central.permissions.team_ssh_key_query_conditions",
+	"Virtual Machine": "central.permissions.server_query_conditions",
+	"Pilot Credential": "central.permissions.pilot_credential_query_conditions",
+	"Resource Action": "central.permissions.resource_action_query_conditions",
+	"Site": "central.permissions.site_query_conditions",
+	"Site Domain": "central.permissions.site_domain_query_conditions",
+	"Team": "central.permissions.team_query_conditions",
+	"Team Invitation": "central.permissions.team_invitation_query_conditions",
+	"Team Notification": "central.permissions.team_notification_query_conditions",
+	"Team Role": "central.permissions.team_role_query_conditions",
+	"Team Service": "central.permissions.team_service_query_conditions",
+	"User Notification Preference": "central.permissions.user_notification_preference_query_conditions",
+	"VM Snapshot": "central.permissions.vm_snapshot_query_conditions",
+}
+
+has_permission = {
+	"Team SSH Key": "central.permissions.team_ssh_key_has_permission",
+	"Virtual Machine": "central.permissions.server_has_permission",
+	"Pilot Credential": "central.permissions.pilot_credential_has_permission",
+	"Resource Action": "central.permissions.resource_action_has_permission",
+	"Site": "central.permissions.site_has_permission",
+	"Site Domain": "central.permissions.site_domain_has_permission",
+	"Team": "central.permissions.team_has_permission",
+	"Team Invitation": "central.permissions.team_invitation_has_permission",
+	"Team Notification": "central.permissions.team_notification_has_permission",
+	"Team Role": "central.permissions.team_role_has_permission",
+	"Team Service": "central.permissions.team_service_has_permission",
+	"User Notification Preference": "central.permissions.user_notification_preference_has_permission",
+	"VM Snapshot": "central.permissions.vm_snapshot_has_permission",
+}
+
+# --------------------------------
+
+# auth_hooks = [
+# 	"central.auth.validate"
+# ]
+
+# Automatically update python controller files with type annotations for this app.
+export_python_type_annotations = True
+
+# Require all whitelisted methods to have type annotations
+require_type_annotated_api_methods = True
+
+# default_log_clearing_doctypes = {
+# 	"Logging DocType Name": 30  # days to retain logs
+# }
+
+# Translation
+# ------------
+# List of apps whose translatable strings should be excluded from this app's translations.
+# ignore_translatable_strings_from = []

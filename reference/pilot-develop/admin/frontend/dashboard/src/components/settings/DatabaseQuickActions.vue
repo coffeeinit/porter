@@ -1,0 +1,559 @@
+<script setup lang="ts">
+import { Button, Dialog, ErrorMessage, Spinner, Switch, TextInput, Tooltip } from 'frappe-ui'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+
+import SettingsRow from '@/components/settings/SettingsRow.vue'
+
+import { databaseApi } from '@/api/database'
+import { openTaskDetailPage } from '@/utils/taskRoute'
+import type { DatabaseActionCapabilities, DatabaseCapabilities } from '@/types/database'
+import { errorMessage } from '@/utils/error'
+
+// The five capability payloads share available/reason and differ past that, so one
+// reader type keeps them and the unavailable fallback interchangeable.
+interface ActionCapability {
+  available: boolean
+  reason: string
+  requires_restart?: boolean
+  enabled?: boolean | null
+  current?: number | null
+  min?: number | null
+  max?: number | null
+  recommended?: number | null
+  current_mb?: number | null
+  min_mb?: number | null
+  max_mb?: number | null
+  recommended_mb?: number | null
+  dynamic_max_mb?: number | null
+  unit?: 'MB'
+}
+
+interface ConfirmationBase {
+  title: string
+  buttonLabel: string
+  message: string
+  idempotencyKey: string
+}
+
+interface RestartConfirmation extends ConfirmationBase {
+  action: 'restart'
+}
+
+interface PerformanceSchemaConfirmation extends ConfirmationBase {
+  action: 'performance_schema'
+  enabled: boolean
+}
+
+interface PendingSizing {
+  action: 'innodb_buffer_pool_size' | 'max_connections'
+  title: string
+  inputLabel: string
+  current: number | null
+  recommended: number | null
+  min: number | null
+  max: number | null
+  dynamicMax: number | null
+  unit: string
+  idempotencyKey: string
+}
+
+const router = useRouter()
+
+const loading = ref(false)
+const capabilities = ref<DatabaseCapabilities | null>(null)
+const error = ref('')
+const actionError = ref('')
+const activeAction = ref('')
+const confirmation = ref<RestartConfirmation | PerformanceSchemaConfirmation | null>(null)
+const sizingAction = ref<PendingSizing | null>(null)
+const sizingValue = ref<number | string>('')
+
+const confirmationOpen = computed({
+  get: () => Boolean(confirmation.value),
+  set: (value) => {
+    if (!value && !activeAction.value) confirmation.value = null
+  },
+})
+const confirmationTitle = computed(() => confirmation.value?.title || 'Database action')
+const sizingOpen = computed({
+  get: () => Boolean(sizingAction.value),
+  set: (value) => {
+    if (!value && !activeAction.value) sizingAction.value = null
+  },
+})
+const sizingTitle = computed(() => sizingAction.value?.title || 'Update database setting')
+const sizingValidationError = computed(() => {
+  const pending = sizingAction.value
+  if (!pending) return ''
+
+  const value = sizingValue.value
+
+  if (typeof value !== 'number' || !Number.isInteger(value)) return 'Enter a whole number.'
+  if (
+    (pending.min !== null && value < pending.min) ||
+    (pending.max !== null && value > pending.max)
+  ) {
+    return `Enter a value between ${pending.min} and ${pending.max}.`
+  }
+  return ''
+})
+const sizingRequiresRestart = computed(() => {
+  const pending = sizingAction.value
+  if (pending?.action !== 'innodb_buffer_pool_size') return false
+
+  return (
+    pending.dynamicMax !== null &&
+    Number.isFinite(pending.dynamicMax) &&
+    typeof sizingValue.value === 'number' &&
+    sizingValue.value > pending.dynamicMax
+  )
+})
+const sizingUnchanged = computed(
+  () => sizingAction.value !== null && sizingValue.value === sizingAction.value.current,
+)
+const showManagedMariaDBDisclaimer = computed(
+  () =>
+    capabilities.value !== null &&
+    (capabilities.value.engine !== 'mariadb' || !capabilities.value.managed),
+)
+const bufferPoolDescription = computed(() => {
+  const capability = action('innodb_buffer_pool_size')
+  const description = ''
+  if (!capability.available) return description
+  return `${description} Current: ${formatSizingValue(capability.current_mb, 'MB')}`
+})
+const maxConnectionsDescription = computed(() => {
+  const current = action('max_connections').current
+  return `Current: ${Number.isInteger(current) ? current : 'unavailable'}`
+})
+
+const action = (name: keyof DatabaseActionCapabilities): ActionCapability => {
+  return (
+    capabilities.value?.actions?.[name] || {
+      available: false,
+      reason: 'Database capabilities are unavailable.',
+    }
+  )
+}
+
+const formatSizingValue = (value: number | null | undefined, unit = '') => {
+  return `${value}${unit ? ` ${unit}` : ''}`
+}
+
+const idempotencyKey = (actionName: string) => {
+  const random = globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2)
+  return `database-${actionName}-${Date.now()}-${random}`
+}
+
+const confirmRestart = () => {
+  actionError.value = ''
+  confirmation.value = {
+    action: 'restart',
+    title: 'Restart MariaDB',
+    buttonLabel: 'Restart MariaDB',
+    message:
+      'Sites, web requests, workers, and scheduled jobs may briefly lose their database connection.',
+    idempotencyKey: idempotencyKey('restart'),
+  }
+}
+
+const confirmPerformanceSchema = (enabled: boolean) => {
+  if (action('performance_schema').enabled === enabled) return
+  actionError.value = ''
+  confirmation.value = {
+    action: 'performance_schema',
+    enabled,
+    title: `${enabled ? 'Enable' : 'Disable'} Performance Schema`,
+    buttonLabel: `${enabled ? 'Enable' : 'Disable'} and restart`,
+    message: `Pilot will ${enabled ? 'enable' : 'disable'} Performance Schema and restart MariaDB. Sites, web requests, workers, and scheduled jobs may briefly lose their database connection.`,
+    idempotencyKey: idempotencyKey(`performance-${enabled ? 'on' : 'off'}`),
+  }
+}
+
+const openSizingAction = (actionName: 'innodb_buffer_pool_size' | 'max_connections') => {
+  actionError.value = ''
+  const capability = action(actionName)
+  if (!capability.available) return
+  if (actionName === 'innodb_buffer_pool_size') {
+    sizingValue.value = capability.current_mb ?? ''
+    sizingAction.value = {
+      action: actionName,
+      title: 'Update InnoDB Buffer Pool Size',
+      inputLabel: 'Buffer Pool size (MB)',
+      current: capability.current_mb ?? null,
+      recommended: capability.recommended_mb ?? null,
+      min: capability.min_mb ?? null,
+      max: capability.max_mb ?? null,
+      dynamicMax: capability.dynamic_max_mb ?? null,
+      unit: 'MB',
+      idempotencyKey: idempotencyKey('innodb-buffer-pool-size'),
+    }
+    return
+  }
+  sizingValue.value = capability.current ?? ''
+  sizingAction.value = {
+    action: actionName,
+    title: 'Update Max DB Connections',
+    inputLabel: 'Maximum connections',
+    current: capability.current ?? null,
+    recommended: capability.recommended ?? null,
+    min: capability.min ?? null,
+    max: capability.max ?? null,
+    dynamicMax: null,
+    unit: '',
+    idempotencyKey: idempotencyKey('max-connections'),
+  }
+}
+
+const runConfirmedAction = async () => {
+  if (!confirmation.value || activeAction.value) return
+  const pending = confirmation.value
+  activeAction.value = pending.action
+  actionError.value = ''
+  try {
+    const task =
+      pending.action === 'restart'
+        ? await databaseApi.quickActions.restart(pending.idempotencyKey)
+        : await databaseApi.quickActions.setPerformanceSchema(
+            pending.enabled,
+            pending.idempotencyKey,
+          )
+    confirmation.value = null
+    openTaskDetailPage(router, task.task_id)
+  } catch (e) {
+    actionError.value = errorMessage(e, 'Could not start the database action.')
+  } finally {
+    activeAction.value = ''
+  }
+}
+
+const runSizingAction = async () => {
+  if (
+    !sizingAction.value ||
+    sizingValidationError.value ||
+    sizingUnchanged.value ||
+    activeAction.value
+  )
+    return
+  const pending = sizingAction.value
+  const size = sizingValue.value
+  if (typeof size !== 'number') return
+
+  activeAction.value = pending.action
+  actionError.value = ''
+  try {
+    const task =
+      pending.action === 'innodb_buffer_pool_size'
+        ? await databaseApi.quickActions.setInnoDBBufferPoolSize(size, pending.idempotencyKey)
+        : await databaseApi.quickActions.setMaxConnections(size, pending.idempotencyKey)
+    sizingAction.value = null
+    openTaskDetailPage(router, task.task_id)
+  } catch (e) {
+    actionError.value = errorMessage(e, 'Could not start the database action.')
+  } finally {
+    activeAction.value = ''
+  }
+}
+
+const memoryShare = computed(() => capabilities.value?.actions.memory_share ?? null)
+const memorySplitOpen = ref(false)
+const memorySplitPercent = ref(50)
+const memorySplitIdempotencyKey = ref('')
+
+const formatGB = (mb: number) => `${(mb / 1024).toFixed(1)} GB`
+const sharePercent = (share: number) => Math.round(share * 100)
+
+const memorySplitDescription = computed(() => {
+  const capability = memoryShare.value
+  if (!capability?.available || capability.current == null || !capability.total_memory_mb) {
+    return capability?.reason || 'Choose how much memory the database may use.'
+  }
+  const database = sharePercent(capability.current)
+  return `Apps ${100 - database}% · Database ${database}% of ${formatGB(capability.total_memory_mb)}`
+})
+
+const memorySplitStep = computed(() =>
+  memoryShare.value?.steps.find((step) => sharePercent(step.share) === memorySplitPercent.value),
+)
+
+const openMemorySplit = () => {
+  const capability = memoryShare.value
+  if (!capability?.available || capability.current == null) return
+  actionError.value = ''
+  memorySplitPercent.value = sharePercent(capability.current)
+  memorySplitIdempotencyKey.value = idempotencyKey('memory-share')
+  memorySplitOpen.value = true
+}
+
+const applyMemorySplit = async () => {
+  if (activeAction.value) return
+  activeAction.value = 'memory_share'
+  actionError.value = ''
+  try {
+    const task = await databaseApi.quickActions.setMemoryShare(
+      memorySplitPercent.value / 100,
+      memorySplitIdempotencyKey.value,
+    )
+    memorySplitOpen.value = false
+    openTaskDetailPage(router, task.task_id)
+  } catch (e) {
+    actionError.value = errorMessage(e, 'Could not change the memory split.')
+  } finally {
+    activeAction.value = ''
+  }
+}
+
+const openBinlogs = () => {
+  router.push('/database/analyzer')
+}
+
+const load = async () => {
+  if (loading.value) return
+  loading.value = true
+  error.value = ''
+  try {
+    capabilities.value = await databaseApi.quickActions.capabilities()
+  } catch (e) {
+    capabilities.value = null
+    error.value = errorMessage(e, 'Could not load database capabilities.')
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(load)
+</script>
+
+<template>
+  <Teleport defer to="#settings-header-actions">
+    <Tooltip text="Refresh database capabilities">
+      <Button
+        variant="ghost"
+        icon="lucide-refresh-cw"
+        :loading="loading"
+        aria-label="Refresh database capabilities"
+        @click="load"
+      />
+    </Tooltip>
+  </Teleport>
+
+  <div v-if="loading && !capabilities" class="flex justify-center items-center h-40">
+    <Spinner size="lg" class="text-ink-gray-4" />
+  </div>
+
+  <template v-else>
+  <ErrorMessage v-if="error" :message="error" class="mb-4" />
+
+  <div
+    v-if="showManagedMariaDBDisclaimer"
+    class="my-4 border rounded border-outline-gray-2 bg-surface-gray-1 p-2 text-ink-gray-7 text-sm flex"
+  >
+    <span
+      class="size-4 text-ink-gray-5 lucide-circle-alert inline-block mr-2"
+      aria-hidden="true"
+    />
+    Database actions are available only for Pilot-managed MariaDB instances.
+  </div>
+
+  <div v-if="capabilities" class="divide-y divide-outline-alpha-gray-1">
+    <SettingsRow
+      class="!ps-0"
+      label="Performance Schema"
+      description="Collect database instrumentation for deeper performance diagnostics."
+    >
+      <Switch
+        :model-value="Boolean(action('performance_schema').enabled)"
+        :disabled="!action('performance_schema').available || Boolean(activeAction)"
+        aria-label="Performance Schema"
+        @update:model-value="confirmPerformanceSchema"
+      />
+    </SettingsRow>
+
+    <SettingsRow
+      class="!ps-0"
+      label="Update InnoDB Buffer Pool Size"
+      :description="bufferPoolDescription"
+    >
+      <Button
+        variant="ghost"
+        icon="lucide-pencil"
+        :disabled="!action('innodb_buffer_pool_size').available || Boolean(activeAction)"
+        @click="openSizingAction('innodb_buffer_pool_size')"
+      />
+    </SettingsRow>
+
+    <SettingsRow
+      class="!ps-0"
+      label="Update Max DB Connections"
+      :description="maxConnectionsDescription"
+    >
+      <Button
+        variant="ghost"
+        icon="lucide-pencil"
+        :disabled="!action('max_connections').available || Boolean(activeAction)"
+        @click="openSizingAction('max_connections')"
+      />
+    </SettingsRow>
+
+    <SettingsRow class="!ps-0" label="Memory split" :description="memorySplitDescription">
+      <Button
+        variant="ghost"
+        icon="lucide-pencil"
+        :disabled="!memoryShare?.available || Boolean(activeAction)"
+        @click="openMemorySplit"
+      />
+    </SettingsRow>
+
+    <SettingsRow
+      class="!ps-0"
+      label="Manage Binlogs"
+      description="Inspect binary logs and safely purge complete log ranges."
+    >
+      <Button
+        :disabled="!action('manage_binlogs').available"
+        @click="openBinlogs"
+      >
+        View
+      </Button>
+    </SettingsRow>
+
+    <SettingsRow
+      class="!ps-0"
+      label="Restart MariaDB"
+      description="Restart the database service and verify that it accepts connections."
+    >
+      <Button
+        :disabled="!action('restart').available || Boolean(activeAction)"
+        :loading="activeAction === 'restart'"
+        @click="confirmRestart"
+      >
+        Restart
+      </Button>
+    </SettingsRow>
+  </div>
+  </template>
+
+  <Dialog v-model="confirmationOpen" :title="confirmationTitle" size="sm">
+    <p v-if="confirmation?.message" class="text-ink-gray-7 text-p-sm">
+      {{ confirmation.message }}
+    </p>
+
+    <ErrorMessage v-if="actionError" :message="actionError" class="mt-3" />
+    <template #actions>
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" :disabled="Boolean(activeAction)" @click="confirmationOpen = false">
+          Cancel
+        </Button>
+
+        <Button variant="solid" :loading="Boolean(activeAction)" @click="runConfirmedAction">
+          {{ confirmation?.buttonLabel }}
+        </Button>
+      </div>
+    </template>
+  </Dialog>
+
+  <Dialog v-model="memorySplitOpen" title="Memory split" size="sm">
+    <div v-if="memoryShare?.total_memory_mb" class="space-y-4">
+      <p class="text-ink-gray-7 text-p-sm">
+        Choose how much memory the database may use. The rest stays for web, workers and Redis.
+      </p>
+
+      <input
+        v-model.number="memorySplitPercent"
+        type="range"
+        class="w-full accent-[var(--surface-gray-7)]"
+        :min="sharePercent(memoryShare.min ?? 0.2)"
+        :max="sharePercent(memoryShare.max ?? 0.8)"
+        step="5"
+        aria-label="Database share of host memory"
+      />
+      <div class="flex justify-between text-ink-gray-6 text-sm">
+        <span>
+          Apps {{ formatGB((memoryShare.total_memory_mb * (100 - memorySplitPercent)) / 100) }}
+        </span>
+        <span>
+          Database {{ formatGB((memoryShare.total_memory_mb * memorySplitPercent) / 100) }}
+        </span>
+      </div>
+
+      <div v-if="memorySplitStep" class="text-ink-gray-7 text-sm divide-y divide-outline-alpha-gray-1">
+        <div class="flex justify-between py-1.5">
+          <span>InnoDB buffer pool</span>
+          <span>{{ memorySplitStep.innodb_buffer_pool_mb }} MB</span>
+        </div>
+        <div class="flex justify-between py-1.5">
+          <span>Database memory limit (MemoryMax)</span>
+          <span>{{ memorySplitStep.memory_max_mb }} MB</span>
+        </div>
+      </div>
+
+      <p class="text-ink-gray-5 text-p-xs">
+        Applies now. A larger buffer pool than the running server allows takes effect at its next
+        restart.
+      </p>
+
+      <ErrorMessage v-if="actionError" :message="actionError" />
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" :disabled="Boolean(activeAction)" @click="memorySplitOpen = false">
+          Cancel
+        </Button>
+        <Button
+          variant="solid"
+          :loading="activeAction === 'memory_share'"
+          :disabled="sharePercent(memoryShare.current ?? 0) === memorySplitPercent"
+          @click="applyMemorySplit"
+        >
+          Apply
+        </Button>
+      </div>
+    </div>
+  </Dialog>
+
+  <Dialog v-model="sizingOpen" :title="sizingTitle" size="sm">
+    <div v-if="sizingAction" class="space-y-4">
+      <TextInput
+        v-model.number="sizingValue"
+        type="number"
+        :label="sizingAction.inputLabel"
+        :min="sizingAction.min"
+        :max="sizingAction.max"
+        step="1"
+        autocomplete="off"
+      />
+      <div class="text-ink-gray-6 text-sm">
+        <p>
+          Recommended:
+          {{ formatSizingValue(sizingAction.recommended, sizingAction.unit) }}
+        </p>
+
+        <p>
+          Allowed: {{ formatSizingValue(sizingAction.min, sizingAction.unit) }} to
+          {{ formatSizingValue(sizingAction.max, sizingAction.unit) }}
+        </p>
+      </div>
+
+      <p v-if="sizingRequiresRestart" class="text-ink-orange-6 text-p-sm">
+        MariaDB will restart because this value is above its current live Buffer Pool ceiling of
+        {{ formatSizingValue(sizingAction.dynamicMax, 'MB') }}.
+      </p>
+
+      <ErrorMessage v-if="sizingValidationError" :message="sizingValidationError" />
+      <ErrorMessage v-if="actionError" :message="actionError" />
+      <div class="flex justify-end gap-2">
+        <Button variant="ghost" :disabled="Boolean(activeAction)" @click="sizingOpen = false">
+          Cancel
+        </Button>
+
+        <Button
+          variant="solid"
+          :loading="Boolean(activeAction)"
+          :disabled="Boolean(sizingValidationError) || sizingUnchanged"
+          @click="runSizingAction"
+        >
+          {{ sizingRequiresRestart ? 'Update and restart' : 'Update' }}
+        </Button>
+      </div>
+    </div>
+  </Dialog>
+</template>

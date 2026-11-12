@@ -1,0 +1,240 @@
+"""Tests for reloading the dev bench's web process without touching admin."""
+
+from __future__ import annotations
+
+import signal
+import subprocess
+import sys
+from pathlib import Path
+from unittest.mock import ANY
+
+import pytest
+
+from pilot.managers.processes.definitions import ProcessDefinition
+from pilot.managers.processes.local import ProcessManager
+from tests.pilot.managers.test_managers_extra import make_bench
+
+
+def _manager(tmp_path: Path, monkeypatch) -> ProcessManager:
+    bench = make_bench(tmp_path)
+    bench.pids_path.mkdir(parents=True, exist_ok=True)
+    manager = ProcessManager(bench)
+    monkeypatch.setattr(manager, "_clear_frappe_cache", lambda: None)
+    return manager
+
+
+def test_reload_workers_is_a_noop_when_the_bench_is_stopped(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+
+    manager.reload_workers(web_only=True)
+
+    assert not manager.reload_request_file.exists()
+
+
+def test_reload_workers_queues_a_web_request(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    monkeypatch.setattr(manager, "is_running", lambda: True)
+
+    manager.reload_workers(web_only=True)
+
+    assert manager.reload_request_file.read_text() == "web"
+
+
+def _definition(name: str) -> ProcessDefinition:
+    return ProcessDefinition(name=name, argv=["true"], log_file=Path("/dev/null"))
+
+
+def test_reload_request_restarts_web_but_not_admin(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    definitions = {name: _definition(name) for name in ("web", "admin")}
+    manager._procs = {name: subprocess.Popen(["sleep", "30"]) for name in definitions}
+    originals = {name: proc.pid for name, proc in manager._procs.items()}
+
+    terminated: list[int] = []
+    monkeypatch.setattr(manager, "_terminate", lambda proc: terminated.append(proc.pid))
+    monkeypatch.setattr(manager, "_spawn", lambda pd: manager._procs.__setitem__(pd.name, "restarted"))
+
+    manager.reload_request_file.write_text("web")
+    manager._apply_reload_request(definitions)
+
+    assert terminated == [originals["web"]]
+    assert manager._procs["web"] == "restarted"
+    assert manager._procs["admin"].pid == originals["admin"]
+    assert not manager.reload_request_file.exists()
+
+    for proc in manager._procs.values():
+        if isinstance(proc, subprocess.Popen):
+            proc.kill()
+
+
+def test_workload_reload_skips_admin_and_redis(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    names = ("web", "socketio", "worker_default_1", "admin", "admin-ui", "redis_cache", "redis_queue")
+    definitions = {name: _definition(name) for name in names}
+    manager._procs = dict.fromkeys(definitions, "running")
+
+    restarted: list[str] = []
+    monkeypatch.setattr(manager, "_terminate", lambda proc: None)
+    monkeypatch.setattr(manager, "_spawn", lambda pd: restarted.append(pd.name))
+
+    manager.reload_request_file.write_text("workload")
+    manager._apply_reload_request(definitions)
+
+    assert restarted == ["web", "socketio", "worker_default_1"]
+
+
+def test_tasks_that_change_bench_apps_declare_a_single_reload_callback() -> None:
+    """One reload per task, not one per app - installing an app plus its
+    dependencies must not restart the workload several times."""
+    from unittest.mock import MagicMock
+
+    from pilot.tasks.callbacks import task_callbacks_for
+    from pilot.tasks.get_app import GetAppTask
+    from pilot.tasks.remove_app import RemoveAppTask
+    from pilot.tasks.switch_branch import SwitchBranchTask
+
+    tasks = [
+        GetAppTask(bench=MagicMock(), bench_root=Path("/tmp/bench"), repo="lms"),
+        RemoveAppTask(bench=MagicMock(), bench_root=Path("/tmp/bench"), name="lms"),
+        SwitchBranchTask(bench=MagicMock(), bench_root=Path("/tmp/bench"), name="lms", branch="main"),
+    ]
+
+    for task in tasks:
+        assert task_callbacks_for(task)["on_success"] == {
+            "operation": "reload-workers",
+            "args": {"web_only": False},
+        }
+
+
+def test_site_app_tasks_clear_the_site_cache_instead_of_reloading() -> None:
+    """The app is already importable, so a restart buys nothing over a cache clear."""
+    from unittest.mock import MagicMock
+
+    from pilot.tasks.callbacks import task_callbacks_for
+    from pilot.tasks.install_app import InstallAppTask
+    from pilot.tasks.uninstall_app import UninstallAppTask
+
+    for task in (
+        InstallAppTask(bench=MagicMock(), bench_root=Path("/tmp/bench"), site="a.local", app="lms"),
+        UninstallAppTask(bench=MagicMock(), bench_root=Path("/tmp/bench"), site="a.local", app="lms"),
+    ):
+        assert "on_success" not in task_callbacks_for(task)
+
+
+def test_reload_workers_callback_is_registered() -> None:
+    from pilot.internal.tasks.callbacks import validate_callback
+
+    assert validate_callback({"operation": "reload-workers", "args": {"web_only": False}}) == {
+        "operation": "reload-workers",
+        "args": {"web_only": False},
+    }
+
+
+def test_reload_workers_callback_reloads_the_bench(tmp_path: Path, monkeypatch) -> None:
+    from pilot.core.bench import Bench
+    from pilot.internal.tasks.callbacks import run_callback
+
+    make_bench(tmp_path).config.write(tmp_path)
+    scopes: list[tuple[bool, bool]] = []
+    monkeypatch.setattr(
+        Bench, "reload_workers", lambda self, web_only=False, raises=False: scopes.append((web_only, raises))
+    )
+
+    run_callback({"operation": "reload-workers", "args": {"web_only": False}}, {"bench_root": str(tmp_path)})
+
+    assert scopes == [(False, True)]
+
+
+def test_get_and_install_reloads_before_installing_on_the_site(tmp_path: Path) -> None:
+    """install-app enqueues jobs importing the new app, so the workers have to
+    restart first - reloading only after the task leaves them crashing on import."""
+    from unittest.mock import MagicMock, call, patch
+
+    from pilot.tasks.get_and_install_app import GetAndInstallAppTask
+
+    task = GetAndInstallAppTask(
+        bench=MagicMock(), bench_root=tmp_path, marketplace_app="erpnext", site="a.local"
+    )
+    order = MagicMock()
+    task.bench.reload_workers = order.reload
+
+    with (
+        patch.object(task, "fetch", return_value=MagicMock()),
+        patch.object(task, "install_on_sites", order.install),
+    ):
+        task.run()
+
+    assert order.mock_calls == [call.reload(raises=True), call.install(ANY)]
+
+
+def test_stop_all_stops_redis_after_the_workload(tmp_path: Path, monkeypatch) -> None:
+    """Redis outlives its clients; killing it first makes them log a lost connection."""
+    manager = _manager(tmp_path, monkeypatch)
+    manager._procs = dict.fromkeys(("web", "redis_cache", "admin", "redis_queue"), "running")
+
+    waves: list[list[str]] = []
+    monkeypatch.setattr(manager, "_stop_group", lambda names: waves.append(names))
+
+    manager._stop_all()
+
+    assert waves == [["web", "admin"], ["redis_cache", "redis_queue"]]
+
+
+def test_dev_child_cannot_consume_the_launchers_script_input(tmp_path: Path) -> None:
+    output = tmp_path / "child-input"
+    script = """
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from pilot.managers.processes.definitions import ProcessDefinition
+from pilot.managers.processes.local import ProcessManager
+
+bench = SimpleNamespace(config=SimpleNamespace(watch_admin_js=False), pids_path=Path(sys.argv[1]))
+manager = ProcessManager(bench)
+definition = ProcessDefinition(
+    name="probe",
+    argv=[sys.executable, "-c",
+          "import sys; from pathlib import Path; Path(sys.argv[1]).write_text(sys.stdin.read())",
+          sys.argv[2]],
+    log_file=Path(sys.argv[1]) / "probe.log",
+)
+manager._spawn(definition)
+assert manager._procs["probe"].wait(timeout=5) == 0
+"""
+    subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path), str(output)],
+        input="remaining migration script\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=True,
+    )
+
+    assert output.read_text() == ""
+
+
+def test_spawn_skips_a_noncritical_process_that_cannot_launch(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    missing = ProcessDefinition(
+        name="app-x", argv=["true"], log_file=Path("/dev/null"), working_dir=tmp_path / "gone", critical=False
+    )
+
+    manager._spawn(missing)
+
+    assert "app-x" not in manager._procs
+
+
+def test_failed_critical_launch_stops_the_running_processes(tmp_path: Path, monkeypatch) -> None:
+    manager = _manager(tmp_path, monkeypatch)
+    running = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    manager._procs = {"web": running}
+    missing = ProcessDefinition(
+        name="x", argv=["true"], log_file=Path("/dev/null"), working_dir=tmp_path / "gone"
+    )
+    sigterm = signal.getsignal(signal.SIGTERM)
+
+    with pytest.raises(OSError):
+        manager._run_processes([missing])
+
+    assert running.poll() is not None
+    assert signal.getsignal(signal.SIGTERM) is sigterm

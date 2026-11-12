@@ -1,0 +1,213 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-06-03 00:00:00",
+ "description": "The customer's subscription INTENT/contract on Central \u2014 not billing truth. Carries ONLY the Central-owned account_standing axis; operational state (running/stopped/terminated) is Agent-owned and lives nowhere here.",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "team",
+  "project",
+  "server_id",
+  "service_subject",
+  "vm_snapshot",
+  "public_ip_server",
+  "cluster",
+  "pricing_mode",
+  "plan",
+  "sub_category",
+  "billing_cycle",
+  "column_break_state",
+  "account_standing",
+  "stopped_for_nonpayment",
+  "start_date",
+  "section_break_payment",
+  "default_payment_method",
+  "gateway",
+  "section_break_composition",
+  "includes"
+ ],
+ "fields": [
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Team",
+   "options": "Team",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "description": "Optional: tag this subscription's server into a Project. It still bills on the team's one consolidated invoice, broken out there by project.",
+   "fieldname": "project",
+   "fieldtype": "Link",
+   "in_preview": 1,
+   "label": "Project",
+   "options": "Project"
+  },
+  {
+   "default": "Preset",
+   "description": "Preset links a curated Plan at its flat rate; Composed prices a design-your-own config from its parts (ADR 0009).",
+   "fieldname": "pricing_mode",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Pricing Mode",
+   "options": "Preset\nComposed"
+  },
+  {
+   "depends_on": "eval:doc.pricing_mode != 'Composed'",
+   "description": "Requested plan (intent). Set for Preset mode only.",
+   "fieldname": "plan",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Plan",
+   "options": "Plan"
+  },
+  {
+   "depends_on": "eval:doc.pricing_mode == 'Composed'",
+   "description": "Composed mode: the optimisation profile the composition is bounded by (#81), kept for resize re-validation (#82).",
+   "fieldname": "sub_category",
+   "fieldtype": "Link",
+   "label": "Optimisation Profile",
+   "options": "Plan Sub-Category"
+  },
+  {
+   "depends_on": "eval:doc.pricing_mode == 'Composed'",
+   "fieldname": "section_break_composition",
+   "fieldtype": "Section Break",
+   "label": "Composition"
+  },
+  {
+   "description": "Composed mode: the locked composition (qty per Resource Type) Central bills from. Empty for a preset.",
+   "fieldname": "includes",
+   "fieldtype": "Table",
+   "label": "Includes",
+   "options": "Plan Includes"
+  },
+  {
+   "fieldname": "billing_cycle",
+   "fieldtype": "Select",
+   "label": "Billing Cycle",
+   "options": "Monthly\nAnnual"
+  },
+  {
+   "fieldname": "column_break_state",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Current",
+   "description": "Central-owned financial axis, derived from payment. Orthogonal to the Agent-owned operational axis \u2014 never one combined enum.",
+   "fieldname": "account_standing",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Account Standing",
+   "options": "Current\nPast Due\nSuspended"
+  },
+  {
+   "default": "0",
+   "description": "Dunning stopped this server for an unpaid invoice. Paying the invoice starts it again.",
+   "fieldname": "stopped_for_nonpayment",
+   "fieldtype": "Check",
+   "label": "Stopped for Non-payment",
+   "read_only": 1
+  },
+  {
+   "fieldname": "start_date",
+   "fieldtype": "Date",
+   "label": "Start Date"
+  },
+  {
+   "fieldname": "section_break_payment",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "default_payment_method",
+   "fieldtype": "Link",
+   "label": "Default Payment Method",
+   "options": "Payment Method"
+  },
+  {
+   "fieldname": "gateway",
+   "fieldtype": "Link",
+   "label": "Gateway",
+   "options": "Payment Gateway"
+  },
+  {
+   "default": "0",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "label": "Enabled"
+  },
+  {
+   "fieldname": "server_id",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Server ID",
+   "options": "Virtual Machine"
+  },
+  {
+   "fetch_from": "server_id.region",
+   "fieldname": "cluster",
+   "fieldtype": "Read Only",
+   "label": "Cluster"
+  },
+  {
+   "description": "A team-level metered service's synthesized subject (ADR 0013/0015); mutually exclusive with server_id.",
+   "fieldname": "service_subject",
+   "fieldtype": "Data",
+   "label": "Service Subject",
+   "read_only": 1
+  },
+  {
+   "fieldname": "vm_snapshot",
+   "fieldtype": "Link",
+   "label": "VM Snapshot",
+   "options": "VM Snapshot",
+   "read_only": 1,
+   "description": "The snapshot a storage subscription bills. Mutually exclusive with server_id."
+  },
+  {
+   "fieldname": "public_ip_server",
+   "fieldtype": "Link",
+   "label": "Public IPv4 Of",
+   "options": "Virtual Machine",
+   "read_only": 1,
+   "description": "The server whose public IPv4 this subscription bills. Mutually exclusive with server_id."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Lifecycle",
+   "link_doctype": "Subscription Change",
+   "link_fieldname": "subscription"
+  }
+ ],
+ "modified": "2026-10-26 12:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Subscription",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

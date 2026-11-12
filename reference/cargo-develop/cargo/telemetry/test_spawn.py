@@ -1,0 +1,319 @@
+# Copyright (c) 2026, Aradhya-Tripathi and Contributors
+# See license.txt
+
+from unittest.mock import patch
+
+import frappe
+from frappe.tests import IntegrationTestCase
+
+from cargo.client_models import TELEMETRY
+from cargo.ssh import cache_key, live_output
+from cargo.telemetry.doctype.datum_server.datum_server import DatumServer
+from cargo.telemetry.spawn import (
+	CONFIG_KEY,
+	DATUM_FIELDS,
+	MAX_SETUP_ATTEMPTS,
+	OPTIONAL_DATUM_FIELDS,
+	ensure_telemetry,
+	validate_config,
+)
+from cargo.testing import SETTINGS, reset_datum_server, use_test_settings
+
+CONFIG = {
+	"repository": "https://github.com/frappe/datum",
+	"branch": "develop",
+	TELEMETRY: {"cpu_millicores": 2000, "ram_gb": 4, "disk_gb": 100},
+}
+
+
+class IntegrationTestTelemetryConfig(IntegrationTestCase):
+	"""What a region must be told before Cargo builds it a datum host."""
+
+	def refused(self, config: dict) -> bool:
+		try:
+			validate_config(config)
+			return False
+		except frappe.ValidationError:
+			return True
+
+	def test_the_config_this_region_would_build_from_is_accepted(self):
+		self.assertFalse(self.refused(CONFIG))
+
+	def test_anything_that_is_not_an_object_is_refused(self):
+		for config in ("a string", 3, [CONFIG]):
+			with self.subTest(config=config):
+				self.assertTrue(self.refused(config))
+
+	def test_a_datum_field_with_no_default_must_be_given(self):
+		"""The host cannot be inserted without these, and they have no default to fall back
+		on -- unlike clickhouse_port."""
+		for field in DATUM_FIELDS:
+			for value in (None, "", "   "):
+				with self.subTest(field=field, value=value):
+					self.assertTrue(self.refused({**CONFIG, field: value}))
+
+	def test_the_branch_and_commit_may_be_left_out(self):
+		self.assertFalse(self.refused({key: value for key, value in CONFIG.items() if key != "branch"}))
+
+	def test_a_branch_or_commit_that_is_given_must_be_set(self):
+		for field in OPTIONAL_DATUM_FIELDS:
+			for value in (None, "", "   ", 3):
+				with self.subTest(field=field, value=value):
+					self.assertTrue(self.refused({**CONFIG, field: value}))
+
+	def test_the_machine_to_run_it_on_must_be_described(self):
+		self.assertTrue(self.refused({key: value for key, value in CONFIG.items() if key != TELEMETRY}))
+
+	def test_a_machine_size_that_cannot_be_rented_is_refused(self):
+		for field in ("cpu_millicores", "ram_gb", "disk_gb"):
+			for value in (0, -1, "2", None):
+				with self.subTest(field=field, value=value):
+					self.assertTrue(self.refused({**CONFIG, TELEMETRY: {**CONFIG[TELEMETRY], field: value}}))
+
+	def test_a_host_told_nothing_builds_nothing(self):
+		with patch.dict(frappe.local.conf, {CONFIG_KEY: None}), patch.object(frappe, "get_doc") as made:
+			ensure_telemetry()
+
+		made.assert_not_called()
+
+	def test_an_unusable_config_is_logged_and_builds_nothing(self):
+		with (
+			patch.dict(frappe.local.conf, {CONFIG_KEY: {"repository": "only this"}}),
+			patch.object(frappe, "log_error") as logged,
+		):
+			ensure_telemetry()
+
+		self.assertIn(CONFIG_KEY, logged.call_args.kwargs["title"])
+
+
+class SpawnTestCase(IntegrationTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		use_test_settings()
+		frappe.db.delete("Machine")
+		reset_datum_server()
+
+	def configured(self, config: dict | None = CONFIG):
+		return patch.dict(frappe.local.conf, {CONFIG_KEY: config})
+
+	def atlas(self, image_id: str = "img-base"):
+		client = patch("cargo.atlas_client.AtlasClient.from_settings").start()
+		self.addCleanup(patch.stopall)
+		client.return_value.find_system_image.return_value = image_id
+		client.return_value.create_vm.side_effect = lambda **kwargs: {
+			"id": f"vm-{frappe.generate_hash(length=8)}"
+		}
+
+		return client.return_value
+
+	def host(self) -> DatumServer:
+		return frappe.get_single("Datum Server")
+
+	def machine_of(self, server, status: str = "Running") -> str:
+		machine = frappe.get_doc(
+			{
+				"doctype": "Machine",
+				"reference_doctype": server.doctype,
+				"reference_name": server.name,
+				"role": TELEMETRY,
+				"disk_size_gb": CONFIG[TELEMETRY]["disk_gb"],
+				"vm_id": f"vm-{frappe.generate_hash(length=8)}",
+				"address": "fdaa:1::7",
+				"status": status,
+			}
+		).insert()
+		server.db_set("machine", machine.name)
+		server.reload()
+
+		return machine.name
+
+
+class IntegrationTestTelemetrySpawnCreation(SpawnTestCase):
+	"""What the region's one host is filled in with, and when it is left alone."""
+
+	def test_a_fresh_region_fills_its_host_in(self):
+		with self.configured():
+			ensure_telemetry()
+
+		server = self.host()
+		self.assertEqual(server.status, "Draft")
+		self.assertEqual(server.repository, CONFIG["repository"])
+		self.assertEqual(server.clickhouse_host, "127.0.0.1")
+		self.assertEqual(server.install_environment()["CLICKHOUSE_VERSION"], "26.3.52.9")
+		self.assertTrue(server.auto_spawn)
+
+	def test_a_region_that_names_no_branch_takes_main_at_its_newest(self):
+		with self.configured({key: value for key, value in CONFIG.items() if key != "branch"}):
+			ensure_telemetry()
+
+		server = self.host()
+		self.assertEqual(server.branch, "main")
+		self.assertFalse(server.commit)
+		self.assertNotIn("DATUM_COMMIT", server.install_environment(commit=server.commit))
+
+	def test_a_region_can_pin_a_commit(self):
+		with self.configured({**CONFIG, "commit": "abc1234"}):
+			ensure_telemetry()
+
+		self.assertEqual(self.host().commit, "abc1234")
+
+	def test_a_host_already_filled_in_is_not_written_over(self):
+		"""The Single always exists, so a later run must not take site config as the truth."""
+		with self.configured():
+			ensure_telemetry()
+
+		with self.configured({**CONFIG, "branch": "some-other-branch"}):
+			ensure_telemetry()
+
+		self.assertEqual(self.host().branch, CONFIG["branch"])
+
+	def test_datum_checks_tokens_against_this_regions_key_set(self):
+		"""The key set and the region are Cargo Settings' own, so a spawned host inherits
+		both rather than being told them: it verifies what this region's Cargo verifies."""
+		with self.configured():
+			ensure_telemetry()
+
+		environment = self.host().environment()
+
+		self.assertEqual(environment["DATUM_JWKS_URL"], SETTINGS["jwks_url"])
+		self.assertEqual(environment["DATUM_REGION_ID"], str(SETTINGS["region_id"]))
+
+	def test_a_host_filled_in_by_hand_is_left_alone(self):
+		"""Auto spawn stays off unless Cargo turned it on, so a hand-built host keeps its own."""
+		frappe.get_doc(
+			{
+				"doctype": "Datum Server",
+				"clickhouse_host": "clickhouse.internal",
+				"repository": CONFIG["repository"],
+				"branch": CONFIG["branch"],
+			}
+		).insert()
+		atlas = self.atlas()
+
+		with self.configured():
+			ensure_telemetry()
+
+		atlas.create_vm.assert_not_called()
+
+
+class IntegrationTestTelemetrySpawnMachine(SpawnTestCase):
+	"""The machine the host runs on."""
+
+	def setUp(self):
+		super().setUp()
+		with self.configured():
+			ensure_telemetry()
+		self.server = self.host()
+
+	def test_a_machine_is_asked_for_at_the_size_the_config_says(self):
+		atlas = self.atlas()
+		with self.configured():
+			ensure_telemetry()
+
+		asked = atlas.create_vm.call_args.kwargs
+		self.assertEqual(asked["cpu_millicores"], CONFIG[TELEMETRY]["cpu_millicores"])
+		self.assertTrue(asked["is_termination_protected"])
+		self.assertTrue(self.host().machine)
+
+	def test_the_base_image_comes_from_atlas_and_not_a_name(self):
+		atlas = self.atlas(image_id="img-42")
+		with self.configured():
+			ensure_telemetry()
+
+		self.assertEqual(atlas.create_vm.call_args.kwargs["image_id"], "img-42")
+
+	def test_the_next_run_asks_for_nothing_more(self):
+		atlas = self.atlas()
+		self.machine_of(self.server, status="Pending")
+
+		with self.configured():
+			ensure_telemetry()
+
+		atlas.create_vm.assert_not_called()
+
+	def test_a_machine_that_would_not_boot_stops_the_run(self):
+		self.machine_of(self.server, status="Broken")
+
+		with self.configured(), patch.object(DatumServer, "setup") as setup:
+			ensure_telemetry()
+
+		setup.assert_not_called()
+		self.assertIn("did not come up", self.host().error)
+
+
+class IntegrationTestDatumServerSetupLog(SpawnTestCase):
+	"""What the Setup Log shows when a host is set up again."""
+
+	def test_setting_up_again_starts_from_an_empty_log(self):
+		with self.configured():
+			ensure_telemetry()
+		server = self.host()
+		self.machine_of(server)
+		server.db_set("setup_log", "the last run's output")
+		frappe.cache.set_value(cache_key(server.doctype, server.name, "setup_log"), "a stale run")
+
+		with patch("cargo.workflow_engine.doctype.press_workflow.decorators.BoundFlow.run_as_workflow"):
+			self.host().setup()
+
+		self.assertFalse(self.host().setup_log)
+		self.assertEqual(live_output(self.host(), "setup_log"), "")
+
+
+class IntegrationTestTelemetrySpawnSetup(SpawnTestCase):
+	"""Setting the host up once its machine is up."""
+
+	def setUp(self):
+		super().setUp()
+		with self.configured():
+			ensure_telemetry()
+		self.server = self.host()
+
+	def run_once(self):
+		with self.configured(), patch.object(DatumServer, "setup") as setup:
+			ensure_telemetry()
+
+		return setup
+
+	def test_a_booted_machine_is_set_up(self):
+		self.machine_of(self.server)
+
+		self.run_once().assert_called_once()
+
+	def test_a_machine_still_booting_waits(self):
+		self.machine_of(self.server, status="Pending")
+
+		self.run_once().assert_not_called()
+
+	def test_a_run_under_way_is_left_alone(self):
+		self.machine_of(self.server)
+		self.server.db_set("status", "Setting Up")
+
+		self.run_once().assert_not_called()
+
+	def test_a_host_that_serves_is_left_alone(self):
+		self.machine_of(self.server)
+		self.server.db_set("status", "Active")
+
+		self.run_once().assert_not_called()
+
+	def test_a_failed_run_is_tried_again(self):
+		self.machine_of(self.server)
+		self.server.db_set("status", "Failed")
+
+		self.run_once().assert_called_once()
+		self.assertEqual(self.host().auto_setup_attempts, 1)
+
+	def test_trying_again_stops_once_the_budget_is_spent(self):
+		self.machine_of(self.server)
+		self.server.db_set({"status": "Failed", "auto_setup_attempts": MAX_SETUP_ATTEMPTS})
+
+		self.run_once().assert_not_called()
+
+	def test_a_reset_budget_lets_the_spawner_try_again(self):
+		self.machine_of(self.server)
+		self.server.db_set({"status": "Failed", "auto_setup_attempts": MAX_SETUP_ATTEMPTS})
+
+		self.host().reset_auto_setup_attempts()
+
+		self.run_once().assert_called_once()
+		self.assertEqual(self.host().auto_setup_attempts, 1)

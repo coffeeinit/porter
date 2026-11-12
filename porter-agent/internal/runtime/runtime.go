@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -10,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,11 +17,18 @@ import (
 	"time"
 
 	"porter/agent/internal/store"
+	"porter/agent/internal/vmm"
+	"porter/agent/internal/vmm/firecracker"
 	"porter/protocol"
 )
 
 type Engine struct {
-	BaseDir        string
+	BaseDir string
+	// Driver is the VMM boundary. The agent core never speaks to a VMM
+	// directly; everything VMM-specific lives behind this interface.
+	Driver vmm.Driver
+	// FirecrackerBin is retained for callers that only override the
+	// Firecracker executable. It is ignored when Driver is set.
 	FirecrackerBin string
 	Kernel         string
 	Rootfs         string
@@ -38,7 +43,17 @@ func New(baseDir, kernel, rootfs string, network NetworkConfig) *Engine {
 	if abs, err := filepath.Abs(baseDir); err == nil {
 		baseDir = abs
 	}
-	return &Engine{BaseDir: baseDir, FirecrackerBin: "firecracker", Kernel: kernel, Rootfs: rootfs, Network: network, supervisor: newSystemdSupervisor()}
+	return &Engine{BaseDir: baseDir, Driver: firecracker.Driver{}, Kernel: kernel, Rootfs: rootfs, Network: network, supervisor: newSystemdSupervisor()}
+}
+
+// driver returns the configured VMM driver, defaulting to Firecracker. The
+// default keeps FirecrackerBin working for callers that only override the
+// executable path.
+func (e *Engine) driver() vmm.Driver {
+	if e.Driver != nil {
+		return e.Driver
+	}
+	return firecracker.Driver{BinaryPath: e.FirecrackerBin}
 }
 
 func (e *Engine) Apply(ctx context.Context, spec protocol.VMApplySpec) (store.VM, error) {
@@ -68,7 +83,7 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	if err != nil {
 		return store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "failed"}, err
 	}
-	sock := filepath.Join(dir, "firecracker.sock")
+	sock := filepath.Join(dir, e.driver().SocketName())
 	manager := e.supervisorOrDefault()
 	fingerprint, err := fingerprintSpec(spec)
 	if err != nil {
@@ -197,7 +212,7 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 		tap = spec.TapName
 	}
 	vm := store.VM{ID: spec.VMID, ReplicaID: spec.ReplicaID, State: "booting", Socket: sock, TapName: tap, GuestIP: spec.GuestIP, Port: spec.Port, Health: "checking"}
-	logPath := filepath.Join(dir, "firecracker.log")
+	logPath := filepath.Join(dir, e.driver().LogName())
 	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
@@ -218,7 +233,7 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 		return vm, e.cleanupCreatedTap(ctx, spec.VMID, tap, true, err)
 	}
 	pid, err := manager.Start(ctx, processSpec{
-		VMID: spec.VMID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
+		VMID: spec.VMID, Binary: e.driver().Binary(), Socket: sock, WorkDir: dir, LogPath: logPath,
 		KernelPath: spec.KernelPath, RootfsPath: privateRootfs, VolumePath: volumePath,
 		VCPUs: spec.VCPUs, MemoryMB: spec.MemoryMB,
 	})
@@ -233,34 +248,19 @@ func (e *Engine) apply(ctx context.Context, spec protocol.VMApplySpec, forceRest
 	if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
 		return e.failApply(vm, err)
 	}
-	client := socketClient(sock)
-	bootArgs := "console=ttyS0 reboot=k panic=1 pci=off root=/dev/vda ro"
-	if e.InitPath != "" {
-		bootArgs += " init=" + e.InitPath
-	}
-	if spec.GuestIP != "" && spec.GatewayIP != "" {
-		bootArgs += " ip=" + spec.GuestIP + "::" + spec.GatewayIP + ":" + netmask(spec.BridgeCIDR) + "::eth0:off"
-	}
-	if err := putJSON(ctx, client, "/boot-source", map[string]string{"kernel_image_path": spec.KernelPath, "boot_args": bootArgs}); err != nil {
-		return e.failApply(vm, err)
-	}
-	if err := putJSON(ctx, client, "/drives/rootfs", map[string]interface{}{"drive_id": "rootfs", "path_on_host": privateRootfs, "is_root_device": true, "is_read_only": false}); err != nil {
-		return e.failApply(vm, err)
-	}
-	if spec.VolumeID != "" {
-		if err := putJSON(ctx, client, "/drives/vdb", map[string]interface{}{"drive_id": "vdb", "path_on_host": volumePath, "is_root_device": false, "is_read_only": false}); err != nil {
-			return e.failApply(vm, err)
-		}
-	}
-	if tap != "" {
-		if err := putJSON(ctx, client, "/network-interfaces/eth0", map[string]string{"iface_id": "eth0", "guest_mac": spec.GuestMAC, "host_dev_name": tap}); err != nil {
-			return e.failApply(vm, err)
-		}
-	}
-	if err := putJSON(ctx, client, "/machine-config", map[string]int{"vcpu_count": spec.VCPUs, "mem_size_mib": spec.MemoryMB}); err != nil {
-		return e.failApply(vm, err)
-	}
-	if err := putJSON(ctx, client, "/actions", map[string]string{"action_type": "InstanceStart"}); err != nil {
+	if err := e.driver().Boot(ctx, sock, vmm.MachineSpec{
+		KernelPath:  spec.KernelPath,
+		RootfsPath:  privateRootfs,
+		VolumePath:  volumePath,
+		GuestMAC:    spec.GuestMAC,
+		HostDevName: tap,
+		GuestIP:     spec.GuestIP,
+		GatewayIP:   spec.GatewayIP,
+		BridgeCIDR:  spec.BridgeCIDR,
+		VCPUs:       spec.VCPUs,
+		MemoryMB:    spec.MemoryMB,
+		InitPath:    e.InitPath,
+	}); err != nil {
 		return e.failApply(vm, err)
 	}
 	vm.State, vm.Error = "running", ""
@@ -504,37 +504,9 @@ func (e *Engine) waitSocket(ctx context.Context, path string, timeout time.Durat
 		case <-time.After(50 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("timed out waiting for firecracker socket %s", path)
+	return fmt.Errorf("timed out waiting for VMM control socket %s", path)
 }
 
-func socketClient(sock string) *http.Client {
-	return &http.Client{Timeout: 10 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", sock)
-	}}}
-}
-
-func putJSON(ctx context.Context, c *http.Client, path string, payload interface{}) error {
-	return methodJSON(ctx, c, http.MethodPut, path, payload)
-}
-
-func methodJSON(ctx context.Context, c *http.Client, method, path string, payload interface{}) error {
-	b, _ := json.Marshal(payload)
-	req, err := http.NewRequestWithContext(ctx, method, "http://localhost"+path, bytes.NewReader(b))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("firecracker %s: %s %s", path, resp.Status, strings.TrimSpace(string(body)))
-	}
-	return nil
-}
 
 func (e *Engine) ensurePrivateRootfs(dir, base string, prior runtimeManifest, hasPrior bool) (string, string, error) {
 	f, err := os.OpenFile(base, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
@@ -777,13 +749,12 @@ func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (
 		}
 		_ = syncDir(dir)
 	}
-	client := socketClient(vm.Socket)
 	resume := func() error {
 		resumeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		return methodJSON(resumeCtx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"})
+		return e.driver().Resume(resumeCtx, vm.Socket)
 	}
-	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Paused"}); err != nil {
+	if err := e.driver().Pause(ctx, vm.Socket); err != nil {
 		resumeErr := resume()
 		cleanup()
 		if resumeErr != nil {
@@ -810,7 +781,7 @@ func (e *Engine) Snapshot(ctx context.Context, vm store.VM, snapshotID string) (
 			return protocol.SnapshotRecord{}, cause
 		}
 	}
-	if err := putJSON(ctx, client, "/snapshot/create", map[string]interface{}{"snapshot_type": "Full", "snapshot_path": tmpState, "mem_file_path": tmpMem, "sync_snapshot_files": true}); err != nil {
+	if err := e.driver().Snapshot(ctx, vm.Socket, vmm.SnapshotSpec{StatePath: tmpState, MemPath: tmpMem}); err != nil {
 		cause := failWhilePaused(fmt.Errorf("create Firecracker snapshot: %w", err))
 		cleanup()
 		return protocol.SnapshotRecord{}, cause
@@ -1066,7 +1037,7 @@ func (e *Engine) ProcessRunning(vm store.VM) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("read Firecracker PID %d identity: %w", vm.PID, err)
 	}
-	if !commandMatchesFirecracker(cmdline, e.FirecrackerBin, vm.Socket) {
+	if !commandMatchesFirecracker(cmdline, e.driver().Binary(), vm.Socket) {
 		return false, nil
 	}
 	return true, nil
@@ -1110,7 +1081,7 @@ func commandUsesAPISocket(cmdline []byte, socket string) bool {
 }
 
 func (e *Engine) TailLog(vm store.VM, maxLines int) []string {
-	path := filepath.Join(e.BaseDir, vm.ID, "firecracker.log")
+	path := filepath.Join(e.BaseDir, vm.ID, e.driver().LogName())
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -1181,13 +1152,6 @@ func (e *Engine) validateSnapshotPath(vmID, path string) (string, error) {
 	return resolved, nil
 }
 
-func netmask(cidr string) string {
-	_, n, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return "255.255.0.0"
-	}
-	return net.IP(n.Mask).String()
-}
 
 // RestoreSnapshotV2 resolves the path-free controller command to a verified
 // node-local record, then delegates to the existing confined restore path.
@@ -1371,8 +1335,8 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, spec protocol
 		}
 		return vm, err
 	}
-	sock = filepath.Join(dir, "firecracker.sock")
-	logPath := filepath.Join(dir, "firecracker-restore.log")
+	sock = filepath.Join(dir, e.driver().SocketName())
+	logPath := filepath.Join(dir, strings.TrimSuffix(e.driver().LogName(), ".log")+"-restore.log")
 	rollback := func(cause error) (store.VM, error) {
 		stopErr := e.stopRuntimeKeepingVolumeLease(vm, true, false)
 		if stopErr != nil {
@@ -1405,7 +1369,7 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, spec protocol
 		return rollback(err)
 	}
 	pid, err := e.supervisorOrDefault().Start(ctx, processSpec{
-		VMID: vm.ID, Binary: e.FirecrackerBin, Socket: sock, WorkDir: dir, LogPath: logPath,
+		VMID: vm.ID, Binary: e.driver().Binary(), Socket: sock, WorkDir: dir, LogPath: logPath,
 		KernelPath: manifest.KernelPath, RootfsPath: manifest.RootfsPath, VolumePath: manifest.VolumePath,
 		VCPUs: manifest.VCPUs, MemoryMB: manifest.MemoryMB,
 	})
@@ -1420,19 +1384,7 @@ func (e *Engine) RestoreSnapshot(ctx context.Context, vm store.VM, spec protocol
 	if err := e.waitSocket(ctx, sock, 10*time.Second); err != nil {
 		return rollback(err)
 	}
-	client := socketClient(sock)
-	loadRequest := map[string]interface{}{
-		"snapshot_path": expectedState,
-		"mem_backend":   map[string]string{"backend_path": expectedMem, "backend_type": "File"},
-		"resume_vm":     false,
-	}
-	if tap != "" {
-		loadRequest["network_overrides"] = []map[string]string{{"iface_id": "eth0", "host_dev_name": tap}}
-	}
-	if err := putJSON(ctx, client, "/snapshot/load", loadRequest); err != nil {
-		return rollback(err)
-	}
-	if err := methodJSON(ctx, client, http.MethodPatch, "/vm", map[string]string{"state": "Resumed"}); err != nil {
+	if err := e.driver().Restore(ctx, sock, vmm.SnapshotSpec{StatePath: expectedState, MemPath: expectedMem}, tap); err != nil {
 		return rollback(err)
 	}
 	vm.State, vm.Error, vm.Health = "running", "", "checking"

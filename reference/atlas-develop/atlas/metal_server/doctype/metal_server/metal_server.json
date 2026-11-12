@@ -1,0 +1,427 @@
+{
+ "actions": [],
+ "allow_bulk_edit": 1,
+ "autoname": "UUID",
+ "creation": "2026-09-01 14:22:34.229534",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "title",
+  "status",
+  "is_provisioning_completed",
+  "is_in_maintenance",
+  "column_break_qbap",
+  "provider_server_id",
+  "metald_tls_expires_on",
+  "is_sleepy_vm_host",
+  "section_break_configuration",
+  "architecture",
+  "tsc_scaling_supported",
+  "column_break_njar",
+  "server_image",
+  "is_cpu_template_disabled",
+  "column_break_iiyh",
+  "server_size",
+  "section_break_cjau",
+  "disks",
+  "section_break_public_network",
+  "column_break_xwpk",
+  "private_ipv4_address",
+  "private_network_interface",
+  "private_network_mac_address",
+  "column_break_lnik",
+  "public_ipv4_address",
+  "public_network_interface",
+  "wireguard_section",
+  "wireguard_ip_address",
+  "column_break_ffpx",
+  "port",
+  "column_break_zhfx",
+  "wireguard_public_key",
+  "bmc_section",
+  "bmc_url",
+  "bmc_power_state",
+  "column_break_bmc",
+  "bmc_username",
+  "bmc_password",
+  "tags_section",
+  "tags",
+  "section_break_metadata",
+  "host_compatibility_report",
+  "provider_metadata",
+  "hidden_data_section",
+  "column_break_xhax",
+  "metald_tls_certificate",
+  "column_break_yxha",
+  "metald_tls_private_key"
+ ],
+ "fields": [
+  {
+   "default": "0",
+   "fieldname": "is_provisioning_completed",
+   "fieldtype": "Check",
+   "label": "Provisioning Completed",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_sleepy_vm_host",
+   "fieldtype": "Check",
+   "label": "Sleepy VM Host"
+  },
+  {
+   "default": "0",
+   "description": "Placement skips this host. Existing VMs keep running.",
+   "fieldname": "is_in_maintenance",
+   "fieldtype": "Check",
+   "label": "In Maintenance",
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "metald_tls_expires_on",
+   "fieldtype": "Datetime",
+   "label": "TLS Expires On",
+   "read_only": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Pending\nInstalling\nRunning\nStopped\nFailed\nDeleted",
+   "read_only": 1
+  },
+  {
+   "fieldname": "provider_server_id",
+   "fieldtype": "Data",
+   "label": "Provider Server ID",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "metald_tls_certificate",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "Metald TLS Certificate",
+   "read_only": 1
+  },
+  {
+   "fieldname": "metald_tls_private_key",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "Metald TLS Private Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_configuration",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "server_size",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Server Size",
+   "options": "Metal Server Size",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "server_image",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Server Image",
+   "options": "Metal Server Image",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "default": "amd64",
+   "fieldname": "architecture",
+   "fieldtype": "Select",
+   "label": "Architecture",
+   "options": "amd64\narm64",
+   "read_only": 1,
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "section_break_public_network",
+   "fieldtype": "Section Break",
+   "label": "Networking"
+  },
+  {
+   "fieldname": "public_ipv4_address",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Public IPv4 Address"
+  },
+  {
+   "fieldname": "private_ipv4_address",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Private IPv4 Address"
+  },
+  {
+   "fieldname": "private_network_interface",
+   "fieldtype": "Data",
+   "label": "Private Network Interface"
+  },
+  {
+   "fieldname": "private_network_mac_address",
+   "fieldtype": "Data",
+   "label": "Private Network MAC Address"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_metadata",
+   "fieldtype": "Section Break",
+   "label": "Metadata"
+  },
+  {
+   "fieldname": "provider_metadata",
+   "fieldtype": "Code",
+   "label": "Provider Metadata",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_qbap",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_njar",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "public_network_interface",
+   "fieldtype": "Data",
+   "label": "Public Network Interface"
+  },
+  {
+   "fieldname": "column_break_xwpk",
+   "fieldtype": "Column Break"
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval: doc.__onload && doc.__onload.has_bmc_driver",
+   "fieldname": "bmc_section",
+   "fieldtype": "Section Break",
+   "label": "BMC"
+  },
+  {
+   "description": "For Redfish, the ComputerSystem URL, such as https://10.0.0.5/redfish/v1/Systems/1.",
+   "fieldname": "bmc_url",
+   "fieldtype": "Data",
+   "label": "BMC URL",
+   "options": "URL",
+   "show_description_on_click": 1
+  },
+  {
+   "fieldname": "column_break_bmc",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "bmc_username",
+   "fieldtype": "Data",
+   "label": "BMC Username"
+  },
+  {
+   "fieldname": "bmc_password",
+   "fieldtype": "Password",
+   "label": "BMC Password"
+  },
+  {
+   "fieldname": "bmc_power_state",
+   "fieldtype": "Data",
+   "is_virtual": 1,
+   "label": "BMC Power State",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wireguard_section",
+   "fieldtype": "Section Break",
+   "label": "Wireguard"
+  },
+  {
+   "fieldname": "wireguard_public_key",
+   "fieldtype": "Data",
+   "label": "Public Key",
+   "read_only": 1
+  },
+  {
+   "fieldname": "section_break_cjau",
+   "fieldtype": "Section Break",
+   "label": "Disks"
+  },
+  {
+   "fieldname": "disks",
+   "fieldtype": "Table",
+   "label": "Disks",
+   "options": "Metal Server Disk",
+   "read_only": 1
+  },
+  {
+   "fieldname": "wireguard_ip_address",
+   "fieldtype": "Data",
+   "label": "IP Address"
+  },
+  {
+   "fieldname": "column_break_ffpx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "51820",
+   "fieldname": "port",
+   "fieldtype": "Int",
+   "label": "Port"
+  },
+  {
+   "fieldname": "column_break_zhfx",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_iiyh",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "hidden_data_section",
+   "fieldtype": "Section Break",
+   "hidden": 1,
+   "label": "Hidden Data"
+  },
+  {
+   "fieldname": "column_break_xhax",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_yxha",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "label": "Title",
+   "read_only": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "column_break_lnik",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tags_section",
+   "fieldtype": "Section Break",
+   "label": "Tags"
+  },
+  {
+   "description": "Your own key and value labels for this Metal Server, such as env and local. Use them to find it again.",
+   "fieldname": "tags",
+   "fieldtype": "Table",
+   "label": "Tags",
+   "options": "Atlas Tag",
+   "show_description_on_click": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "tsc_scaling_supported",
+   "fieldtype": "Check",
+   "label": "TSC Scaling Supported",
+   "no_copy": 1,
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "is_cpu_template_disabled",
+   "fieldtype": "Check",
+   "label": "Disable CPU Template",
+   "read_only": 1
+  },
+  {
+   "fieldname": "host_compatibility_report",
+   "fieldtype": "Code",
+   "label": "Host Compatibility Report",
+   "no_copy": 1,
+   "options": "JSON",
+   "read_only": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Logs",
+   "link_doctype": "SSH Task",
+   "link_fieldname": "target"
+  },
+  {
+   "group": "Logs",
+   "link_doctype": "Metal Server Usage",
+   "link_fieldname": "server"
+  },
+  {
+   "group": "Resources",
+   "link_doctype": "Virtual Machine",
+   "link_fieldname": "server"
+  },
+  {
+   "group": "Operations",
+   "link_doctype": "Metal Server Drain",
+   "link_fieldname": "source_metal_server"
+  }
+ ],
+ "modified": "2026-10-19 22:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Metal Server",
+ "name": "Metal Server",
+ "naming_rule": "UUID",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "show_title_field_in_link": 1,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Yellow",
+   "title": "Pending"
+  },
+  {
+   "color": "Blue",
+   "title": "Installing"
+  },
+  {
+   "color": "Green",
+   "title": "Running"
+  },
+  {
+   "color": "Orange",
+   "title": "Stopped"
+  },
+  {
+   "color": "Red",
+   "title": "Failed"
+  },
+  {
+   "color": "Gray",
+   "title": "Deleted"
+  }
+ ],
+ "title_field": "title",
+ "track_changes": 1
+}

@@ -1,0 +1,81 @@
+{
+ "actions": [],
+ "autoname": "Prompt",
+ "creation": "2026-09-01 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "os",
+  "os_version",
+  "column_break_header",
+  "enabled",
+  "section_break_metadata",
+  "provider_metadata"
+ ],
+ "fields": [
+  {
+   "fieldname": "column_break_header",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Enabled"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "section_break_metadata",
+   "fieldtype": "Section Break",
+   "label": "Vendor Metadata"
+  },
+  {
+   "fieldname": "provider_metadata",
+   "fieldtype": "Code",
+   "label": "Provider Metadata",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "fieldname": "os",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "OS",
+   "read_only": 1
+  },
+  {
+   "fieldname": "os_version",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "OS Version",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-09-01 12:12:29.592477",
+ "modified_by": "Administrator",
+ "module": "Metal Server",
+ "name": "Metal Server Image",
+ "naming_rule": "Set by user",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

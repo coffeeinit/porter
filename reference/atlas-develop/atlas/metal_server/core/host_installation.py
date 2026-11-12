@@ -1,0 +1,258 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+from uuid import UUID
+
+import frappe
+from frappe import _
+
+from atlas.atlas.core.artifacts import get_download_url
+from atlas.atlas.core.mesh_address import get_wireguard_ip_address
+from atlas.atlas.core.ssh import SSHRunner
+from atlas.atlas.core.telemetry.datum import HOST_TOKEN_LIFETIME, get_datum_url, issue_datum_token
+from atlas.atlas.core.tls.metal import atlas_client_identity, ensure_server_certificate
+from atlas.atlas.doctype.ssh_task.ssh_task import SSHTask
+from atlas.metal_server.core.atlas_peer import WIREGUARD_KEY
+from atlas.vm.core.metal_client import MetalClient
+
+if TYPE_CHECKING:
+	from frappe.model.document import Document
+
+	from atlas.atlas.core.ssh import SSHResult
+	from atlas.metal_server.doctype.metal_server.metal_server import MetalServer
+
+FAILURE_REASON_LINES = 3
+FAILURE_REASON_LENGTH = 500
+WIREGUARD_CONFIGURE_TIMEOUT_SECONDS = 300
+METALD_INSTALL_TIMEOUT_SECONDS = 1_200
+STORAGE_INSTALL_TIMEOUT_SECONDS = 600
+FIREWALL_INSTALL_TIMEOUT_SECONDS = 120
+METALD_SETUP_TIMEOUT_SECONDS = 3_600
+TELEMETRY_INSTALL_TIMEOUT_SECONDS = 600
+
+
+class HostInstallation:
+	"""Own the Atlas software installation on one server."""
+
+	def __init__(self, server: "MetalServer") -> None:
+		self.server = server
+
+	def configure_wireguard(self) -> None:
+		"""Configure WireGuard and store its public key."""
+		if not self.server.private_network_interface:
+			frappe.throw(_("Metal Server {0} needs a private network interface.").format(self.server.name))
+
+		self.set_wireguard_ip_address()
+		settings = self.server.settings
+		if not settings.wireguard_public_key:
+			frappe.throw(
+				_("Atlas has no WireGuard identity. Run pilot --site SITE configure-atlas-wireguard first.")
+			)
+		result = SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="configure-wireguard.sh",
+			environment={
+				"WIREGUARD_ADDRESS": self.server.wireguard_ip_address,
+				"WIREGUARD_LISTEN_PORT": self.server.port,
+				"MESH_UPLINK_INTERFACE": self.server.private_network_interface,
+				"ATLAS_WIREGUARD_ADDRESS": settings.wireguard_ip_address,
+				"ATLAS_WIREGUARD_PUBLIC_KEY": settings.wireguard_public_key,
+			},
+			timeout_seconds=WIREGUARD_CONFIGURE_TIMEOUT_SECONDS,
+			run_in_background=False,
+		).result
+		if not result or not result.is_success:
+			throw_script_failure(
+				_("Could not configure WireGuard on server {0}.").format(self.server.name), result
+			)
+
+		# SSH stderr can land between the markers.
+		section = result.output.partition("===PUBLIC_KEY_START===")[2].partition("===PUBLIC_KEY_END===")[0]
+		public_key = next((line for line in section.split() if WIREGUARD_KEY.fullmatch(line)), "")
+		if not public_key:
+			frappe.throw(_("Metal Server {0} reported no WireGuard public key.").format(self.server.name))
+		self.server.db_set("wireguard_public_key", public_key)
+
+	def install_metal(self) -> None:
+		"""Install Metal and its host dependencies, then queue telemetry when Datum is set."""
+		if not self.server.private_ipv4_address:
+			frappe.throw(_("Metal Server {0} needs a private IPv4 address.").format(self.server.name))
+		if not self.server.private_network_interface:
+			frappe.throw(_("Metal Server {0} needs a private network interface.").format(self.server.name))
+
+		settings = self.server.settings
+		if not settings.metald_binary_x86_64_file or not settings.wg_mesh_binary_x86_64_file:
+			frappe.throw(_("Atlas Settings needs the metald and Atlas WG Mesh binaries."))
+
+		self.install_storage()
+		self.install_tls_credentials()
+
+		result = SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="install-metald.sh",
+			environment={
+				"METALD_DOWNLOAD_URL": get_download_url(settings.metald_binary_x86_64_file),
+				"METALD_SHA256": settings.metald_binary_hash,
+				"WG_MESH_DOWNLOAD_URL": get_download_url(settings.wg_mesh_binary_x86_64_file),
+				"WG_MESH_SHA256": settings.wg_mesh_binary_hash,
+				"LISTEN_ADDRESS": f"[{self.server.wireguard_ip_address}]:9000",
+				"ATLAS_COMMON_NAME": atlas_client_identity(settings),
+				"COORDINATION_LISTEN_ADDRESS": MetalClient.get_coordination_address(self.server),
+				"MESH_UPLINK_INTERFACE": self.server.private_network_interface,
+				"PRIVATE_NETWORK_CIDR": settings.private_network_cidr,
+				"ATLAS_MESH_ADDRESS": settings.wireguard_ip_address,
+				"CPU_TEMPLATE_DISABLED": "true" if self.server.is_cpu_template_disabled else "false",
+			},
+			timeout_seconds=METALD_INSTALL_TIMEOUT_SECONDS,
+			run_in_background=False,
+		).result
+		if not result or not result.is_success:
+			throw_script_failure(
+				_("Could not install metald on server {0}.").format(self.server.name), result
+			)
+
+		self.install_host_firewall()
+		if get_datum_url():
+			self.server.enqueue_telemetry_configuration()
+
+	def install_storage(self) -> None:
+		"""Create the storage pool and mount host state on it before any file is written there."""
+		result = SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="install-metal-storage.sh",
+			environment={
+				"STORAGE_POOL_DEVICE": self.server.settings.server_provider_controller.get_storage_pool_device(
+					self.server
+				)
+			},
+			timeout_seconds=STORAGE_INSTALL_TIMEOUT_SECONDS,
+			run_in_background=False,
+		).result
+		if not result or not result.is_success:
+			throw_script_failure(
+				_("Could not prepare storage on server {0}.").format(self.server.name), result
+			)
+
+	def install_host_firewall(self) -> None:
+		"""Admit Atlas calls through wg0 and migration calls on both networks. Keep guests off the private network."""
+		settings = self.server.settings
+		result = SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="install-host-firewall.sh",
+			environment={
+				"ATLAS_WIREGUARD_ADDRESS": settings.wireguard_ip_address,
+				"MESH_UPLINK_INTERFACE": self.server.private_network_interface,
+				"PRIVATE_NETWORK_CIDR": settings.private_network_cidr,
+				"WIREGUARD_LISTEN_PORT": self.server.port,
+			},
+			timeout_seconds=FIREWALL_INSTALL_TIMEOUT_SECONDS,
+			run_in_background=False,
+		).result
+		if not result or not result.is_success:
+			throw_script_failure(
+				_("Could not install the host firewall on server {0}.").format(self.server.name), result
+			)
+
+	def install_tls_credentials(self) -> None:
+		"""Issue a current node certificate and install it. The script restarts a running Metal."""
+		ca_certificate, certificate, private_key = ensure_server_certificate(self.server)
+		result = SSHRunner(self.server.ssh_host).run_script(
+			"install-metal-tls.sh",
+			data={
+				"METAL_TLS_CA_CERTIFICATE": ca_certificate,
+				"METAL_TLS_CERTIFICATE": certificate,
+				"METAL_TLS_PRIVATE_KEY": private_key,
+			},
+			timeout_seconds=METALD_INSTALL_TIMEOUT_SECONDS,
+		)
+		if not result.is_success:
+			throw_script_failure(
+				_("Could not install Metal TLS credentials on server {0}.").format(self.server.name),
+				result,
+			)
+
+	def install_telemetry(self) -> None:
+		"""Install Vector, then a fresh Datum token. The token goes over direct SSH, so no SSH Task stores it."""
+		datum_url = get_datum_url()
+		if not datum_url:
+			frappe.throw(_("Set datum_url in site config to send host telemetry."))
+
+		packages = SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="install-vector.sh",
+			timeout_seconds=TELEMETRY_INSTALL_TIMEOUT_SECONDS,
+			run_in_background=False,
+		).result
+		if not packages or not packages.is_success:
+			throw_script_failure(
+				_("Could not install Vector on server {0}.").format(self.server.name), packages
+			)
+
+		result = SSHRunner(self.server.ssh_host).run_script(
+			"install-telemetry.sh",
+			data={
+				"DATUM_URL": datum_url,
+				"DATUM_TOKEN": issue_datum_token(self.server.name, HOST_TOKEN_LIFETIME),
+			},
+			timeout_seconds=TELEMETRY_INSTALL_TIMEOUT_SECONDS,
+		)
+		if not result.is_success:
+			throw_script_failure(
+				_("Could not install telemetry on server {0}.").format(self.server.name), result
+			)
+
+	def upgrade_metald(self, build: Document | None = None, run_in_background: bool = False) -> SSHTask:
+		"""Install a metald and Atlas WG Mesh build, set the coordination address, and restart metald."""
+		build = build or self.server.settings
+		if not build.metald_binary_x86_64_file or not build.wg_mesh_binary_x86_64_file:
+			frappe.throw(_("The build has no metald or Atlas WG Mesh binary."))
+
+		return SSHTask.create_for_script_file(
+			target_type=self.server.doctype,
+			target=self.server.name,
+			script_path="upgrade-metald.sh",
+			environment={
+				"METALD_DOWNLOAD_URL": get_download_url(build.metald_binary_x86_64_file),
+				"METALD_SHA256": build.metald_binary_hash,
+				"WG_MESH_DOWNLOAD_URL": get_download_url(build.wg_mesh_binary_x86_64_file),
+				"WG_MESH_SHA256": build.wg_mesh_binary_hash,
+				"COORDINATION_LISTEN_ADDRESS": MetalClient.get_coordination_address(self.server),
+				"CPU_TEMPLATE_DISABLED": "true" if self.server.is_cpu_template_disabled else "false",
+			},
+			timeout_seconds=METALD_INSTALL_TIMEOUT_SECONDS,
+			run_in_background=run_in_background,
+		)
+
+	def set_wireguard_ip_address(self) -> None:
+		"""Set the WireGuard IP address if it is empty."""
+		if not self.server.wireguard_ip_address:
+			self.server.db_set("wireguard_ip_address", self.wireguard_ip_address)
+
+	@property
+	def wireguard_ip_address(self) -> str:
+		"""Return the host mesh address for this server."""
+		return get_wireguard_ip_address(UUID(self.server.name), self.server.settings.region_id)
+
+
+def throw_script_failure(message: str, result: "SSHResult | None") -> None:
+	"""Report a failed host script with the reason the script printed."""
+	if not result:
+		frappe.throw(_("{0} The script did not run.").format(message))
+
+	frappe.throw(
+		_("{0} Exit code {1}. {2}").format(message, result.exit_code, get_failure_reason(result.output))
+	)
+
+
+def get_failure_reason(output: str) -> str:
+	"""Return the last lines a host script printed. A script prints its reason last."""
+	printed_lines = [line.strip() for line in (output or "").splitlines() if line.strip()]
+	if not printed_lines:
+		return _("The script printed no output.")
+
+	return " ".join(printed_lines[-FAILURE_REASON_LINES:])[:FAILURE_REASON_LENGTH]

@@ -1,0 +1,138 @@
+import { useCall } from 'frappe-ui'
+import { computed, type Ref, watch } from 'vue'
+import { API, method } from '@/api/methods'
+import { useSession } from '@/composables/useSession'
+import { isAbortError } from '@/lib/feedback'
+import type {
+	Capacity,
+	Plan,
+	Profile,
+	ProvisionablePlans,
+	RateCard,
+} from '@/types/api'
+import type { ImageSelection } from '@/types/serverCreation'
+
+// Ungated fallback while the menu is loading (or on a resize, which isn't capacity-gated).
+const UNGATED: Capacity = {
+	gated: false,
+	available: true,
+	unmeasured: false,
+	largest_vm: null,
+}
+
+// Plans a team can provision in the selected region, from the billing catalog
+// (central.billing.api.dashboard.catalog.get_eligible_plans). The menu is
+// already narrowed server-side: priced for the team's currency on that region,
+// admitted by the trust tier's allow-lists, and within the team's remaining
+// trust-tier headroom (spend cap minus current run-rate). Plans are priced and
+// gated per region, so this refetches whenever the picked region changes — and
+// stays empty until a region is picked.
+
+export function usePlans(
+	region: Ref<string | null>,
+	excludeSubscription?: Ref<string | null>,
+	imageSelection?: Ref<ImageSelection | null>,
+) {
+	const { activeTeam } = useSession()
+
+	// When resizing, `excludeSubscription` frees the resized server's own spend back
+	// into the headroom the menu is filtered by (so it can grow into its own budget).
+	const call = useCall<
+		ProvisionablePlans,
+		{
+			team: string
+			cluster?: string
+			region?: string
+			exclude_subscription?: string
+			for_resize?: number
+			offering?: string
+			image_id?: string
+		}
+	>({
+		url: method(imageSelection ? API.imageEligiblePlans : API.eligiblePlans),
+		params: () => ({
+			team: activeTeam.value!,
+			...(imageSelection
+				? { region: region.value! }
+				: { cluster: region.value! }),
+			...(imageSelection?.value ?? {}),
+			...(excludeSubscription?.value
+				? {
+						exclude_subscription: excludeSubscription.value,
+						for_resize: 1,
+					}
+				: {}),
+		}),
+		immediate: false,
+	})
+
+	watch(
+		[
+			activeTeam,
+			region,
+			() => excludeSubscription?.value,
+			() => imageSelection?.value,
+		],
+		([team, region]) => {
+			if (team && region && (!imageSelection || imageSelection.value))
+				call.reload()
+		},
+		{ immediate: true },
+	)
+
+	// The menu arrives grouped by plan class (keys ordered, rows cheapest-first);
+	// `classes` is the tab order, `plans` a flat view for selection lookups.
+	const current = computed(
+		() =>
+			call.data?.team === activeTeam.value &&
+			call.data?.cluster === region.value &&
+			(!imageSelection ||
+				call.data?.image_id === imageSelection.value?.image_id),
+	)
+	const groups = computed<Record<string, Plan[]>>(() =>
+		current.value ? (call.data?.plans ?? {}) : {},
+	)
+	// A reload aborts the request in flight, and the aborted request still reports its
+	// error after the newer one succeeds. It is not a failure to show.
+	const error = computed(() => (isAbortError(call.error) ? null : call.error))
+
+	return {
+		error,
+		reload: () => call.reload(),
+		groups,
+		classes: computed<string[]>(() => Object.keys(groups.value)),
+		plans: computed<Plan[]>(() => Object.values(groups.value).flat()),
+		currency: computed<string | null>(() => call.data?.currency ?? null),
+		tier: computed<string | null>(() => call.data?.tier ?? null),
+		includedTransferGigabytes: computed<number>(
+			() => call.data?.included_transfer_gb ?? 0,
+		),
+		// Remaining trust-tier headroom in the team's currency — explains an empty menu.
+		available: computed<number | null>(() =>
+			call.data?.spend_limit_enforced === false
+				? Infinity
+				: (call.data?.available ?? null),
+		),
+		// "Design your own" inputs: the per-resource rate card + the profile bounds.
+		rateCard: computed<RateCard>(() =>
+			current.value ? (call.data?.rate_card ?? {}) : {},
+		),
+		profiles: computed<Profile[]>(() =>
+			current.value ? (call.data?.profiles ?? []) : [],
+		),
+		// Live provisioning capacity for this region: caps the custom slider and explains an
+		// empty menu when the region is full (`available` false).
+		capacity: computed<Capacity>(() => call.data?.capacity ?? UNGATED),
+		// Loading until the response *echo* matches the picked region — the fetch
+		// starts a tick after `region` changes, and without this gate the previous
+		// region's menu flashes through in that gap.
+		loading: computed(
+			() =>
+				call.loading ||
+				(!error.value &&
+					!!region.value &&
+					(!imageSelection || !!imageSelection.value) &&
+					!current.value),
+		),
+	}
+}

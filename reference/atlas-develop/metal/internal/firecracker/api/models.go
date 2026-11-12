@@ -1,0 +1,129 @@
+package api
+
+// MachineConfig contains Firecracker compute settings.
+type MachineConfig struct {
+	VCPUCount  int  `json:"vcpu_count"`
+	MemSizeMiB int  `json:"mem_size_mib"`
+	SMT        bool `json:"smt,omitempty"`
+}
+
+// BootSource contains the kernel and boot arguments.
+type BootSource struct {
+	KernelImagePath string `json:"kernel_image_path"`
+	BootArgs        string `json:"boot_args,omitempty"`
+	InitrdPath      string `json:"initrd_path,omitempty"`
+}
+
+// CacheTypeWriteback makes Firecracker fsync the backing file when the guest
+// flushes. Firecracker defaults to "Unsafe", which acknowledges a flush without
+// writing anything, so a guest that syncs before the host photographs its disk
+// can still lose its last writes.
+const CacheTypeWriteback = "Writeback"
+
+// Drive contains one Firecracker drive.
+type Drive struct {
+	DriveID      string       `json:"drive_id"`
+	PathOnHost   string       `json:"path_on_host"`
+	IsRootDevice bool         `json:"is_root_device"`
+	IsReadOnly   bool         `json:"is_read_only"`
+	CacheType    string       `json:"cache_type,omitempty"`
+	RateLimiter  *RateLimiter `json:"rate_limiter,omitempty"`
+}
+
+// PartialDrive contains the fields that rescan a drive or change its limits.
+type PartialDrive struct {
+	DriveID     string       `json:"drive_id"`
+	PathOnHost  string       `json:"path_on_host,omitempty"`
+	RateLimiter *RateLimiter `json:"rate_limiter,omitempty"`
+}
+
+// RateLimiter limits drive bandwidth and operations.
+type RateLimiter struct {
+	Bandwidth *TokenBucket `json:"bandwidth,omitempty"`
+	Ops       *TokenBucket `json:"ops,omitempty"`
+}
+
+// TokenBucket refills Size tokens every RefillTime milliseconds. Bandwidth
+// tokens are bytes, and operation tokens are requests.
+type TokenBucket struct {
+	Size         int64 `json:"size"`
+	OneTimeBurst int64 `json:"one_time_burst,omitempty"`
+	RefillTime   int64 `json:"refill_time"`
+}
+
+// NetworkInterface contains one Firecracker network interface.
+type NetworkInterface struct {
+	IfaceID     string `json:"iface_id"`
+	HostDevName string `json:"host_dev_name"`
+	GuestMAC    string `json:"guest_mac,omitempty"`
+}
+
+// action is the body of a /actions request.
+type action struct {
+	ActionType string `json:"action_type"`
+}
+
+// MMDSConfig configures the metadata service.
+type MMDSConfig struct {
+	NetworkInterfaces []string `json:"network_interfaces"`
+	Version           string   `json:"version,omitempty"`
+	IPv4Address       string   `json:"ipv4_address,omitempty"`
+	IMDSCompat        bool     `json:"imds_compat,omitempty"`
+}
+
+// BalloonConfig configures the balloon device.
+type BalloonConfig struct {
+	AmountMiB                        int  `json:"amount_mib"`
+	DeflateOnOOM                     bool `json:"deflate_on_oom"`
+	StatisticsPollingIntervalSeconds int  `json:"stats_polling_interval_s"`
+	FreePageReporting                bool `json:"free_page_reporting"`
+}
+
+// BalloonStatistics is the guest's memory report. Each field is optional.
+type BalloonStatistics struct {
+	TotalMemory     *uint64 `json:"total_memory"`
+	AvailableMemory *uint64 `json:"available_memory"`
+}
+
+// UsedMemoryBytes returns false for an incomplete or inconsistent report,
+// because the guest supplies the values.
+func (statistics BalloonStatistics) UsedMemoryBytes() (uint64, bool) {
+	if statistics.TotalMemory == nil || *statistics.TotalMemory == 0 || statistics.AvailableMemory == nil || *statistics.AvailableMemory > *statistics.TotalMemory {
+		return 0, false
+	}
+	return *statistics.TotalMemory - *statistics.AvailableMemory, true
+}
+
+// InstanceInfo contains the Firecracker process state.
+type InstanceInfo struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
+// virtualMachineState is the body that pauses or resumes a guest.
+type virtualMachineState struct {
+	State string `json:"state"`
+}
+
+// CreateSnapshotRequest contains paths for a new snapshot. Paths are relative to
+// the jail chroot, because Firecracker resolves them inside it.
+type CreateSnapshotRequest struct {
+	SnapshotType string `json:"snapshot_type"`
+	SnapshotPath string `json:"snapshot_path"`
+	MemoryFile   string `json:"mem_file_path"`
+	SyncFiles    *bool  `json:"sync_snapshot_files,omitempty"`
+}
+
+// MemoryBackend identifies the memory file for snapshot restore.
+type MemoryBackend struct {
+	Path string `json:"backend_path"`
+	Type string `json:"backend_type"`
+}
+
+// LoadSnapshotRequest contains files for snapshot restore. Resume false leaves
+// the guest paused, so the caller can replace its metadata before it runs.
+type LoadSnapshotRequest struct {
+	SnapshotPath string        `json:"snapshot_path"`
+	Memory       MemoryBackend `json:"mem_backend"`
+	Resume       bool          `json:"resume_vm"`
+}

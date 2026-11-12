@@ -1,0 +1,375 @@
+{
+ "actions": [],
+ "autoname": "hash",
+ "creation": "2026-09-03 02:29:43.867211",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "enabled",
+  "status",
+  "title",
+  "tenant_id",
+  "is_termination_protected",
+  "cache_image",
+  "column_break_identity",
+  "artifact_storage",
+  "image_type",
+  "architecture",
+  "transfer_progress",
+  "memory_snapshot",
+  "section_break_memory_snapshot_config",
+  "memory_snapshot_virtual_cpu_count",
+  "column_break_memory_snapshot",
+  "memory_snapshot_memory_mib",
+  "column_break_ueib",
+  "memory_snapshot_disk_mib",
+  "section_break_files",
+  "image_size_mib",
+  "image_stored_size_mib",
+  "kernel",
+  "site_file_retention_until",
+  "artifact_retention_until",
+  "column_break_files",
+  "image_object_key",
+  "image_file",
+  "image_sha256",
+  "section_break_tags",
+  "tags",
+  "version",
+  "section_break_source",
+  "source_virtual_machine",
+  "column_break_igol",
+  "source_server",
+  "column_break_exjv",
+  "source_local_snapshot_id",
+  "section_break_transfer",
+  "rootfs_multipart_upload_id",
+  "transfer_error"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled"
+  },
+  {
+   "default": "system",
+   "fieldname": "image_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Image Type",
+   "options": "system\nmachine",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nSnapshotting\nUploading\nCompleting\nCleaning\nAvailable\nFailed\nDeleting\nArchived",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "fieldname": "architecture",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Architecture",
+   "options": "amd64\narm64",
+   "reqd": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "column_break_identity",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_termination_protected",
+   "fieldtype": "Check",
+   "label": "Is Termination Protected",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "cache_image",
+   "fieldtype": "Check",
+   "label": "Cache Image"
+  },
+  {
+   "default": "0",
+   "fieldname": "memory_snapshot",
+   "fieldtype": "Check",
+   "label": "Memory Snapshot"
+  },
+  {
+   "fieldname": "column_break_memory_snapshot",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "memory_snapshot_virtual_cpu_count",
+   "fieldtype": "Int",
+   "label": "vCPUs",
+   "mandatory_depends_on": "eval: doc.memory_snapshot"
+  },
+  {
+   "fieldname": "memory_snapshot_memory_mib",
+   "fieldtype": "Int",
+   "label": "Memory (MiB)",
+   "mandatory_depends_on": "eval: doc.memory_snapshot"
+  },
+  {
+   "fieldname": "memory_snapshot_disk_mib",
+   "fieldtype": "Int",
+   "label": "Disk (MiB)",
+   "mandatory_depends_on": "eval: doc.memory_snapshot"
+  },
+  {
+   "fieldname": "section_break_files",
+   "fieldtype": "Section Break",
+   "label": "Artifacts"
+  },
+  {
+   "default": "Object Storage",
+   "fieldname": "artifact_storage",
+   "fieldtype": "Select",
+   "label": "Artifact Storage",
+   "options": "Object Storage\nSite File",
+   "read_only": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "image_object_key",
+   "fieldtype": "Data",
+   "label": "Image Object Key",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.artifact_storage === 'Site File'",
+   "fieldname": "image_file",
+   "fieldtype": "Link",
+   "label": "Image File",
+   "options": "File",
+   "read_only": 1
+  },
+  {
+   "fieldname": "image_sha256",
+   "fieldtype": "Data",
+   "label": "Image SHA-256",
+   "read_only": 1
+  },
+  {
+   "fieldname": "image_size_mib",
+   "fieldtype": "Int",
+   "label": "Image Size (MiB)",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_files",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "kernel",
+   "fieldtype": "Link",
+   "label": "Kernel",
+   "options": "Virtual Machine Kernel",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.image_type === 'machine'",
+   "fieldname": "section_break_source",
+   "fieldtype": "Section Break",
+   "label": "Machine Image Source"
+  },
+  {
+   "fieldname": "source_virtual_machine",
+   "fieldtype": "Data",
+   "label": "Source Virtual Machine",
+   "read_only": 1
+  },
+  {
+   "fieldname": "source_server",
+   "fieldtype": "Data",
+   "label": "Source Server",
+   "read_only": 1
+  },
+  {
+   "collapsible": 1,
+   "depends_on": "eval:doc.image_type === 'machine'",
+   "fieldname": "section_break_transfer",
+   "fieldtype": "Section Break",
+   "label": "Transfer"
+  },
+  {
+   "fieldname": "transfer_progress",
+   "fieldtype": "Int",
+   "label": "Progress (%)",
+   "non_negative": 1,
+   "read_only": 1
+  },
+  {
+   "fieldname": "rootfs_multipart_upload_id",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Rootfs Multipart Upload ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "transfer_error",
+   "fieldtype": "Small Text",
+   "label": "Transfer Error",
+   "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "version",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Version"
+  },
+  {
+   "depends_on": "eval: doc.memory_snapshot",
+   "fieldname": "section_break_memory_snapshot_config",
+   "fieldtype": "Section Break",
+   "label": "Memory Snapshot Config",
+   "read_only": 1,
+   "read_only_depends_on": "eval: doc.memory_snapshot"
+  },
+  {
+   "fieldname": "column_break_ueib",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_igol",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "column_break_exjv",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "source_local_snapshot_id",
+   "fieldtype": "Data",
+   "label": "Source Local Snapshot ID",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "fieldname": "tenant_id",
+   "fieldtype": "Int",
+   "in_standard_filter": 1,
+   "label": "Tenant ID",
+   "read_only": 1,
+   "search_index": 1,
+   "set_only_once": 1
+  },
+  {
+   "fieldname": "section_break_tags",
+   "fieldtype": "Section Break"
+  },
+  {
+   "description": "Your own key and value labels for this image, such as os and Ubuntu. Use them to find it again.",
+   "fieldname": "tags",
+   "fieldtype": "Table",
+   "label": "Tags",
+   "options": "Atlas Tag",
+   "show_description_on_click": 1
+  },
+  {
+   "depends_on": "eval: doc.site_file_retention_until",
+   "fieldname": "site_file_retention_until",
+   "fieldtype": "Datetime",
+   "label": "Site Files Kept Until",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval: doc.artifact_retention_until",
+   "fieldname": "artifact_retention_until",
+   "fieldtype": "Datetime",
+   "label": "Artifacts Kept Until",
+   "read_only": 1
+  },
+  {
+   "fieldname": "image_stored_size_mib",
+   "fieldtype": "Int",
+   "label": "Image Stored Size (MiB)",
+   "read_only": 1
+  }
+ ],
+ "links": [],
+ "modified": "2026-10-22 14:51:52.811271",
+ "modified_by": "Administrator",
+ "module": "VM",
+ "name": "Virtual Machine Image",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "read": 1,
+   "role": "Atlas Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "show_title_field_in_link": 1,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [
+  {
+   "color": "Gray",
+   "title": "Pending"
+  },
+  {
+   "color": "Blue",
+   "title": "Snapshotting"
+  },
+  {
+   "color": "Blue",
+   "title": "Uploading"
+  },
+  {
+   "color": "Blue",
+   "title": "Completing"
+  },
+  {
+   "color": "Blue",
+   "title": "Cleaning"
+  },
+  {
+   "color": "Green",
+   "title": "Available"
+  },
+  {
+   "color": "Red",
+   "title": "Failed"
+  },
+  {
+   "color": "Red",
+   "title": "Deleting"
+  },
+  {
+   "color": "Gray",
+   "title": "Archived"
+  }
+ ],
+ "title_field": "title"
+}

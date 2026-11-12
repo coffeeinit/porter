@@ -1,0 +1,7 @@
+[mariadb]
+host = "localhost"
+port = 3306
+root_password = "admin"
+admin_user = "root"
+socket_path = ""
+existing = false

@@ -1,0 +1,63 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.6/schema.json",
+	"root": false,
+	"files": {
+		"includes": ["src/**/*.ts", "src/**/*.vue", "tests/**/*.ts", "tests/**/*.vue", "tests/**/*.mjs"]
+	},
+	"formatter": {
+		"enabled": true,
+		"formatWithErrors": false,
+		"indentStyle": "tab",
+		"indentWidth": 2,
+		"lineEnding": "lf",
+		"lineWidth": 80,
+		"attributePosition": "auto",
+		"bracketSameLine": false,
+		"bracketSpacing": true,
+		"expand": "auto",
+		"useEditorconfig": true
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "none",
+			"correctness": {
+				"noUnreachable": "error",
+				"noUnusedImports": "error",
+				"noUnusedVariables": "error"
+			},
+			"suspicious": {
+				"noDebugger": "error",
+				"noDoubleEquals": "error",
+				"noExplicitAny": "error"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"jsxQuoteStyle": "single",
+			"quoteProperties": "asNeeded",
+			"trailingCommas": "all",
+			"semicolons": "asNeeded",
+			"arrowParentheses": "always",
+			"bracketSameLine": false,
+			"quoteStyle": "single",
+			"attributePosition": "auto",
+			"bracketSpacing": true
+		}
+	},
+	"css": {
+		"parser": { "tailwindDirectives": true },
+		"formatter": { "enabled": true },
+		"linter": null,
+		"assist": null
+	},
+	"html": {
+		"experimentalFullSupportEnabled": true,
+		"formatter": {
+			"enabled": true,
+			"indentScriptAndStyle": false,
+			"selfCloseVoidElements": "always"
+		}
+	}
+}

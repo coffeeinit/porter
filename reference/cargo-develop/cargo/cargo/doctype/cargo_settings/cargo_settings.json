@@ -1,0 +1,354 @@
+{
+ "actions": [],
+ "creation": "2026-08-28 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "connections_tab",
+  "section_break_central",
+  "region",
+  "region_id",
+  "central_url",
+  "central_webhook_url",
+  "cargo_url",
+  "central_webhook_secret",
+  "central_webhook_enabled",
+  "jwks_url",
+  "column_break_atlas",
+  "atlas_url",
+  "atlas_token",
+  "atlas_tenant_id",
+  "proxy_url",
+  "proxy_token",
+  "wildcard_domain",
+  "image_build_tab",
+  "release_tracking_section",
+  "track_pilot_releases",
+  "frappe_branches",
+  "max_auto_retry_count",
+  "update_pilot_in_base_image",
+  "signup_apps_section",
+  "signup_apps",
+  "build_machine_spec_section",
+  "build_machine_disk_gb",
+  "build_machine_cpu",
+  "build_machine_memory",
+  "placement_tab",
+  "storage_node_placement_section",
+  "storage_node_spread",
+  "storage_node_spread_within",
+  "actions_tab",
+  "storage_section",
+  "max_storage_node_disk",
+  "storage_disk_predict_hours",
+  "first_storage_disk_growth_percent",
+  "storage_disk_min_hours_between_growth",
+  "metadata_snapshot_section",
+  "metadata_snapshot_interval_hours"
+ ],
+ "fields": [
+  {
+   "fieldname": "section_break_central",
+   "fieldtype": "Section Break",
+   "label": "Config"
+  },
+  {
+   "fieldname": "central_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Central URL",
+   "options": "URL",
+   "reqd": 1
+  },
+  {
+   "description": "Where this region's deliveries are sent. Central sets it when it enrols this Cargo; until then nothing reports.",
+   "fieldname": "central_webhook_url",
+   "fieldtype": "Data",
+   "label": "Central Webhook URL",
+   "options": "URL",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_atlas",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "atlas_url",
+   "fieldtype": "Data",
+   "label": "Atlas URL",
+   "options": "URL",
+   "reqd": 1
+  },
+  {
+   "description": "Atlas tenant that owns the virtual machines. Regional Cargo uses tenant 0.",
+   "fieldname": "atlas_tenant_id",
+   "fieldtype": "Int",
+   "label": "Atlas Tenant ID",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "cargo_url",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Cargo URL",
+   "reqd": 1
+  },
+  {
+   "description": "Webhook secret that central will authenticate cargo with \u2014\u00a0for events sent from a document.",
+   "fieldname": "central_webhook_secret",
+   "fieldtype": "Password",
+   "in_list_view": 1,
+   "label": "Central Webhook Secret",
+   "reqd": 1
+  },
+  {
+   "default": "1",
+   "description": "Whether this region reports to Central at all. Central turns it off without withdrawing the receiver.",
+   "fieldname": "central_webhook_enabled",
+   "fieldtype": "Check",
+   "label": "Central Webhook Enabled",
+   "read_only": 1
+  },
+  {
+   "description": "Bearer token for the Atlas tenant API.",
+   "fieldname": "atlas_token",
+   "fieldtype": "Password",
+   "label": "Atlas Token",
+   "reqd": 1
+  },
+  {
+   "description": "Which region this Cargo provisions for.",
+   "fieldname": "region_id",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Region ID",
+   "reqd": 1
+  },
+  {
+   "description": "Region label",
+   "fieldname": "region",
+   "fieldtype": "Data",
+   "label": "Region",
+   "reqd": 1
+  },
+  {
+   "description": "Merged JSON Web Key Set URL for token verification.",
+   "fieldname": "jwks_url",
+   "fieldtype": "Data",
+   "label": "JWKS URL",
+   "reqd": 1
+  },
+  {
+   "description": "Proxy control API URL for this region.",
+   "fieldname": "proxy_url",
+   "fieldtype": "Data",
+   "label": "Proxy URL",
+   "options": "URL",
+   "reqd": 1
+  },
+  {
+   "description": "Restricted bearer token for the Proxy control API.",
+   "fieldname": "proxy_token",
+   "fieldtype": "Password",
+   "label": "Proxy Token",
+   "reqd": 1
+  },
+  {
+   "description": "Regional wildcard domain used for public service routes.",
+   "fieldname": "wildcard_domain",
+   "fieldtype": "Data",
+   "label": "Wildcard Domain",
+   "reqd": 1
+  },
+  {
+   "default": "0",
+   "description": "Build every new Pilot prerelease and drop the oldest. Off by default.",
+   "fieldname": "track_pilot_releases",
+   "fieldtype": "Check",
+   "label": "Track Pilot Releases"
+  },
+  {
+   "description": "Pilot Images are built on a machine of this shape, and Atlas boots every machine made from the image at the same shape.",
+   "fieldname": "build_machine_spec_section",
+   "fieldtype": "Section Break",
+   "label": "Build Machine"
+  },
+  {
+   "default": "16",
+   "description": "Installing every signup app peaks at about 9 GB, before the build cleans up.",
+   "fieldname": "build_machine_disk_gb",
+   "fieldtype": "Int",
+   "label": "Build Machine Disk (GB)",
+   "reqd": 1
+  },
+  {
+   "default": "4000",
+   "fieldname": "build_machine_cpu",
+   "fieldtype": "Int",
+   "label": "Build Machine CPU (millicores)",
+   "reqd": 1
+  },
+  {
+   "default": "4",
+   "fieldname": "build_machine_memory",
+   "fieldtype": "Int",
+   "label": "Build Machine Memory (GB)",
+   "reqd": 1
+  },
+  {
+   "default": "3",
+   "description": "How often the scheduler restarts a failed Pilot Image before it leaves it Failed. Set Automatic Retries on the image lets the scheduler try it again.",
+   "fieldname": "max_auto_retry_count",
+   "fieldtype": "Int",
+   "label": "Max Automatic Retries",
+   "reqd": 1
+  },
+  {
+   "fieldname": "connections_tab",
+   "fieldtype": "Tab Break",
+   "label": "Connections"
+  },
+  {
+   "fieldname": "image_build_tab",
+   "fieldtype": "Tab Break",
+   "label": "Image Build"
+  },
+  {
+   "fieldname": "release_tracking_section",
+   "fieldtype": "Section Break",
+   "label": "Release Tracking"
+  },
+  {
+   "description": "Pilot images are built once for each of these branches.",
+   "fieldname": "frappe_branches",
+   "fieldtype": "Table",
+   "label": "Frappe Branches",
+   "options": "Frappe Branch"
+  },
+  {
+   "description": "A Site image installs every app below on its bench. An Apps image takes one snapshot for each, with that app installed on the site. The apps an app requires come from the marketplace registry and are installed before it.",
+   "fieldname": "signup_apps_section",
+   "fieldtype": "Section Break",
+   "label": "Signup Apps"
+  },
+  {
+   "fieldname": "signup_apps",
+   "fieldtype": "Table",
+   "label": "Signup Apps",
+   "options": "Signup App"
+  },
+  {
+   "default": "0",
+   "description": "Update pilot in previous base image instead of building image from scratch.",
+   "fieldname": "update_pilot_in_base_image",
+   "fieldtype": "Check",
+   "label": "Update Pilot In Base Image"
+  },
+  {
+   "fieldname": "placement_tab",
+   "fieldtype": "Tab Break",
+   "label": "Placement"
+  },
+  {
+   "description": "Rules Cargo sends to Atlas when it asks for a storage node. They apply only when a node is created.",
+   "fieldname": "storage_node_placement_section",
+   "fieldtype": "Section Break",
+   "label": "Storage Nodes"
+  },
+  {
+   "default": "Separate hosts",
+   "description": "Separate hosts puts at most one storage node of a cluster on a host, so a lost host takes at most one copy of the data. Off lets Atlas place them anywhere.",
+   "fieldname": "storage_node_spread",
+   "fieldtype": "Select",
+   "label": "Storage Node Spread",
+   "options": "Separate hosts\nOff"
+  },
+  {
+   "depends_on": "eval:doc.storage_node_spread == 'Separate hosts'",
+   "description": "Optional host tag key, such as rack. Set, it puts at most one storage node of a cluster in each group of hosts that share the key's value. Atlas does not place a storage node on a host without the key.",
+   "fieldname": "storage_node_spread_within",
+   "fieldtype": "Data",
+   "label": "Spread Within"
+  },
+  {
+   "fieldname": "actions_tab",
+   "fieldtype": "Tab Break",
+   "label": "Actions"
+  },
+  {
+   "fieldname": "storage_section",
+   "fieldtype": "Section Break",
+   "label": "Storage"
+  },
+  {
+   "description": "Maximum a storage node of the garage cluster can set after this limit is hit on the storage node we will prefer adding a storage node.",
+   "fieldname": "max_storage_node_disk",
+   "fieldtype": "Int",
+   "label": "Max Storage Node Disk"
+  },
+  {
+   "default": "6",
+   "description": "How far ahead the fullest storage node's usage is projected when sizing a disk growth.",
+   "fieldname": "storage_disk_predict_hours",
+   "fieldtype": "Int",
+   "label": "Predict Disk Usage Hours",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "default": "50",
+   "description": "The first disk growth, as a percent of the current disk. Each later growth doubles the last one.",
+   "fieldname": "first_storage_disk_growth_percent",
+   "fieldtype": "Percent",
+   "label": "First Disk Growth",
+   "reqd": 1
+  },
+  {
+   "default": "6",
+   "description": "Storage disks are not grown again until this many hours after the last growth, so the new size shows in the usage readings first.",
+   "fieldname": "storage_disk_min_hours_between_growth",
+   "fieldtype": "Float",
+   "label": "Hours Between Disk Growths",
+   "non_negative": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "metadata_snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Metadata Snapshots"
+  },
+  {
+   "default": "6",
+   "description": "How often every node of a live cluster snapshots its metadata database. Garage keeps the two newest snapshots per node, so a rollback reaches back about twice this. 0 stops snapshots.",
+   "fieldname": "metadata_snapshot_interval_hours",
+   "fieldtype": "Float",
+   "label": "Snapshot Interval (Hours)",
+   "non_negative": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-10-24 16:00:14.628836",
+ "modified_by": "Administrator",
+ "module": "Cargo",
+ "name": "Cargo Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

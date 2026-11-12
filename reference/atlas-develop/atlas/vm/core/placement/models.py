@@ -1,0 +1,69 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+
+from atlas.vm.core.placement.affinity import AffinityRules
+
+
+@dataclass(frozen=True, slots=True)
+class Resources:
+	"""CPU in millicores and memory and storage in MiB."""
+
+	cpu_millicores: int
+	memory_mib: int
+	storage_mib: int
+
+	def reserve(self, cpu_millicores: int, memory_mib: int, storage_mib: int) -> Resources:
+		return Resources(
+			cpu_millicores=max(self.cpu_millicores - cpu_millicores, 0),
+			memory_mib=max(self.memory_mib - memory_mib, 0),
+			storage_mib=max(self.storage_mib - storage_mib, 0),
+		)
+
+
+@dataclass(frozen=True, slots=True)
+class PlacementRequirements:
+	"""VM resources and placement constraints visible to a strategy."""
+
+	cpu_millicores: int
+	memory_mib: int
+	disk_mib: int
+	architecture: str
+	tenant_id: int
+	is_sleepy: bool
+	placement_rules: AffinityRules = field(default_factory=AffinityRules)
+	# The VM that placement moves. It never matches its own affinity rules.
+	virtual_machine: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CurrentPlacement:
+	"""The host of a resized VM and the memory and disk it already holds there."""
+
+	host_name: str
+	memory_mib: int
+	disk_mib: int
+
+
+@dataclass(frozen=True, slots=True)
+class HostUsage:
+	"""One fresh host sample with free capacity after local reservations."""
+
+	name: str
+	architecture: str
+	is_sleepy: bool
+	sample_created_at: datetime
+	total: Resources
+	free: Resources
+	sleepy_reserved_memory_mib: int
+
+
+@dataclass(frozen=True, slots=True)
+class FleetUsage:
+	"""Fresh ready hosts and the sum of their resource views."""
+
+	hosts: tuple[HostUsage, ...]
+	total: Resources
+	free: Resources
+	sleepy_reserved_memory_mib: int

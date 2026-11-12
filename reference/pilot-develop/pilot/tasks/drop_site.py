@@ -1,0 +1,26 @@
+from dataclasses import dataclass
+from typing import ClassVar
+
+from pilot.tasks import Task, step
+
+
+@dataclass(kw_only=True)
+class DropSiteTask(Task):
+    command: ClassVar[str] = "drop-site"
+    timeout_seconds: ClassVar[int] = 86400
+    is_cancellable_while_running: ClassVar[bool] = False
+
+    site: str
+    no_backup: bool = False
+
+    def run(self) -> None:
+        self.require_production_privileges()
+        self.drop()
+
+    @step("drop", lambda self: f"Drop site {self.site}")
+    def drop(self) -> None:
+        self.bench.site(self.site).drop(on_progress=self.report, no_backup=self.no_backup)
+
+
+if __name__ == "__main__":
+    DropSiteTask.main()

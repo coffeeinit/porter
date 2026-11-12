@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+from tests.admin.backend.test_admin_app import _client
+
+
+def _write_site(bench_root: Path, name: str = "s.localhost", **config) -> None:
+    site_path = bench_root / "sites" / name
+    site_path.mkdir(parents=True)
+    (site_path / "site_config.json").write_text(json.dumps(config))
+
+
+def test_create_login_link_returns_url_with_sid(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root)
+
+    with patch(
+        "pilot.core.site.login.SiteLogin.create_session",
+        return_value="frappe-session-id",
+    ) as create_session:
+        response = client.post("/api/v1/sites/s.localhost/login")
+
+    assert response.status_code == 201
+    body = response.get_json()
+    assert response.headers["Location"] == body["url"]
+    assert response.headers["Cache-Control"] == "no-store"
+    assert body["url"] == "http://s.localhost:8000/desk?sid=frappe-session-id"
+    create_session.assert_called_once_with("Administrator", "")
+
+
+def test_create_login_link_resolves_a_renamed_sites_old_hostname(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root, "new.localhost", domains=["old.localhost"])
+
+    with patch(
+        "pilot.core.site.login.SiteLogin.create_session",
+        return_value="frappe-session-id",
+    ):
+        response = client.post("/api/v1/sites/old.localhost/login")
+
+    assert response.status_code == 201
+    assert response.get_json()["url"] == "http://new.localhost:8000/desk?sid=frappe-session-id"
+
+
+def test_create_login_link_hints_when_the_host_does_not_resolve(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root, "erp.example.test")
+
+    with (
+        patch(
+            "pilot.core.site.login.SiteLogin.create_session",
+            return_value="frappe-session-id",
+        ),
+        patch("pilot.core.site.login.socket.getaddrinfo", side_effect=OSError),
+    ):
+        response = client.post("/api/v1/sites/erp.example.test/login")
+
+    assert response.status_code == 201
+    hint = response.get_json()["hint"]
+    assert "erp.example.test" in hint
+    assert "/etc/hosts" in hint
+
+
+def test_create_login_link_omits_the_hint_for_localhost_names(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root)
+
+    with patch(
+        "pilot.core.site.login.SiteLogin.create_session",
+        return_value="frappe-session-id",
+    ):
+        response = client.post("/api/v1/sites/s.localhost/login")
+
+    assert response.status_code == 201
+    assert "hint" not in response.get_json()
+
+
+def test_site_detail_exposes_the_served_url(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root)
+
+    detail = client.get("/api/v1/sites/s.localhost").get_json()
+
+    assert detail["url"] == "http://s.localhost:8000"
+
+
+def test_create_login_link_fails_when_session_creation_fails(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    _write_site(bench_root)
+
+    with patch(
+        "pilot.core.site.login.SiteLogin.create_session",
+        return_value=None,
+    ):
+        response = client.post("/api/v1/sites/s.localhost/login")
+
+    assert response.status_code == 503
+
+
+def test_login_link_rejects_missing_and_symlinked_sites(tmp_path: Path) -> None:
+    bench_root = tmp_path / "benches" / "current"
+    client = _client(bench_root)
+    outside = tmp_path / "outside"
+    _write_site(outside, "linked.localhost")
+    sites = bench_root / "sites"
+    sites.mkdir()
+    (sites / "linked.localhost").symlink_to(
+        outside / "sites" / "linked.localhost",
+        target_is_directory=True,
+    )
+
+    missing = client.post("/api/v1/sites/missing.localhost/login")
+    linked = client.post("/api/v1/sites/linked.localhost/login")
+
+    assert missing.status_code == linked.status_code == 404
+
+
+def test_a_login_token_naming_an_email_signs_that_user_in() -> None:
+    from admin.backend.internal.session import Session
+
+    claims = {"scope": "site", "sub": "asha@example.com", "name": "Asha Rao"}
+
+    assert Session.get_login_user(claims) == ("asha@example.com", "Asha Rao")
+
+
+def test_a_login_token_without_an_email_signs_administrator_in() -> None:
+    from admin.backend.internal.session import Session
+
+    for claims in ({"sub": "admin"}, {"sub": "not an email"}, {}, None):
+        assert Session.get_login_user(claims) == ("Administrator", "")

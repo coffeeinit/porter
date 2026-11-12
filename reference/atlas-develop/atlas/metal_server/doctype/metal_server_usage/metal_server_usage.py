@@ -1,0 +1,31 @@
+import frappe
+from frappe.model.document import Document
+
+
+class MetalServerUsage(Document):
+	"""One host capacity sample reported by Metal."""
+
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		available_cpu_millicores: DF.Int
+		available_memory_mib: DF.Int
+		available_storage_mib: DF.Int
+		server: DF.Link
+		total_cpu_millicores: DF.Int
+		total_memory_mib: DF.Int
+		total_storage_mib: DF.Int
+		virtual_machine_count: DF.Int
+	# end: auto-generated types
+
+	"""Record one capacity sample from a Metal host."""
+
+
+def on_doctype_update() -> None:
+	"""Index the latest capacity sample lookup per host."""
+	frappe.db.add_index("Metal Server Usage", ["server", "creation"], "placement_latest_usage")

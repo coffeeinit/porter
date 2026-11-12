@@ -1,0 +1,513 @@
+// Command metald is the metal daemon: an HTTP server (over a unix socket) that
+// drives firecracker microVMs.
+//
+//	metald serve [--config path]   run the server (default)
+//	metald version                 print the build version
+//
+// Use scripts/dev.sh to prepare a throwaway dev host before serve.
+package main
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"flag"
+	"fmt"
+	"log/slog"
+	"net"
+	"net/netip"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/frappe/atlas/metal/internal/api"
+	"github.com/frappe/atlas/metal/internal/console"
+	"github.com/frappe/atlas/metal/internal/firecracker"
+	"github.com/frappe/atlas/metal/internal/host"
+	"github.com/frappe/atlas/metal/internal/metrics"
+	"github.com/frappe/atlas/metal/internal/network"
+	traffic "github.com/frappe/atlas/metal/internal/network/traffic"
+	"github.com/frappe/atlas/metal/internal/patches"
+	platform "github.com/frappe/atlas/metal/internal/platform"
+	"github.com/frappe/atlas/metal/internal/reconciler"
+	"github.com/frappe/atlas/metal/internal/storage"
+	"github.com/frappe/atlas/metal/internal/telemetry"
+	"github.com/frappe/atlas/metal/internal/vm"
+	"github.com/frappe/atlas/metal/internal/vm/migration"
+)
+
+const (
+	reconcileInterval      = 5 * time.Second
+	meshSetupTimeout       = 2 * time.Minute
+	imageReconcileInterval = time.Hour
+	guestCheckInterval     = time.Minute
+)
+
+//	@title			Metal API
+//	@version		1.0
+//	@description	Metal manages Firecracker virtual machines and host resources.
+//	@BasePath		/
+//
+//	@tag.name		Virtual machines
+//	@tag.description	Manage desired and observed virtual machine state.
+//	@tag.name		Snapshots
+//	@tag.description	Stage and upload virtual machine image artifacts.
+//	@tag.name		Host synchronization
+//	@tag.description	Replace controller-owned host state and get capacity.
+//	@tag.name		Health
+//	@tag.description	Check the Metal HTTP server.
+
+// version is the build version set with -ldflags "-X main.version=...".
+var version = "dev"
+
+func main() {
+	logger := slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	args := os.Args[1:]
+	cmd := "serve"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		cmd, args = args[0], args[1:]
+	}
+	if cmd == "version" {
+		fmt.Println(version)
+		return
+	}
+	if cmd == "patches" {
+		fmt.Println(strings.Join(patches.Names(), "\n"))
+		return
+	}
+	configPath, err := parseFlags(cmd, args)
+	if err != nil {
+		os.Exit(2)
+	}
+	if cmd != "serve" {
+		fmt.Fprintf(os.Stderr, "usage: metald [serve] [--config path] | metald version | metald patches\n")
+		os.Exit(2)
+	}
+	options, err := load(configPath)
+	if err == nil && options.cfg.DefaultCPUTemplateError != "" {
+		logger.Warn("VMs boot without a CPU template", "reason", options.cfg.DefaultCPUTemplateError)
+	}
+	if err == nil {
+		err = serve(options, logger)
+	}
+	if err != nil {
+		logger.Error("metald stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func parseFlags(cmd string, args []string) (string, error) {
+	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
+	path := fs.String("config", "", "path to the configuration file (optional; defaults to "+defaultConfigPath+")")
+	if err := fs.Parse(args); err != nil {
+		return "", err
+	}
+	return *path, nil
+}
+
+// listen opens a Unix socket, or a TCP listener that the systemd descriptor store keeps under name.
+func listen(descriptorStore *platform.FileDescriptorStore, name, addr string) (net.Listener, error) {
+	if path, ok := strings.CutPrefix(addr, "unix:"); ok {
+		_ = os.Remove(path)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return nil, err
+		}
+		ln, err := net.Listen("unix", path)
+		if err == nil {
+			_ = os.Chmod(path, 0o660)
+		}
+		return ln, err
+	}
+	return descriptorStore.Listen(name, addr)
+}
+
+// transferListenAddress keeps the coordination host and replaces its port. The
+// snapshot server binds one node address, so a wildcard host is rejected.
+func transferListenAddress(coordinationAddress string, transferPort int) (string, error) {
+	host, _, err := net.SplitHostPort(coordinationAddress)
+	if err != nil {
+		return "", fmt.Errorf("parse metald.coordination_listen %q: %w", coordinationAddress, err)
+	}
+	address, err := netip.ParseAddr(host)
+	if err != nil || address.IsUnspecified() {
+		return "", fmt.Errorf("metald.coordination_listen needs a node IP address, not %q", coordinationAddress)
+	}
+	return net.JoinHostPort(host, strconv.Itoa(transferPort)), nil
+}
+
+func makeDirs(options options) error {
+	dirs := []struct {
+		path string
+		mode os.FileMode
+	}{
+		{options.cfg.MachinesDir, 0o750},
+		{options.cfg.SocketsDir, 0o700},
+		{options.imagesDir, 0o755},
+	}
+	for _, d := range dirs {
+		if err := os.MkdirAll(d.path, d.mode); err != nil {
+			return fmt.Errorf("create %s: %w", d.path, err)
+		}
+	}
+	return nil
+}
+
+// connectMesh prepares Atlas WG Mesh and configures the host on every start.
+func connectMesh(options options) (*network.Mesh, error) {
+	mesh, err := network.NewMesh(network.MeshConfig{
+		CommandPath:        options.mesh.binaryPath,
+		UplinkName:         options.mesh.uplinkName,
+		ControllerAddress:  options.mesh.controllerAddress,
+		WireGuardName:      options.wireGuardName,
+		WireGuardStatePath: wireGuardStatePath(options),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("configure Atlas WG Mesh: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), meshSetupTimeout)
+	defer cancel()
+	if err := mesh.EnsureHost(ctx); err != nil {
+		return nil, fmt.Errorf("configure Atlas WG Mesh host: %w", err)
+	}
+	return mesh, nil
+}
+
+// wireGuardStatePath holds the managed WireGuard peer state under base_dir.
+func wireGuardStatePath(options options) string {
+	return filepath.Join(options.baseDir, "wireguard-peers.json")
+}
+
+// adoptConsoles restores consoles after a metald restart.
+func adoptConsoles(
+	ctx context.Context,
+	logger *slog.Logger,
+	serialBroker *console.SerialBroker,
+	units *platform.DBus,
+	descriptorStoreAvailable bool,
+) error {
+	runningVirtualMachineIDs, err := units.List(ctx)
+	if err != nil {
+		return fmt.Errorf("list virtual machine units: %w", err)
+	}
+	// An SSH session ID is also its console ID.
+	runningSSHSessionIDs, err := units.SSHSessions().List(ctx)
+	if err != nil {
+		return fmt.Errorf("list ssh session units: %w", err)
+	}
+
+	runningConsoleIDs := append(runningVirtualMachineIDs, runningSSHSessionIDs...)
+	adoptedConsoleCount := serialBroker.Adopt(runningConsoleIDs)
+	logger.Info(
+		"adopted serial consoles",
+		"adopted_console_count", adoptedConsoleCount,
+		"running_unit_count", len(runningConsoleIDs),
+		"descriptor_store_available", descriptorStoreAvailable,
+	)
+
+	// Without the store, metald holds the only PTY master. Its exit stops every VM.
+	if !descriptorStoreAvailable {
+		logger.Warn(
+			"descriptor store unavailable; a metald exit stops every running VM",
+			"running_unit_count", len(runningVirtualMachineIDs),
+			"required_unit_settings", "NotifyAccess=main, FileDescriptorStoreMax",
+		)
+
+		return nil
+	}
+
+	// A VM without an adopted console has no stored master. Its next metald exit stops it.
+	if adoptedConsoleCount < len(runningConsoleIDs) {
+		logger.Warn(
+			"running VMs have no adopted console; a metald exit stops them",
+			"adopted_console_count", adoptedConsoleCount,
+			"running_unit_count", len(runningConsoleIDs),
+		)
+	}
+
+	return nil
+}
+
+func serve(options options, logger *slog.Logger) (serveError error) {
+	tlsConfigurations, err := loadTLS(options.tls)
+	if err != nil {
+		return err
+	}
+	transferAddress, err := transferListenAddress(options.coordinationListen, options.migration.transferPort)
+	if err != nil {
+		return err
+	}
+
+	// Listen first. A stored listener queues requests while metald starts.
+	descriptorStore := platform.NewFileDescriptorStore()
+	listener, err := listen(descriptorStore, "listener-api", options.listen)
+	if err != nil {
+		return fmt.Errorf("listen %s: %w", options.listen, err)
+	}
+	coordinationListener, err := listen(descriptorStore, "listener-coordination", options.coordinationListen)
+	if err != nil {
+		return fmt.Errorf("listen for Metal coordination on %s: %w", options.coordinationListen, err)
+	}
+
+	// Connect required host services.
+	var mesh *network.Mesh
+	if options.mesh.enabled {
+		mesh, err = connectMesh(options)
+		if err != nil {
+			return err
+		}
+	}
+	if err := makeDirs(options); err != nil {
+		return err
+	}
+	// Patches change state from an older metald, so they run before anything reads it.
+	if err := patches.Run(options.baseDir, logger); err != nil {
+		return err
+	}
+	units, err := platform.Connect(context.Background())
+	if err != nil {
+		return fmt.Errorf("connect systemd: %w", err)
+	}
+
+	// Create resources that metald owns.
+	daemonContext, cancelDaemon := context.WithCancel(context.Background())
+	registry := telemetry.NewRegistry(logger)
+	stores := storage.NewStores(daemonContext, options.pool, options.imagesDir, logger, registry)
+	serialBroker := console.NewSerialBroker(options.cfg.ConsolesDir(), descriptorStore)
+	daemon := newDaemon(daemonContext, cancelDaemon, logger, stores.Snapshots, serialBroker, units)
+	defer func() {
+		// The upgrade script waits for "ready <version>", so an old status must not match.
+		if err := descriptorStore.SetStatus("stopping"); err != nil {
+			logger.Warn("could not set the service status", "error", err)
+		}
+		shutdownContext, cancelShutdown := context.WithTimeout(context.Background(), gracefulShutdownTimeout)
+		defer cancelShutdown()
+		serveError = errors.Join(serveError, daemon.Shutdown(shutdownContext))
+	}()
+
+	// Restore consoles for running virtual machines.
+	if err := adoptConsoles(daemonContext, logger, serialBroker, units, descriptorStore.IsAvailable()); err != nil {
+		return err
+	}
+
+	// Create virtual machine and API services.
+	wireGuardState := wireGuardStatePath(options)
+	wireGuardManager, err := network.NewWireGuardManager(network.WireGuardConfig{
+		InterfaceName: options.wireGuardName,
+		StatePath:     wireGuardState,
+	})
+	if err != nil {
+		return fmt.Errorf("configure WireGuard manager: %w", err)
+	}
+	var trafficMonitor *traffic.Monitor
+	if options.trafficMonitor.enabled {
+		trafficMonitor, err = traffic.NewMonitor(traffic.Config{
+			MinimumUserID: vm.DefaultUserIDRange.Min,
+			MaximumUserID: vm.DefaultUserIDRange.Max,
+			Logger:        logger,
+		})
+		if err != nil {
+			return fmt.Errorf("configure traffic monitor: %w", err)
+		}
+		daemon.OwnTrafficMonitor(trafficMonitor)
+	}
+	networkManager := network.NewLinuxAllocator(mesh, trafficMonitor, logger)
+	virtualMachineRuntime := firecracker.NewRuntime(
+		options.cfg,
+		units,
+		units.SSHSessions(),
+		stores.VirtualMachines,
+		stores.Images,
+		serialBroker,
+		logger,
+		registry,
+	)
+	virtualMachineRuntime.RecoverSSHSessions()
+	virtualMachineManager, err := vm.NewManager(
+		vm.ManagerConfig{
+			MachinesDirectory: options.cfg.MachinesDir,
+		},
+		vm.ManagerDependencies{
+			Runtime:   virtualMachineRuntime,
+			Network:   networkManager,
+			Storage:   stores.VirtualMachines,
+			Snapshots: stores.Snapshots,
+			Traffic:   trafficMonitor,
+			Logger:    logger,
+			Telemetry: registry,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("configure VM manager: %w", err)
+	}
+	memorySnapshotBuilder := vm.NewWarmImageBuilder(
+		virtualMachineManager,
+		virtualMachineRuntime,
+		stores.Images,
+	)
+
+	virtualMachineReconciler := reconciler.NewVirtualMachineReconciler(
+		virtualMachineManager,
+		reconcileInterval,
+		reconciler.VirtualMachineConfig{Logger: logger, Telemetry: registry},
+	)
+	sleepTransferReconciler := reconciler.NewSleepTransferReconciler(
+		virtualMachineManager,
+		reconcileInterval,
+		reconciler.VirtualMachineConfig{Logger: logger, Telemetry: registry},
+	)
+	sleepRestoreReconciler := reconciler.NewSleepRestoreReconciler(
+		virtualMachineManager,
+		reconcileInterval,
+		reconciler.VirtualMachineConfig{Logger: logger, Telemetry: registry},
+	)
+	guestChecker := reconciler.NewGuestChecker(virtualMachineManager, guestCheckInterval, registry, logger)
+	imageReconciler := reconciler.NewImageReconciler(
+		stores.Images,
+		stores.Snapshots,
+		memorySnapshotBuilder,
+		virtualMachineManager,
+		imageReconcileInterval,
+		reconciler.ImageConfig{Logger: logger, Telemetry: registry},
+	)
+	var migrationReconciler *reconciler.MigrationReconciler
+	var migrationManager *migration.Manager
+	notifyReconcilers := func() {
+		virtualMachineReconciler.Wake()
+		sleepTransferReconciler.Wake()
+		sleepRestoreReconciler.Wake()
+		imageReconciler.Wake()
+		if migrationReconciler != nil {
+			migrationReconciler.Wake()
+		}
+	}
+	migrationReservations := func(ctx context.Context) ([]migration.DestinationReservation, error) {
+		if migrationManager == nil {
+			return nil, nil
+		}
+		return migrationManager.DestinationReservations(ctx)
+	}
+	hostDependencies := host.Dependencies{
+		WireGuard:             wireGuardManager,
+		Images:                stores.Images,
+		GatewayRoutes:         virtualMachineManager,
+		VirtualMachines:       virtualMachineManager,
+		Storage:               stores.Pool,
+		MigrationReservations: migrationReservations,
+		Wake:                  notifyReconcilers,
+	}
+	compatibility, compatibilityError := virtualMachineRuntime.HostCompatibility(daemonContext)
+	if compatibilityError != nil {
+		logger.WarnContext(daemonContext, "Host compatibility probe failed", "error", compatibilityError)
+	} else {
+		hostDependencies.Compatibility = &compatibility
+	}
+	// A nil *network.Mesh in the interface would not compare equal to nil.
+	if mesh != nil {
+		hostDependencies.Mesh = mesh
+	}
+	hostService, err := host.NewService(hostDependencies)
+	if err != nil {
+		return fmt.Errorf("configure host service: %w", err)
+	}
+	metricsStore, err := metrics.NewStore(options.cfg.MachinesDir)
+	if err != nil {
+		return fmt.Errorf("configure metrics store: %w", err)
+	}
+	metricsSampler := metrics.NewSampler(metricsStore, virtualMachineManager, logger)
+
+	migrationCapacity := func(ctx context.Context) (migration.AvailableCapacity, error) {
+		capacity, err := hostService.Capacity(ctx)
+		if err != nil {
+			return migration.AvailableCapacity{}, err
+		}
+		return migration.AvailableCapacity{
+			MemoryMiB:  capacity.AvailableMemoryMiB,
+			StorageMiB: capacity.AvailableStorageMiB,
+		}, nil
+	}
+	migrationManager, err = migration.NewManager(
+		vm.NewMigrationHost(virtualMachineManager),
+		migration.NewSourceClient(0, tlsConfigurations.client),
+		storage.NewMigrationTransfer(stores.Pool, storage.MigrationTLSConfig{
+			CAFile:          options.tls.caFile,
+			CertificateFile: options.tls.certificateFile,
+			PrivateKeyFile:  options.tls.privateKeyFile,
+			ListenAddress:   transferAddress,
+			TransferPort:    options.migration.transferPort,
+		}),
+		stores.Images,
+		migrationCapacity,
+		options.migration.finalDeltaMiB,
+		logger,
+		registry,
+	)
+	if err != nil {
+		return fmt.Errorf("configure migration manager: %w", err)
+	}
+	// The manager pauses mutation and reconciliation for a migrating VM through
+	// this guard, so it never imports the migration package.
+	virtualMachineManager.SetMigrationGuard(migrationManager)
+	migrationReconciler = reconciler.NewMigrationReconciler(
+		migrationManager,
+		reconcileInterval,
+		reconciler.MigrationConfig{Logger: logger, Telemetry: registry},
+	)
+	daemon.OwnMigrations(migrationManager)
+	coordinationServer, err := api.NewCoordination(logger, registry, migrationManager)
+	if err != nil {
+		return fmt.Errorf("configure coordination API: %w", err)
+	}
+	versions := api.Versions{MetaldVersion: version}
+	if mesh != nil {
+		if versions.MeshVersion, err = mesh.Version(daemonContext); err != nil {
+			logger.Warn("could not read the Atlas WG Mesh version", "error", err)
+		}
+	}
+	if versions.FirecrackerVersion, err = options.cfg.FirecrackerVersion(daemonContext); err != nil {
+		logger.Warn("could not read the Firecracker version", "error", err)
+	}
+	server, err := api.New(api.Config{Logger: logger, Telemetry: registry, Versions: versions}, api.Dependencies{
+		VirtualMachineManager: virtualMachineManager,
+		MigrationManager:      migrationManager,
+		SnapshotStore:         stores.Snapshots,
+		WakeReconciler:        notifyReconcilers,
+		HostService:           hostService,
+		SerialBroker:          serialBroker,
+		MetricsStore:          metricsStore,
+	})
+	if err != nil {
+		return fmt.Errorf("configure API: %w", err)
+	}
+
+	// Start workers and serve the API.
+	logger.Info("metald listening", "version", version, "address", options.listen)
+	server.Listener = tls.NewListener(listener, tlsConfigurations.api)
+	coordinationServer.Listener = tls.NewListener(coordinationListener, tlsConfigurations.coordination)
+	daemon.StartWorker(platform.RunWatchdog)
+	daemon.StartWorker(virtualMachineReconciler.Run)
+	daemon.StartWorker(sleepTransferReconciler.Run)
+	daemon.StartWorker(sleepRestoreReconciler.Run)
+	daemon.StartWorker(guestChecker.Run)
+	daemon.StartWorker(imageReconciler.Run)
+	daemon.StartWorker(migrationReconciler.Run)
+	daemon.StartWorker(metricsSampler.Run)
+	daemon.StartWorker(newTelemetryPusher(options, logger, registry, units, versions, telemetrySources{
+		virtualMachines: virtualMachineManager, migrations: migrationManager, runtime: virtualMachineRuntime,
+	}).Run)
+	if trafficMonitor != nil {
+		daemon.StartTrafficListener(trafficMonitor.Events(), func(ctx context.Context, event traffic.Event) error {
+			if err := virtualMachineManager.RestoreAfterTraffic(ctx, event); err != nil {
+				return err
+			}
+			virtualMachineReconciler.Wake()
+			sleepRestoreReconciler.Wake()
+			return nil
+		})
+	}
+	if err := descriptorStore.SetStatus("ready " + version); err != nil {
+		logger.Warn("could not set the service status", "error", err)
+	}
+	return daemon.Serve(server, coordinationServer)
+}

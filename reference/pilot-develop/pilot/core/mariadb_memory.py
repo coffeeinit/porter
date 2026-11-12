@@ -1,0 +1,185 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+_HARDWARE_MEMORY_FACTOR = 0.972
+_HARDWARE_MEMORY_RESERVE_MB = 218
+_MARIADB_OPERATING_RESERVE_MB = 700
+_MEMORY_PER_CONNECTION_MB = 35
+_MIN_BUFFER_POOL_MB = 128
+_SMALL_HOST_MB = 800
+_SMALL_HOST_BUFFER_POOL_MB = 64
+_SMALL_HOST_KEY_BUFFER_MB = 8
+_SMALL_HOST_MAX_CONNECTIONS = 20
+_MIN_MEMORY_MAX_MB = 512
+_MIN_MEMORY_LIMIT_GAP_MB = 128
+_MEMORY_HIGH_HEADROOM_SHARE = 0.1
+_MIN_MAX_CONNECTIONS = 10
+_MIN_BUFFER_POOL_SHARE = 0.2
+_MAX_BUFFER_POOL_SHARE = 0.7
+_BUFFER_POOL_MAX_BLOCK_MB = 8
+_MEBIBYTE = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class MariaDBMemorySizing:
+    """Startup values for MariaDB instance"""
+
+    total_memory_mb: int
+    memory_share: float
+    mariadb_memory_mb: int
+    innodb_buffer_pool_mb: int
+    max_connections: int
+    key_buffer_mb: int
+    innodb_log_file_mb: int
+    memory_high_mb: int
+    memory_max_mb: int
+
+
+@dataclass(frozen=True)
+class MariaDBVariableLimits:
+    """Safe user-configurable ranges within Pilot's MariaDB service budget."""
+
+    innodb_buffer_pool_min_mb: int
+    innodb_buffer_pool_max_mb: int
+    innodb_buffer_pool_recommended_mb: int
+    max_connections_min: int
+    max_connections_max: int
+    max_connections_recommended: int
+
+
+def calculate_mariadb_memory(total_memory_mb: int, memory_share: float = 0.5) -> MariaDBMemorySizing:
+    """Size MariaDB for `memory_share` of the host's memory; the benches keep the rest."""
+    if total_memory_mb <= 0:
+        raise ValueError("total_memory_mb must be greater than zero")
+
+    real_memory_mb = _HARDWARE_MEMORY_FACTOR * total_memory_mb - _HARDWARE_MEMORY_RESERVE_MB
+    mariadb_memory_mb = real_memory_mb * memory_share - _MARIADB_OPERATING_RESERVE_MB
+
+    is_small_host = total_memory_mb < _SMALL_HOST_MB
+    recommended_connections = 5 * round(total_memory_mb / 1024)
+    max_connections = _SMALL_HOST_MAX_CONNECTIONS if is_small_host else max(50, recommended_connections)
+    key_buffer_mb = 128 if mariadb_memory_mb > 4096 else 32
+    if is_small_host:
+        key_buffer_mb = _SMALL_HOST_KEY_BUFFER_MB
+    base_memory_mb = key_buffer_mb + 32 + 16
+
+    connection_aware_pool_mb = int(
+        mariadb_memory_mb - base_memory_mb - recommended_connections * _MEMORY_PER_CONNECTION_MB
+    )
+    percentage_pool_mb = int(mariadb_memory_mb * 0.65)
+    innodb_buffer_pool_mb = max(
+        _SMALL_HOST_BUFFER_POOL_MB if is_small_host else _MIN_BUFFER_POOL_MB,
+        min(connection_aware_pool_mb, percentage_pool_mb),
+    )
+
+    # Pilot shares the VM with web, worker, and Redis processes. Keep the
+    # startup floor, but never let it claim more than its share of a small host.
+    host_share_cap_mb = max(1, int(total_memory_mb * memory_share))
+    memory_max_mb = min(
+        host_share_cap_mb,
+        max(_MIN_MEMORY_MAX_MB, round(mariadb_memory_mb)),
+    )
+    memory_high_mb = memory_high_for(memory_max_mb)
+
+    return MariaDBMemorySizing(
+        total_memory_mb=total_memory_mb,
+        memory_share=memory_share,
+        mariadb_memory_mb=max(0, int(mariadb_memory_mb)),
+        innodb_buffer_pool_mb=innodb_buffer_pool_mb,
+        max_connections=max_connections,
+        key_buffer_mb=key_buffer_mb,
+        innodb_log_file_mb=_innodb_log_file_size(total_memory_mb),
+        memory_high_mb=memory_high_mb,
+        memory_max_mb=memory_max_mb,
+    )
+
+
+def memory_high_for(memory_max_mb: int) -> int:
+    """Just under MemoryMax. The buffer pool and connections fill MemoryMax, and a
+    MemoryHigh below that working set throttles MariaDB until it stalls."""
+    gap_mb = min(_MIN_MEMORY_LIMIT_GAP_MB, memory_max_mb // 4)
+    headroom_mb = max(gap_mb, int(memory_max_mb * _MEMORY_HIGH_HEADROOM_SHARE))
+    return max(1, memory_max_mb - headroom_mb)
+
+
+def calculate_mariadb_variable_limits(total_memory_mb: int, memory_share: float = 0.5) -> MariaDBVariableLimits:
+    """Adapt Press's MariaDB guards to Pilot's shared-VM memory ceiling."""
+    sizing = calculate_mariadb_memory(total_memory_mb, memory_share)
+    pool_min_mb = min(
+        sizing.innodb_buffer_pool_mb,
+        max(
+            _MIN_BUFFER_POOL_MB,
+            _round_up(
+                int(sizing.memory_max_mb * _MIN_BUFFER_POOL_SHARE),
+                _BUFFER_POOL_MAX_BLOCK_MB,
+            ),
+        ),
+    )
+    pool_max_mb = max(
+        pool_min_mb,
+        _round_down(int(sizing.memory_max_mb * _MAX_BUFFER_POOL_SHARE), _BUFFER_POOL_MAX_BLOCK_MB),
+    )
+    return MariaDBVariableLimits(
+        innodb_buffer_pool_min_mb=pool_min_mb,
+        innodb_buffer_pool_max_mb=pool_max_mb,
+        innodb_buffer_pool_recommended_mb=min(
+            pool_max_mb,
+            max(pool_min_mb, sizing.innodb_buffer_pool_mb),
+        ),
+        max_connections_min=_MIN_MAX_CONNECTIONS,
+        max_connections_max=max(
+            sizing.max_connections,
+            sizing.memory_max_mb // _MEMORY_PER_CONNECTION_MB,
+        ),
+        max_connections_recommended=sizing.max_connections,
+    )
+
+
+def _innodb_log_file_size(total_memory_mb: int) -> int:
+    ram_gb = round(total_memory_mb / 1024)
+    if ram_gb > 16:
+        return 2048
+    if ram_gb > 8:
+        return 1024
+    if ram_gb > 4:
+        return 512
+    if ram_gb > 2:
+        return 128
+    return 48
+
+
+def _round_up(value: int, block: int) -> int:
+    return ((value + block - 1) // block) * block
+
+
+def _round_down(value: int, block: int) -> int:
+    return (value // block) * block
+
+
+def live_sizing_values(
+    sizing: MariaDBMemorySizing, current_pool: int, pool_max: int, overrides: set[str]
+) -> list[tuple[str, int]]:
+    """The SET GLOBAL values for a running server, in a safe order. Pool sizes are in bytes.
+
+    An option in `overrides` (managed.cnf names) keeps its value, as it does at startup.
+    """
+    limits = calculate_mariadb_variable_limits(sizing.total_memory_mb, sizing.memory_share)
+    # innodb_buffer_pool_size_max is read-only, so a larger pool waits for the next start.
+    pool = min(sizing.innodb_buffer_pool_mb * _MEBIBYTE, pool_max)
+    pool_values = [
+        ("innodb_buffer_pool_size_auto_min", min(limits.innodb_buffer_pool_min_mb * _MEBIBYTE, pool)),
+        ("innodb_buffer_pool_size", pool),
+    ]
+    # The automatic minimum stays at or below the pool size during the change.
+    if pool >= current_pool:
+        pool_values.reverse()
+    if "innodb-buffer-pool-size" in overrides:
+        pool_values = []
+    values = [
+        *pool_values,
+        ("innodb_log_file_size", sizing.innodb_log_file_mb * _MEBIBYTE),
+        ("key_buffer_size", sizing.key_buffer_mb * _MEBIBYTE),
+        ("max_connections", sizing.max_connections),
+    ]
+    return [(name, value) for name, value in values if name.replace("_", "-") not in overrides]

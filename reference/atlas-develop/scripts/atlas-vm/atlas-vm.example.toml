@@ -1,0 +1,92 @@
+# Copy to atlas-vm.toml and change what you need.
+# atlas-vm create reads this file, and setup.py reads a copy of it in the VM.
+
+[vm]
+vcpu_count = 4
+memory_mib = 8192
+disk_gib = 24
+ssh_port = 2222
+
+[pilot]
+site = "atlas.example.com"
+admin_domain = "admin.example.com"
+user = "frappe"
+letsencrypt_email = "ops@example.com"
+
+[atlas]
+repository = "https://github.com/frappe/atlas"
+branch = "develop"
+# Generic, Scaleway or AWS. Atlas uses the provider table that matches this value.
+server_provider = "Scaleway"
+dns_provider = "Route53"
+region_name = "par-1"
+region_id = 1
+wildcard_domain = "par-1.example.com"
+private_network_cidr = "10.1.0.0/20"
+private_network_mtu = 1500
+# Set to true when the provider network cannot carry IPv6 multicast between hosts. AWS always uses unicast.
+# unicast_network = true
+
+# Set this URL when Central sends requests to this Atlas region.
+central_jwks_url = ""
+
+# Provider server ID of this host, to import it as a Metal Server after setup.
+# A storage pool device replaces the provider device. Atlas erases it.
+import_server_id = ""
+import_storage_pool_device = ""
+
+# To enable host access through Warpgate, register an OIDC client in Central.
+# Set its redirect URI as described in docs/region/host-access.md.
+# [atlas.warpgate]
+# issuer_url = "https://central.example.com/oidc"
+# client_id = "warpgate-region"
+# client_secret = "change-me"
+
+[atlas.vm_scheduling]
+use_dedicated_sleepy_vm_hosts = true
+placement_strategy = "balanced"
+sleepy_vm_overcommit_factor = 1.0
+
+# Enable this after both names match entries in the Metal catalogs.
+auto_spawn_metal_server = false
+default_metal_machine_size = ""
+default_metal_machine_image = ""
+
+[atlas.scaleway]
+organization_id = "change-me"
+project_id = "change-me"
+zone = "fr-par-1"
+machine_billing_cycle = "Hourly"
+access_key = "change-me"
+secret_key = "change-me"
+
+# Atlas puts every host in one subnet in this zone, so a public IPv6 /80 block
+# can move between hosts.
+[atlas.aws]
+region = "eu-west-1"
+availability_zone = "eu-west-1a"
+access_key_id = "change-me"
+secret_access_key = "change-me"
+
+[atlas.route53]
+access_key_id = "change-me"
+secret_access_key = "change-me"
+
+[atlas.letsencrypt]
+email = "ops@example.com"
+staging = false
+auto_renew = true
+
+# The guest images the VM builds after setup. Give one [[image]] table for each
+# variant. Every image is published as a site file, which is the only storage
+# that works during bootstrap. A minimal image needs Ubuntu 24.04.
+[[image]]
+version = "24.04"
+
+[[image]]
+version = "24.04"
+minimal = true
+
+# [[image]]
+# version = "22.04"
+# architecture = "amd64"

@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+import sys
+from collections.abc import Callable
+from typing import TYPE_CHECKING, cast
+
+from pilot.core.bench.admin_domain import ProductionAdminDomain
+from pilot.core.bench.telemetry import apply_credential as apply_telemetry_credential
+from pilot.exceptions import BenchError
+
+if TYPE_CHECKING:
+    from pilot.core.bench import Bench
+    from pilot.managers.processes.base import ManagedProcessManager
+
+
+class ProductionSetup:
+    """Deploys process management, nginx, TLS, admin routing, and monitoring."""
+
+    def __init__(
+        self,
+        bench: "Bench",
+        process_manager: str | None = None,
+        admin_domain: str | None = None,
+        admin_tls: bool | None = None,
+        letsencrypt_email: str | None = None,
+        best_effort_tls: bool = False,
+    ) -> None:
+        self.bench = bench
+        self._pm_arg = process_manager
+        self._domain_arg = admin_domain
+        self._tls_arg = admin_tls
+        self._email_arg = letsencrypt_email
+        # CLI callers want requested TLS to fail hard. Wizard hand-offs tolerate
+        # pending DNS and leave the bench on HTTP until a retry can issue certs.
+        self._best_effort_tls = best_effort_tls
+        self._admin_domain = ProductionAdminDomain(bench, bench.config.admin.domain)
+
+    def run(self, on_progress: Callable[[str], None] = lambda message: None) -> None:
+        self._require_linux()
+        self._check_sudo_available()
+        self._resolve_target()
+        self._require_production_inputs()
+        self._check_admin_domain()
+        self._register_admin_domain()
+        try:
+            self.bench.config.validate()
+            old_pm = self._installed_manager()
+            # The new manager's configuration must build before the old manager stops the bench.
+            self._target_manager().check_config()
+            self._write_dns_multitenancy()
+            # Free the old manager's ports before the new one binds them: systemd binds
+            # the admin socket during setup, before the workload starts.
+            self._migrate_from(old_pm, on_progress)
+            pm = self.bench.config.production.process_manager
+            if pm == "systemd":
+                self._setup_systemd()
+            else:
+                self._setup_supervisor()
+
+            self._start_workload()
+            self.bench.setup_nginx(on_progress=on_progress)
+            self._setup_letsencrypt_if_needed()
+
+            self._build_admin_for_production()
+
+            # Both shippers present the same credential, so it is fetched once here
+            # rather than by whichever of them happens to run first.
+            apply_telemetry_credential(self.bench, on_progress=on_progress)
+            self._setup_monitoring()
+            self._setup_log_shipping()
+            self._persist_production_state()
+        except BaseException:
+            # A later step failed but the new admin route is already live at the
+            # provider; release it so a failed setup leaves no dead external route.
+            self._rollback_admin_domain()
+            raise
+
+        # The switch is committed; free the old hostname at the provider.
+        self._release_previous_admin_domain()
+        self._report_summary(on_progress)
+
+    def _resolve_target(self) -> None:
+        """Apply CLI args in memory. The toml is written last."""
+        from pilot.config import VALID_PROCESS_MANAGERS, ProductionConfig
+
+        pm = (
+            ProductionConfig._normalize_process_manager(
+                self._pm_arg or self.bench.config.production.process_manager
+            )
+            or "systemd"
+        )
+        if pm not in VALID_PROCESS_MANAGERS:
+            raise BenchError(
+                f"Invalid process manager '{pm}'. Must be one of {', '.join(VALID_PROCESS_MANAGERS)}."
+            )
+        self.bench.config.production.process_manager = pm
+        self.bench.config.production.enabled = True
+        # Production serves the admin behind its domain, so it must be enabled -
+        # otherwise the API answers 503 "Admin is disabled". The wizard sets this
+        # too; do it here so pure-CLI deploys are reachable as well.
+        self.bench.config.admin.enabled = True
+        if self._domain_arg:
+            self.bench.config.admin.domain = self._domain_arg
+        if self._tls_arg is not None:
+            self.bench.config.admin.tls = self._tls_arg
+        if self._email_arg:
+            self.bench.config.letsencrypt.email = self._email_arg
+
+    def _require_production_inputs(self) -> None:
+        """Fail before nginx/cert work on required production inputs."""
+        from pilot.managers.letsencrypt import letsencrypt_email_required
+
+        if not self.bench.config.admin.domain:
+            raise BenchError(
+                "An admin domain is required to deploy to production. "
+                "Pass --admin-domain <domain> (e.g. --admin-domain admin.example.com), "
+                "or set admin.domain in bench.toml."
+            )
+        if letsencrypt_email_required(self.bench) and not self.bench.config.letsencrypt.email:
+            raise BenchError(
+                "A contact email is required with --tls for Let's Encrypt. Pass --letsencrypt-email <email>, or set letsencrypt.email in common_config.toml."
+            )
+
+    def _target_manager(self) -> "ManagedProcessManager":
+        from pilot.managers.processes.local import ProcessManager
+
+        return cast("ManagedProcessManager", ProcessManager.for_bench(self.bench))
+
+    def _installed_manager(self) -> str | None:
+        """Return the process manager that runs the bench, else the one deployed on disk.
+        A switch that failed halfway leaves both configured, and the running one must be torn down."""
+        from pilot.managers.processes.supervisor import SupervisorProcessManager
+        from pilot.managers.processes.systemd import SystemdProcessManager
+
+        managers = {
+            "systemd": SystemdProcessManager(self.bench),
+            "supervisor": SupervisorProcessManager(self.bench),
+        }
+        for name, manager in managers.items():
+            if manager.is_running():
+                return name
+        for name, manager in managers.items():
+            if manager.is_configured():
+                return name
+        return None
+
+    def _migrate_from(self, old_pm: str | None, on_progress: Callable[[str], None]) -> None:
+        """Tear down the previous manager before the new one binds ports."""
+        new_pm = self.bench.config.production.process_manager
+        if not old_pm or old_pm == new_pm:
+            return
+        on_progress(f"Migrating from {old_pm} to {new_pm}: removing old manager resources...")
+        if old_pm == "supervisor":
+            from pilot.managers.processes.supervisor import SupervisorProcessManager
+
+            SupervisorProcessManager(self.bench).shutdown()
+        else:
+            from pilot.managers.processes.systemd import SystemdProcessManager
+
+            SystemdProcessManager(self.bench).remove_units()
+
+    def _setup_monitoring(self) -> None:
+        from pilot.core.server.monitoring_config import MonitorConfigurator
+        from pilot.core.site.storage.systemd import SiteStorageConfigurator
+        from pilot.core.site.uptime_monitoring_config import UptimeMonitorConfigurator
+
+        monitor = MonitorConfigurator(self.bench)
+        monitor.install()
+        monitor.setup()
+
+        UptimeMonitorConfigurator(self.bench).setup()
+
+        SiteStorageConfigurator().install()
+
+    def _setup_log_shipping(self) -> None:
+        """Install Fluent Bit as a systemd service, if this bench has a Datum credential."""
+        from pilot.managers.fluentbit import LogsConfigurator
+
+        telemetry = self.bench.config.telemetry
+        if not telemetry.is_shipping_logs:
+            return
+
+        configurator = LogsConfigurator(self.bench)
+        try:
+            configurator.setup()
+            configurator.install(telemetry)
+        except BenchError as exc:
+            # Debian and Ubuntu do not package fluent-bit; shipping logs must not block a deploy.
+            print(
+                f"Warning: logs are not shipped: {str(exc).rstrip('.')}. Sites and metrics are unaffected. "
+                "Install fluent-bit (https://docs.fluentbit.io/manual/installation/linux), then run "
+                "'pilot setup telemetry'.",
+                file=sys.stderr,
+            )
+
+    def _persist_production_state(self) -> None:
+        """Write the production state to bench.toml LAST, so the switcher never
+        points users at a half-built deployment."""
+        prod = self.bench.config.production
+        admin = self.bench.config.admin
+        self._persist(
+            {
+                "production": {"enabled": True, "process_manager": prod.process_manager},
+                "admin": {"domain": admin.domain, "tls": admin.tls, "enabled": True},
+            }
+        )
+        if self._email_arg:
+            from pilot.config.common import CommonConfig
+
+            # Later cert refreshes read the email from shared config.
+            with CommonConfig.open(self.bench.path.parent) as common:
+                common.letsencrypt.email = self._email_arg
+
+    def _require_linux(self) -> None:
+        from pilot.managers.platform import is_linux
+
+        if not is_linux():
+            print(
+                "Error: pilot setup production only runs on Linux servers.\nOn macOS, use 'pilot start' for local development.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    def _check_sudo_available(self) -> None:
+        """Fail early when production setup cannot get the privileges it needs.
+        The installer's scoped nginx/certbot grants are enough and need no tty;
+        only fall back to a password prompt when they are absent."""
+        from pilot.managers.nginx import NginxManager
+        from pilot.managers.platform import has_passwordless_sudo, is_root, which
+
+        if is_root() or has_passwordless_sudo() or NginxManager(self.bench).has_passwordless_sudo:
+            return
+        if which("sudo") is None:
+            raise BenchError(
+                "sudo is required to deploy to production (nginx, certbot, systemd) but is not installed."
+            )
+        if not sys.stdin.isatty():
+            raise BenchError(
+                "Deploying to production needs root (nginx, certbot, systemd) and there's no "
+                "terminal to prompt for a sudo password. Re-run the installer as root to grant "
+                "this user what production needs, then deploy again."
+            )
+
+    def _check_admin_domain(self) -> None:
+        self._admin_domain.check()
+
+    def _register_admin_domain(self) -> None:
+        self._admin_domain.register()
+
+    def _rollback_admin_domain(self) -> None:
+        self._admin_domain.rollback()
+
+    def _release_previous_admin_domain(self) -> None:
+        self._admin_domain.release_previous()
+
+    def _persist(self, updates: dict) -> None:
+        """Merge ``updates`` into bench.toml in place, preserving all other fields."""
+        from pilot.config import BenchConfig
+
+        with BenchConfig.open(self.bench.path, mode="raw") as data:
+            for section, values in updates.items():
+                data.setdefault(section, {}).update(values)
+            # Drop the deprecated production.nginx key - nginx is always on in prod.
+            data.get("production", {}).pop("nginx", None)
+
+    def _write_dns_multitenancy(self) -> None:
+        from pilot.config.common_site_config import update_common_site_config
+
+        self.bench.sites_path.mkdir(parents=True, exist_ok=True)
+        with update_common_site_config(self.bench.sites_path) as config:
+            config["dns_multitenant"] = 1
+
+    def _setup_supervisor(self) -> None:
+        import subprocess
+
+        from pilot.managers.packages import get_package_manager
+
+        pkg = get_package_manager()
+        if not pkg.is_installed("supervisor"):
+            pkg.install("supervisor")
+            subprocess.run(["sudo", "systemctl", "disable", "--now", "supervisor"], check=False)
+        from pilot.managers.processes.supervisor import SupervisorProcessManager
+
+        manager = SupervisorProcessManager(self.bench)
+        manager.write_config()
+        manager.install_config()
+        manager.reload_manager_config()
+
+    def _setup_systemd(self) -> None:
+        from pilot.managers.processes.systemd import SystemdProcessManager
+
+        manager = SystemdProcessManager(self.bench)
+        manager.write_config()
+        manager.install_config()
+        manager.reload_manager_config()
+
+    def _start_workload(self) -> None:
+        """Start the workload (and admin) so the bench is actually serving once
+        setup completes - otherwise sites 502 until a separate `pilot start`."""
+        from pilot.managers.processes.local import ProcessManager
+
+        ProcessManager.for_bench(self.bench).start()
+
+    def _setup_letsencrypt_if_needed(self) -> None:
+        from pilot.managers.letsencrypt import is_letsencrypt_required
+
+        self._enable_public_site_tls()
+        if not is_letsencrypt_required(self.bench):
+            return
+        try:
+            self.bench.setup_letsencrypt()
+        except Exception as exc:
+            if not self._best_effort_tls:
+                raise
+            print(
+                f"Warning: could not obtain a TLS certificate for {self.bench.config.admin.domain} "
+                f"yet ({exc}). Continuing on HTTP - retry once its DNS resolves.",
+                file=sys.stderr,
+            )
+
+    def _enable_public_site_tls(self) -> None:
+        if not self.bench.config.admin.tls:
+            return
+
+        from pilot.managers.letsencrypt import local_public_domains
+
+        for site in self.bench.sites():
+            if not site.config.ssl and local_public_domains(site.config):
+                site.set_ssl(True)
+
+    def _build_admin_for_production(self) -> None:
+        from admin.backend.frontend import ensure_admin_frontend
+
+        ensure_admin_frontend()
+
+    def _report_summary(self, on_progress: Callable[[str], None]) -> None:
+        from pilot.managers.nginx import NginxManager
+
+        nginx_manager = NginxManager(self.bench)
+        on_progress("\nProduction setup complete.")
+        on_progress("Sites:")
+        for site in self.bench.sites():
+            if site.config.ssl and nginx_manager.has_cert(site.config):
+                on_progress(f"  https://{site.config.name}")
+            else:
+                http_port = self.bench.config.nginx.http_port
+                port_suffix = "" if http_port == 80 else f":{http_port}"
+                on_progress(f"  http://{site.config.name}{port_suffix}")
+        admin_https = self.bench.config.admin.tls and nginx_manager.has_admin_cert
+        scheme = "https" if admin_https else "http"
+        on_progress(f"Admin:\n  {scheme}://{self.bench.config.admin.domain}")

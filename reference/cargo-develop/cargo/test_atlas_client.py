@@ -1,0 +1,250 @@
+# Copyright (c) 2026, Aradhya-Tripathi and Contributors
+# See license.txt
+
+from unittest.mock import Mock, patch
+
+from frappe.tests import UnitTestCase
+
+from cargo.atlas_client import (
+	BASE_IMAGE_TAGS,
+	AtlasClient,
+	AtlasError,
+	AtlasNotFound,
+	base_image_id,
+	error_message,
+	host_port,
+)
+from cargo.client_models import PlacementRule
+
+TENANT_ID = 7
+
+
+def response(status: int, payload=None, text: str = "") -> Mock:
+	answer = Mock(status_code=status, ok=200 <= status < 300, text=text)
+	answer.json.return_value = payload if payload is not None else {}
+	if payload is None:
+		answer.json.side_effect = ValueError("no body")
+
+	return answer
+
+
+class UnitTestAtlasClient(UnitTestCase):
+	def setUp(self):
+		self.client = AtlasClient("https://atlas.test/", "atlas-token", TENANT_ID)
+
+	def call(self, answer: Mock):
+		return patch("cargo.atlas_client.requests.request", return_value=answer)
+
+	def test_every_request_carries_the_credentials_and_the_tenant(self):
+		with self.call(response(200, {"id": "vm-1"})) as request:
+			self.client.get_vm("vm-1")
+
+		headers = request.call_args.kwargs["headers"]
+		self.assertEqual(headers["Authorization"], "Bearer atlas-token")
+		self.assertEqual(headers["X-Tenant-ID"], str(TENANT_ID))
+
+	def test_create_asks_for_one_machine_of_the_given_shape(self):
+		with self.call(response(201, {"id": "vm-9"})) as request:
+			created = self.client.create_vm(
+				image_id="ubuntu-24.04",
+				cpu_millicores=2000,
+				memory_mib=4096,
+				disk_mib=20480,
+				public_key="ssh-ed25519 AAAA",
+				hostname="OSC-0001-storage-0001",
+				metadata={"role": "storage"},
+			)
+
+		self.assertEqual(created["id"], "vm-9")
+		body = request.call_args.kwargs["json"]
+		self.assertEqual(body["cpu_millicores"], 2000)
+		self.assertEqual(body["ssh_keys"], ["ssh-ed25519 AAAA"])
+		self.assertEqual(body["metadata"], {"role": "storage"})
+		# An Atlas without affinity rules rejects the fields, so they are sent only when set.
+		self.assertNotIn("tags", body)
+		self.assertNotIn("placement_rules", body)
+		self.assertNotIn("is_termination_protected", body)
+		# No public address is asked for: machines are reached over the mesh.
+		self.assertNotIn("ip_address_id", body)
+		self.assertTrue(body["ipv4_internet_access"])
+		self.assertNotIn("egress", body)
+
+	def test_create_sends_tags_and_placement_rules(self):
+		rules = [
+			PlacementRule(
+				resource="virtual_machine", operator="has_not", tags={"role": "storage"}, within="rack"
+			)
+		]
+		with self.call(response(201, {"id": "vm-9"})) as request:
+			self.client.create_vm(
+				image_id="ubuntu-24.04",
+				cpu_millicores=1000,
+				memory_mib=1024,
+				disk_mib=1024,
+				public_key="key",
+				hostname="host",
+				tags={"role": "storage"},
+				placement_rules=rules,
+			)
+
+		body = request.call_args.kwargs["json"]
+		self.assertEqual(body["tags"], {"role": "storage"})
+		self.assertEqual(
+			body["placement_rules"],
+			[
+				{
+					"resource": "virtual_machine",
+					"operator": "has_not",
+					"tags": {"role": "storage"},
+					"within": "rack",
+				}
+			],
+		)
+
+	def test_create_asks_atlas_to_protect_the_machine(self):
+		with self.call(response(201, {"id": "vm-9"})) as request:
+			self.client.create_vm(
+				image_id="ubuntu-24.04",
+				cpu_millicores=1000,
+				memory_mib=1024,
+				disk_mib=1024,
+				public_key="key",
+				hostname="host",
+				is_termination_protected=True,
+			)
+
+		self.assertTrue(request.call_args.kwargs["json"]["is_termination_protected"])
+
+	def test_protecting_a_machine_patches_the_vm(self):
+		with self.call(response(202, {"id": "vm-1"})) as request:
+			self.client.set_vm_termination_protection("vm-1", enabled=True)
+
+		self.assertEqual(request.call_args.args[0], "PATCH")
+		self.assertTrue(request.call_args.args[1].endswith("/virtual-machines/vm-1/termination-protection"))
+		self.assertEqual(request.call_args.kwargs["json"], {"enabled": True})
+
+	def test_a_created_machine_without_an_id_is_a_failure(self):
+		with self.call(response(201, {})), self.assertRaises(AtlasError):
+			self.client.create_vm(
+				image_id="ubuntu-24.04",
+				cpu_millicores=1000,
+				memory_mib=1024,
+				disk_mib=1024,
+				public_key="key",
+				hostname="host",
+			)
+
+	def test_a_snapshot_asks_for_a_cached_image_with_a_warm_template(self):
+		with self.call(response(201, {"id": "img-4"})) as request:
+			created = self.client.create_snapshot(
+				"vm-1", "pilot golden", cache_image=True, memory_snapshot=True
+			)
+
+		self.assertEqual(created, "img-4")
+		body = request.call_args.kwargs["json"]
+		self.assertEqual(
+			body,
+			{
+				"title": "pilot golden",
+				"image_type": "machine",
+				"cache_image": True,
+				"memory_snapshot": True,
+				"tags": {},
+			},
+		)
+
+	def test_a_snapshot_carries_the_tags_it_is_given(self):
+		with self.call(response(201, {"id": "img-6"})) as request:
+			self.client.create_snapshot("vm-1", "pilot golden", tags={"purpose": "pilot"})
+
+		self.assertEqual(request.call_args.kwargs["json"]["tags"], {"purpose": "pilot"})
+
+	def test_clearing_termination_protection_patches_the_image(self):
+		with self.call(response(202, {"id": "img-1"})) as request:
+			self.client.set_image_termination_protection("img-1", enabled=False)
+
+		self.assertEqual(request.call_args.args[0], "PATCH")
+		self.assertTrue(request.call_args.args[1].endswith("/images/img-1/termination-protection"))
+		self.assertEqual(request.call_args.kwargs["json"], {"enabled": False})
+
+	def test_a_snapshot_asks_for_neither_host_flag_by_default(self):
+		with self.call(response(201, {"id": "img-5"})) as request:
+			self.client.create_snapshot("vm-1", "plain")
+
+		body = request.call_args.kwargs["json"]
+		self.assertEqual(body["image_type"], "machine")
+		self.assertFalse(body["cache_image"])
+		self.assertFalse(body["memory_snapshot"])
+
+	def test_the_system_image_is_found_by_its_tags(self):
+		payload = {"items": [{"id": "0p0ap0f857", "status": "available"}]}
+		with self.call(response(200, payload)) as request:
+			found = self.client.find_system_image(BASE_IMAGE_TAGS)
+
+		self.assertEqual(found, "0p0ap0f857")
+		url = request.call_args.args[1]
+		self.assertIn("image_type=system", url)
+		self.assertIn("tag=purpose:base,os:Ubuntu,os_version:24.04", url)
+
+	def test_the_newest_available_image_wins(self):
+		payload = {
+			"items": [
+				{"id": "img-new", "status": "pending"},
+				{"id": "img-old", "status": "available"},
+			]
+		}
+		with self.call(response(200, payload)):
+			self.assertEqual(self.client.find_system_image(BASE_IMAGE_TAGS), "img-old")
+
+	def test_an_image_that_is_not_available_yet_is_not_offered(self):
+		with self.call(response(200, {"items": [{"id": "img-1", "status": "pending"}]})):
+			self.assertIsNone(self.client.find_system_image(BASE_IMAGE_TAGS))
+
+	def test_no_system_image_at_all_is_not_an_error(self):
+		with self.call(response(200, {"items": [], "has_more": False})):
+			self.assertIsNone(self.client.find_system_image(BASE_IMAGE_TAGS))
+
+	def test_the_base_image_is_minimal_or_full_by_its_tag(self):
+		with patch("cargo.atlas_client.AtlasClient.from_settings") as client:
+			client.return_value.find_system_image.return_value = "img-1"
+			base_image_id(minimal=True)
+			base_image_id()
+
+		asked = [call.args[0]["minimal"] for call in client.return_value.find_system_image.call_args_list]
+		self.assertEqual(asked, ["true", "false"])
+
+	def test_a_missing_machine_is_its_own_error(self):
+		with self.call(response(404, {"error": {"code": "not_found", "message": "gone"}})):
+			with self.assertRaises(AtlasNotFound):
+				self.client.get_vm("vm-1")
+
+	def test_a_refusal_carries_atlas_own_message(self):
+		payload = {"error": {"code": "conflict", "message": "attached", "fields": []}}
+		with self.call(response(409, payload)):
+			with self.assertRaises(AtlasError) as raised:
+				self.client.terminate_vm("vm-1")
+
+		self.assertIn("attached", str(raised.exception))
+		self.assertNotIsInstance(raised.exception, AtlasNotFound)
+
+
+class UnitTestAddressFormatting(UnitTestCase):
+	def test_an_ipv6_address_keeps_its_colons(self):
+		self.assertEqual(host_port("fdaa:1:0:7::3", 3903), "[fdaa:1:0:7::3]:3903")
+
+	def test_a_name_or_ipv4_address_is_left_alone(self):
+		self.assertEqual(host_port("cargo-vm1", 3903), "cargo-vm1:3903")
+		self.assertEqual(host_port("10.0.0.1", "3903"), "10.0.0.1:3903")
+
+
+class UnitTestErrorMessage(UnitTestCase):
+	def test_atlas_fields_are_named_alongside_the_message(self):
+		payload = {"error": {"message": "bad", "fields": [{"name": "cpu_millicores", "message": "too many"}]}}
+
+		self.assertEqual(error_message(payload, ""), "bad (cpu_millicores: too many)")
+
+	def test_a_body_that_is_not_json_falls_back_to_the_text(self):
+		self.assertEqual(error_message(None, "  502 Bad Gateway  "), "502 Bad Gateway")
+
+	def test_an_empty_body_still_says_something(self):
+		self.assertEqual(error_message(None, ""), "unknown error")

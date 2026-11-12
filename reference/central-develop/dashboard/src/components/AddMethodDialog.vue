@@ -1,0 +1,407 @@
+<script setup lang="ts">
+import {
+	Alert,
+	Button,
+	Dialog,
+	LoadingText,
+	TextInput,
+	useCall,
+} from 'frappe-ui'
+import { computed, nextTick, ref, watch } from 'vue'
+import { API, method } from '@/api/methods'
+import PaymentNetworkMark, {
+	type PaymentNetwork,
+} from '@/components/PaymentNetworkMark.vue'
+import TopupDialog from '@/components/TopupDialog.vue'
+import { useAddPaymentMethod } from '@/composables/useAddPaymentMethod'
+import { useAddStripeCard } from '@/composables/useAddStripeCard'
+import { useBillingOverview } from '@/composables/useBillingOverview'
+import { useSession } from '@/composables/useSession'
+import { whenTeamReady } from '@/composables/useTeamScope'
+import { getErrorMessage } from '@/lib/feedback'
+import { money } from '@/lib/format'
+import type { PaymentInstrument, PaymentMethodOptions } from '@/types/billing'
+
+const open = defineModel<boolean>({ default: false })
+const props = withDefaults(defineProps<{ afterDecline?: boolean }>(), {
+	afterDecline: false,
+})
+const emit = defineEmits<{ done: [res?: unknown] }>()
+const { activeTeam } = useSession()
+
+const params = () => ({ team: activeTeam.value! })
+const options = useCall<PaymentMethodOptions, { team: string }>({
+	url: method(API.paymentMethodOptions),
+	params,
+	immediate: false,
+	refetch: true,
+})
+// The billing profile is the shared singleton — we only read its phone, so there
+// is no need for a second fetch of the same payload.
+const { profile } = useBillingOverview()
+whenTeamReady(() => {
+	options.reload()
+})
+
+function done(res?: unknown): void {
+	open.value = false
+	emit('done', res)
+}
+
+const {
+	run,
+	loading,
+	error: gatewayError,
+	clearError: clearGatewayError,
+} = useAddPaymentMethod({ onDone: done })
+
+// Razorpay opens its own hosted sheet on <body>. Our dialog is a modal with an
+// overlay + focus trap, so leaving it open renders the sheet *behind* our overlay
+// — the user has to dismiss our layers first to reach it. Drop our dialog before
+// launching the sheet, and reopen it only if they cancel/it fails (on success
+// `done` keeps it closed). The Stripe path stays in-dialog and never comes here.
+async function launchGateway(
+	methodType: string,
+	contact?: string,
+	instrument?: string,
+): Promise<void> {
+	clearGatewayError()
+	const keepInstrument = selected.value?.instrument ?? null
+	const keepPhone = phone.value
+	open.value = false
+	await nextTick()
+	const res = await run(methodType, contact, instrument, props.afterDecline)
+	if (!res) {
+		open.value = true
+		await nextTick()
+		phone.value = keepPhone
+		selected.value =
+			tiles.value.find((t) => t.instrument === keepInstrument) ?? null
+	}
+}
+
+const upiBlocked = computed(() => options.data && !options.data.allow_upi)
+
+const tiles = computed(() => options.data?.instruments ?? [])
+const hasUpi = computed(() =>
+	tiles.value.some((t) => t.instrument.startsWith('UPI')),
+)
+
+const showTopup = ref(false)
+
+function goToTopup(): void {
+	open.value = false
+	showTopup.value = true
+}
+
+function iconFor(tile: PaymentInstrument): string {
+	return tile.instrument === 'UPI Autopay'
+		? 'lucide-smartphone'
+		: 'lucide-credit-card'
+}
+
+const marks: Record<string, PaymentNetwork[]> = {
+	Card: ['visa', 'mastercard'],
+	'RuPay Card': ['rupay'],
+	'UPI Autopay': ['upi'],
+}
+
+function blockedReason(tile: PaymentInstrument): string | null {
+	if (tile.instrument === 'UPI Autopay' && upiBlocked.value)
+		return (
+			options.data?.upi_block_reason || 'Not available for your account yet.'
+		)
+	return null
+}
+
+function infoText(tile: PaymentInstrument): string | null {
+	if (tile.instrument !== 'UPI Autopay') return null
+	if (options.data?.upi_limit)
+		return `Mandate up to ${money(options.data.upi_limit, options.data.currency)}`
+	return tile.description
+}
+
+const selected = ref<PaymentInstrument | null>(null)
+
+function select(tile: PaymentInstrument): void {
+	if (blockedReason(tile)) return
+	clearGatewayError()
+	selected.value = tile
+}
+
+watch(
+	() => options.data,
+	(d) => {
+		if (!selected.value) return
+		const fresh = d?.instruments?.find(
+			(t) => t.instrument === selected.value?.instrument,
+		)
+		selected.value = fresh && !blockedReason(fresh) ? fresh : null
+	},
+)
+
+function onContinue(): void {
+	const tile = selected.value
+	if (!tile || blockedReason(tile)) return
+	if (tile.adapter_key === 'Stripe') {
+		void startStripeMode()
+		return
+	}
+	launchGateway(
+		tile.instrument === 'UPI Autopay' ? 'UPI Autopay' : 'Card',
+		phone.value.trim() || undefined,
+		tile.instrument,
+	)
+}
+
+const canContinue = computed(
+	() =>
+		!!selected.value &&
+		!blockedReason(selected.value) &&
+		!loading.value &&
+		!(askPhone.value && !phone.value.trim()),
+)
+
+// A card mandate on the RuPay rail needs a customer contact. Phone is optional on
+// the billing profile, so collect it inline when it's missing.
+//
+// This asks the *tile* which rail it sits on. Reading the payload's top-level
+// adapter_key instead asks about the card rail, which is Stripe for every team —
+// so the prompt never fired and the customer met a server error instead.
+const hasPhone = computed(() => !!String(profile.data?.phone || '').trim())
+
+function needsPhone(tile: PaymentInstrument): boolean {
+	return (
+		tile.adapter_key === 'Razorpay' &&
+		tile.instrument !== 'UPI Autopay' &&
+		!hasPhone.value
+	)
+}
+const askPhone = computed(() => !!selected.value && needsPhone(selected.value))
+const phone = ref('')
+
+const stripeMode = ref(false)
+const stripeLoading = ref(false)
+const dialogError = ref('')
+const cardEl = ref<HTMLElement | null>(null)
+const {
+	mount: mountStripe,
+	submit: submitStripe,
+	destroy: destroyStripe,
+	complete: stripeComplete,
+	submitting: stripeSubmitting,
+	error: stripeError,
+} = useAddStripeCard({ onDone: done })
+const paymentError = computed(
+	() => dialogError.value || stripeError.value || gatewayError.value,
+)
+
+async function startStripeMode(): Promise<void> {
+	dialogError.value = ''
+	stripeMode.value = true
+	stripeLoading.value = true
+	await nextTick() // the Element needs its mount node in the DOM
+	try {
+		await mountStripe(cardEl.value!, {
+			team: activeTeam.value!,
+			publishableKey: options.data?.publishable_key,
+		})
+		if (!stripeMode.value || !open.value) destroyStripe()
+	} catch (e) {
+		dialogError.value = getErrorMessage(e, 'Could not start Stripe card setup.')
+		cancelStripe()
+	} finally {
+		stripeLoading.value = false
+	}
+}
+
+function cancelStripe(): void {
+	destroyStripe()
+	stripeMode.value = false
+}
+
+watch(open, (isOpen) => {
+	if (!isOpen) return
+	options.reload()
+	profile.reload()
+	destroyStripe()
+	stripeMode.value = false
+	stripeLoading.value = false
+	phone.value = ''
+	selected.value = null
+	dialogError.value = ''
+})
+</script>
+
+<template>
+	<Dialog
+		v-model:open="open"
+		title="Add payment method"
+		:dismissible="!stripeSubmitting"
+		:show-close-button="!stripeSubmitting"
+		@after-leave="destroyStripe"
+	>
+		<template #default>
+			<Alert
+				v-if="paymentError"
+				class="mb-4"
+				theme="red"
+				:title="paymentError"
+			/>
+			<LoadingText v-if="options.loading && !options.data" :lines="3" />
+
+			<!-- Stripe card entry: Element renders inside the iframe Stripe hosts. -->
+			<div v-else-if="stripeMode" class="space-y-3">
+				<p v-if="stripeLoading" class="text-p-sm text-ink-gray-6">
+					Loading secure card field…
+				</p>
+				<div
+					ref="cardEl"
+					class="rounded-4 border border-outline-gray-2 px-3 py-3"
+				/>
+				<p class="text-p-sm text-ink-gray-6">
+					<template v-if="stripeSubmitting">
+						Validating your card with a small temporary charge that's refunded
+						right away. This can take a few seconds, so please don't close this
+						window.
+					</template>
+					<template v-else>
+						Card details are entered on Stripe's secure field. We never see your
+						card number.
+					</template>
+				</p>
+			</div>
+
+			<div v-else-if="options.data" class="space-y-4">
+				<div class="flex items-center gap-2">
+					<span
+						class="lucide-lock size-3.5 shrink-0 text-ink-gray-5"
+						aria-hidden="true"
+					/>
+					<p class="text-p-sm text-ink-gray-6">
+						Authorised on your bank's page. We never see your
+						{{ hasUpi ? 'card or UPI' : 'card' }}
+						details.
+					</p>
+				</div>
+
+				<div aria-label="Payment method" class="space-y-2.5">
+					<button
+						v-for="tile in tiles"
+						:key="tile.instrument"
+						type="button"
+						:aria-pressed="selected?.instrument === tile.instrument"
+						class="flex w-full items-center gap-2.5 rounded-6 border p-4 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+						:class="
+							selected?.instrument === tile.instrument
+								? 'border-outline-gray-6 bg-surface-gray-2'
+								: 'border-outline-gray-2 hover:border-outline-gray-3'
+						"
+						:disabled="loading || !!blockedReason(tile)"
+						@click="select(tile)"
+					>
+						<span
+							:class="iconFor(tile)"
+							class="size-4 shrink-0 text-ink-gray-7"
+							aria-hidden="true"
+						/>
+						<span class="text-base-medium text-ink-gray-9"
+							>{{ tile.label }}</span
+						>
+						<span
+							v-if="infoText(tile) && !blockedReason(tile)"
+							class="min-w-0 truncate text-p-sm text-ink-gray-5"
+						>
+							{{ infoText(tile) }}
+						</span>
+						<span
+							v-if="blockedReason(tile)"
+							class="ml-auto text-right text-p-sm text-ink-amber-6"
+							>{{ blockedReason(tile) }}</span
+						>
+						<span v-else class="ml-auto flex shrink-0 items-center gap-1.5">
+							<span
+								v-if="selected?.instrument === tile.instrument"
+								class="lucide-circle-check mr-1 size-4 text-ink-gray-9"
+								aria-hidden="true"
+							/>
+							<PaymentNetworkMark
+								v-for="mark in marks[tile.instrument] ?? []"
+								:key="mark"
+								:network="mark"
+							/>
+						</span>
+					</button>
+				</div>
+
+				<div
+					v-if="askPhone"
+					class="rounded-6 border border-outline-gray-2 px-4 py-3"
+				>
+					<TextInput
+						v-model="phone"
+						label="Phone number"
+						placeholder="Mobile number"
+						description="A phone number is required to set up automatic card payments. It will be saved to your billing profile."
+					/>
+				</div>
+
+				<div v-if="options.data.note" class="flex items-center gap-2">
+					<span
+						class="lucide-info size-3.5 shrink-0 text-ink-gray-4"
+						aria-hidden="true"
+					/>
+					<p class="text-p-sm text-ink-gray-6">
+						Amex and Diners can't be auto-charged. Add credit instead.
+					</p>
+				</div>
+			</div>
+
+			<div v-else class="space-y-3">
+				<p class="text-p-sm text-ink-gray-6">Couldn't load payment options.</p>
+				<Button label="Retry" @click="options.reload()" />
+			</div>
+		</template>
+
+		<template #actions>
+			<div v-if="stripeMode" class="flex justify-end gap-2">
+				<Button
+					variant="outline"
+					label="Cancel"
+					:disabled="stripeSubmitting"
+					@click="cancelStripe"
+				/>
+				<Button
+					variant="solid"
+					:label="stripeSubmitting ? 'Validating…' : 'Add card'"
+					:loading="stripeSubmitting"
+					:disabled="!stripeComplete"
+					@click="submitStripe"
+				/>
+			</div>
+			<div v-else class="flex items-center gap-2">
+				<Button
+					v-if="options.data?.note"
+					label="Add credit"
+					@click="goToTopup"
+				/>
+				<div class="flex-1" />
+				<Button variant="outline" label="Cancel" @click="open = false" />
+				<Button
+					variant="solid"
+					label="Continue"
+					:loading="loading"
+					:disabled="!canContinue"
+					@click="onContinue"
+				/>
+			</div>
+		</template>
+	</Dialog>
+
+	<TopupDialog
+		v-model="showTopup"
+		:currency="options.data?.currency || 'INR'"
+		instrument="Card"
+		@done="(res: unknown) => emit('done', res)"
+	/>
+</template>

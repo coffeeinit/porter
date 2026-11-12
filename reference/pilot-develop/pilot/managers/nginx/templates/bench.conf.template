@@ -1,0 +1,449 @@
+upstream bench-{{ upstream_name }} {
+    server {{ upstream_server }};
+    keepalive 32;
+}
+
+{% if realtime_socket %}
+# The realtime unit may use either target. max_fails=0 retries the socket on every request.
+upstream realtime-{{ upstream_name }} {
+    server unix:{{ realtime_socket }} max_fails=0;
+    server 127.0.0.1:{{ realtime_port }} backup;
+}
+{% endif %}
+
+{% if proxy_gate_enabled %}
+geo $realip_remote_addr {{ proxy_gate_variable }} {
+    default 0;
+    {% for ip in proxy_servers %}
+    {{ ip }} 1;
+    {% endfor %}
+}
+{% endif %}
+
+{% for alias in aliases %}
+server {
+    listen {{ http_port }};
+    listen [::]:{{ http_port }};
+    server_name {{ alias.server_name }};
+
+{{ startup_recovery }}
+    location /.well-known/acme-challenge/ {
+        allow all;
+        root {{ acme_root }};
+        try_files $uri =404;
+    }
+
+    {% if alias.pending %}
+    location = /api/method/ping {
+        default_type application/json;
+        return 503 '{"message":"Site is not ready"}';
+    }
+
+    location / {
+        root {{ error_dir }};
+        add_header Cache-Control "no-store";
+        try_files /starting.html =503;
+    }
+    {% elif alias.redirect %}
+    {% if alias.site %}
+    {# Central probes the alias for readiness without following redirects. #}
+    location = /api/method/ping {
+        proxy_pass         {{ alias.proxy_pass }};
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Frappe-Site-Name {{ alias.site }};
+    }
+
+    {% endif %}
+    location / {
+        return 301 {{ alias.redirect }}$request_uri;
+    }
+    {% else %}
+    {% if alias.site %}
+    root {{ sites_root }};
+    client_max_body_size {{ client_max_body_size }};
+
+    location /assets {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    {# frappe's FORCE_DOWNLOAD_EXTENSIONS; inline markup would be stored XSS #}
+    location ~* ^/files/.*\.(svg|svgz|html|htm|xhtml|xht|shtml|shtm|mhtml|mht|xml|xsl|xslt|swf)$ {
+        root {{ alias.public_root }};
+        add_header Content-Disposition "attachment";
+        try_files $uri @app;
+    }
+
+    location /files/ {
+        root {{ alias.public_root }};
+        try_files $uri @app;
+    }
+
+    location @app {
+        proxy_pass         {{ alias.proxy_pass }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto  $scheme;
+        proxy_set_header   X-Frappe-Site-Name {{ alias.site }};
+    }
+
+    location /socket.io {
+        proxy_pass         {{ socketio_upstream }};
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   X-Frappe-Site-Name {{ alias.site }};
+        proxy_set_header   Origin $scheme://$http_host;
+        proxy_set_header   Host $host;
+    }
+
+    {% endif %}
+    location / {
+        proxy_pass         {{ alias.proxy_pass }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    $proxy_add_x_forwarded_for;
+        proxy_set_header   X-Forwarded-Proto  $scheme;
+        {% if alias.site %}
+        proxy_set_header   X-Frappe-Site-Name {{ alias.site }};
+        {% endif %}
+    }
+    {% endif %}
+}
+
+{% endfor %}
+
+{% for vhost in vhosts %}
+{% if vhost.ssl %}
+{# HTTP vhost: redirect everything to HTTPS, minus the ACME challenge path #}
+server {
+    listen {{ http_port }};
+    listen [::]:{{ http_port }};
+    server_name {{ vhost.server_name }};
+
+    {# trust known reverse proxies: adopt their client IP, reject direct hits #}
+    {% if vhost.trusted_proxy %}
+    {% for ip in proxy_servers %}
+    set_real_ip_from   {{ ip }};
+    {% endfor %}
+    real_ip_header     X-Forwarded-For;
+    real_ip_recursive  on;
+    set $bench_from_proxy {{ proxy_gate_variable }};
+    if ($request_uri ~ "^/\.well-known/acme-challenge/") { set $bench_from_proxy 1; }
+    if ($bench_from_proxy = 0) { return 403; }
+    set $pilot_scheme $http_x_forwarded_proto;
+    if ($pilot_scheme = "") { set $pilot_scheme $scheme; }
+
+    {% elif cloudflare_networks %}
+    {% for network in cloudflare_networks %}
+    set_real_ip_from   {{ network }};
+    {% endfor %}
+    real_ip_header     CF-Connecting-IP;
+
+    {% endif %}
+    {# firewall: first-match allow / deny #}
+    {% if firewall.enabled %}
+    {% for ip in proxy_servers %}
+    allow {{ ip }};
+    {% endfor %}
+    {% for rule in firewall.rules %}
+    {{ rule.action }} {{ rule.ip }};
+    {% endfor %}
+    {% if firewall.default == "deny" %}
+    deny all;
+    {% endif %}
+
+    {% endif %}
+    {# web application firewall #}
+    {% if waf_active %}
+    modsecurity on;
+    modsecurity_rules_file {{ waf_rules_file }};
+
+    {% endif %}
+    location /.well-known/acme-challenge/ {
+        allow all;
+        root {{ acme_root }};
+        try_files $uri =404;
+    }
+
+    {% if vhost.kind != "site" %}
+    {% for path in cors_paths %}
+    location = {{ path }} {
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type" always;
+            add_header Content-Length 0;
+            return 204;
+        }
+        proxy_pass         http://127.0.0.1:{{ vhost.port }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+        proxy_hide_header  Access-Control-Allow-Origin;
+        add_header         Access-Control-Allow-Origin * always;
+        add_header         Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header         Access-Control-Allow-Headers "Content-Type" always;
+    }
+
+    {% endfor %}
+    {% endif %}
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+{% endif %}
+{# main vhost: HTTPS when a cert is ready, plain HTTP otherwise #}
+server {
+    {% if vhost.ssl %}
+    listen {{ https_port }} ssl http2{% if vhost.proxy_protocol %} proxy_protocol{% endif %};
+    listen [::]:{{ https_port }} ssl http2{% if vhost.proxy_protocol %} proxy_protocol{% endif %};
+    {% else %}
+    listen {{ http_port }};
+    listen [::]:{{ http_port }};
+    {% endif %}
+    server_name {{ vhost.server_name }};
+    error_log   {{ logs_path }}/nginx-error.log warn;
+
+    {# trust known reverse proxies: adopt their client IP, reject direct hits #}
+    {% if vhost.trusted_proxy %}
+    {% for ip in proxy_servers %}
+    set_real_ip_from   {{ ip }};
+    {% endfor %}
+    real_ip_header     {% if vhost.proxy_protocol %}proxy_protocol{% else %}X-Forwarded-For{% endif %};
+    real_ip_recursive  on;
+    set $bench_from_proxy {{ proxy_gate_variable }};
+    if ($request_uri ~ "^/\.well-known/acme-challenge/") { set $bench_from_proxy 1; }
+    if ($bench_from_proxy = 0) { return 403; }
+    set $pilot_scheme $http_x_forwarded_proto;
+    if ($pilot_scheme = "") { set $pilot_scheme $scheme; }
+
+    {% elif cloudflare_networks %}
+    {% for network in cloudflare_networks %}
+    set_real_ip_from   {{ network }};
+    {% endfor %}
+    real_ip_header     CF-Connecting-IP;
+
+    {% endif %}
+    {# firewall: first-match allow / deny #}
+    {% if firewall.enabled %}
+    {% for ip in proxy_servers %}
+    allow {{ ip }};
+    {% endfor %}
+    {% for rule in firewall.rules %}
+    {{ rule.action }} {{ rule.ip }};
+    {% endfor %}
+    {% if firewall.default == "deny" %}
+    deny all;
+    {% endif %}
+
+    {% endif %}
+    {# web application firewall #}
+    {% if waf_active %}
+    modsecurity on;
+    modsecurity_rules_file {{ waf_rules_file }};
+
+    {% endif %}
+    {# TLS certificate and protocols #}
+    {% if vhost.ssl %}
+    ssl_certificate     {{ vhost.cert }};
+    ssl_certificate_key {{ vhost.key }};
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    {% endif %}
+    {# document root #}
+    {% if vhost.kind == "site" %}
+    root {{ sites_root }};
+
+    {% endif %}
+    {# the admin takes backup uploads, so it gets at least the site limit #}
+    client_max_body_size {{ client_max_body_size if vhost.kind == "site" else admin_client_max_body_size }};
+
+    {# ACME http-01 challenge, kept reachable so cert issuance never 403s #}
+    {% if not vhost.ssl %}
+    location /.well-known/acme-challenge/ {
+        allow all;
+        root {{ acme_root }};
+        try_files $uri =404;
+    }
+
+    {% endif %}
+    {# custom error pages for nginx-generated errors #}
+    {% for code in error_codes %}
+    {% if code != 502 %}
+    error_page {{ code }} /_errors/{{ code }}.html;
+    {% endif %}
+    {% endfor %}
+    location ^~ /_errors/ {
+        internal;
+        allow all;
+        alias {{ error_dir }}/;
+    }
+
+{{ startup_recovery }}
+    {% if vhost.kind == "site" %}
+    {# static assets and public files served straight from disk #}
+    location /assets {
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    {# frappe's FORCE_DOWNLOAD_EXTENSIONS; inline markup would be stored XSS #}
+    location ~* ^/files/.*\.(svg|svgz|html|htm|xhtml|xht|shtml|shtm|mhtml|mht|xml|xsl|xslt|swf)$ {
+        root {{ vhost.public_root }};
+        add_header Content-Disposition "attachment";
+        try_files $uri @app;
+    }
+
+    location /files/ {
+        root {{ vhost.public_root }};
+        try_files $uri @app;
+    }
+
+    location @app {
+        proxy_pass         http://bench-{{ upstream_name }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+        proxy_set_header   X-Frappe-Site-Name {{ vhost.name }};
+    }
+
+    {# realtime (socket.io) #}
+    location /socket.io {
+        set $pilot_socketio_origin $http_origin;
+        if ($pilot_socketio_origin = "") {
+            set $pilot_socketio_origin {{ vhost.public_scheme }}://$http_host;
+        }
+
+        proxy_pass         {{ socketio_upstream }};
+        proxy_http_version 1.1;
+        proxy_set_header   Upgrade $http_upgrade;
+        proxy_set_header   Connection "upgrade";
+        proxy_set_header   X-Frappe-Site-Name {{ vhost.name }};
+        proxy_set_header   Origin $pilot_socketio_origin;
+        proxy_set_header   Host $host;
+    }
+
+    {# everything else to the app upstream #}
+    location / {
+        access_log {{ logs_path }}/nginx-access.log pilot_access;
+        {% if vhost.canonical %}
+        if ($host != "{{ vhost.canonical }}") {
+            return 301 {{ vhost.public_scheme }}://{{ vhost.canonical }}$request_uri;
+        }
+
+        {% endif %}
+        proxy_pass         http://bench-{{ upstream_name }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+        proxy_set_header   X-Frappe-Site-Name {{ vhost.name }};
+    }
+
+    {% else %}
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_min_length 1024;
+    gzip_types application/javascript text/javascript text/css application/json image/svg+xml;
+
+    {# health/bootstrap answered with open CORS regardless of the app #}
+    {% for path in cors_paths %}
+    location = {{ path }} {
+        if ($request_method = OPTIONS) {
+            add_header Access-Control-Allow-Origin * always;
+            add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "Content-Type" always;
+            add_header Content-Length 0;
+            return 204;
+        }
+        proxy_pass         http://127.0.0.1:{{ vhost.port }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+        proxy_hide_header  Access-Control-Allow-Origin;
+        add_header         Access-Control-Allow-Origin * always;
+        add_header         Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+        add_header         Access-Control-Allow-Headers "Content-Type" always;
+    }
+
+    {% endfor %}
+    {# editor + dashboard + in-app-embed static assets served straight from disk, off the admin worker #}
+    location /editor-assets/ {
+        alias {{ admin_static }}/editor/;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location /embed/cloud-settings/ {
+        alias {{ admin_static }}/in-app-embed/cloud-settings/;
+        try_files $uri =404;
+        # Fixed filename (cloud-settings.js), so it must revalidate: a rebuild
+        # changes the bytes, not the URL. nginx's ETag/Last-Modified keeps this
+        # to a 304 until the bundle actually changes. Never `immutable` here.
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        alias {{ admin_static }}/dashboard/assets/;
+        try_files $uri =404;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    {# backup upload chunks: raw bytes the WAF cannot inspect, streamed to the admin #}
+    location ~ ^/api/v1/sites/[^/]+/uploads/[^/]+/files/ {
+        {% if waf_active %}
+        modsecurity off;
+        {% endif %}
+        proxy_request_buffering off;
+        proxy_pass         http://127.0.0.1:{{ vhost.port }};
+        proxy_read_timeout 600;
+        proxy_send_timeout 600;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+    }
+
+    {# everything else to the local admin process #}
+    location / {
+        proxy_pass         http://127.0.0.1:{{ vhost.port }};
+        proxy_read_timeout 120;
+        proxy_redirect     off;
+        proxy_set_header   Host               $host;
+        proxy_set_header   X-Real-IP          $remote_addr;
+        proxy_set_header   X-Forwarded-For    {{ vhost.forwarded_for }};
+        proxy_set_header   X-Forwarded-Proto  {{ vhost.public_scheme }};
+    }
+
+    {% endif %}
+}
+
+{% endfor %}

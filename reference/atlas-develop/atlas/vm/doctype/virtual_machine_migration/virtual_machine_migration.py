@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import frappe
+from frappe import _
+from frappe.model.document import Document
+
+from atlas.atlas.core.exceptions import AtlasUserError
+
+
+class VirtualMachineMigration(Document):
+	"""One move of a virtual machine between Metal Servers."""
+
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from atlas.vm.doctype.virtual_machine_migration_transfer.virtual_machine_migration_transfer import (
+			VirtualMachineMigrationTransfer,
+		)
+
+		allow_disk_only_fallback: DF.Check
+		destination_metal_server: DF.Link | None
+		destination_metal_server_selection_attempts: DF.Int
+		destination_metal_server_selection_message: DF.SmallText | None
+		duration_seconds: DF.Duration | None
+		error_at: DF.Datetime | None
+		error_code: DF.Data | None
+		error_message: DF.SmallText | None
+		finished_at: DF.Datetime | None
+		has_memory_snapshot: DF.Check
+		last_destination_metal_server_selection_at: DF.Datetime | None
+		memory_snapshot_status: DF.Literal[
+			"not_started", "creating", "transferring", "restoring", "completed", "failed", "aborted"
+		]
+		metal_server_drain: DF.Link | None
+		progress_percent: DF.Int
+		scheduled_at: DF.Datetime | None
+		source_metal_server: DF.Link
+		started_at: DF.Datetime | None
+		status: DF.Literal[
+			"scheduled",
+			"preparing",
+			"copying",
+			"cutting_over",
+			"starting",
+			"finalizing",
+			"canceling",
+			"completed",
+			"failed",
+			"aborted",
+		]
+		target_cpu_millicores: DF.Int
+		target_disk_mib: DF.Int
+		target_memory_mib: DF.Int
+		transfers: DF.Table[VirtualMachineMigrationTransfer]
+		virtual_machine: DF.Link
+	# end: auto-generated types
+
+	def after_insert(self) -> None:
+		"""Claim the VM and queue destination selection after this transaction commits."""
+		from atlas.vm.core.vm_migration import MigrationService, reconcile_migration
+
+		MigrationService.schedule(self)
+		reconcile_migration(self.name)
+
+	def on_change(self) -> None:
+		"""Copy the drain row values into the drain row of this migration."""
+		if self.metal_server_drain:
+			frappe.db.set_value(
+				"Metal Server Drain Migration",
+				{"virtual_machine_migration": self.name},
+				self.get_drain_row_values(),
+				update_modified=False,
+			)
+
+	def get_drain_row_values(self) -> dict[str, object]:
+		"""Return the status, progress, destination, and failure reason that a drain row shows."""
+		error_message = None
+		# A completed migration can keep a transient Metal client error, so only a failure shows its error.
+		if self.status in ("failed", "aborted"):
+			error_message = ": ".join(part for part in (self.error_code, self.error_message) if part) or None
+
+		return {
+			"status": self.status,
+			"progress_percent": self.progress_percent,
+			"destination_metal_server": self.destination_metal_server,
+			"error_message": error_message,
+		}
+
+	def before_save(self) -> None:
+		"""Allow only the migration worker to change an existing record."""
+		if not self.is_new() and not getattr(self.flags, "updated_by_vm_migration_worker", False):
+			frappe.throw(_("Atlas updates migration records."), exc=AtlasUserError)
+
+	@frappe.whitelist(methods=["POST"])
+	def abort(self) -> None:
+		"""Request cancellation and queue the migration worker."""
+		if self.status in {"completed", "failed", "aborted"}:
+			frappe.throw(_("This migration is already finished."), exc=AtlasUserError)
+
+		frappe.get_doc("Virtual Machine", self.virtual_machine).check_permission("write")
+		from atlas.vm.core.vm_migration import MigrationService, reconcile_migration
+
+		MigrationService(self).request_abort()
+		reconcile_migration(self.name)
+
+	@frappe.whitelist(methods=["POST"])
+	def restore_source(self) -> None:
+		"""Start the stopped source again after the destination host is lost for good."""
+		frappe.only_for("System Manager")
+		frappe.get_doc("Virtual Machine", self.virtual_machine).check_permission("write")
+		from atlas.vm.core.vm_migration import MigrationService
+
+		MigrationService(self).restore_source()
+
+
+@frappe.whitelist(methods=["POST"])
+def set_vm_migration_paused(is_paused: bool) -> None:
+	"""Pause or resume new VM migrations. Running migrations continue."""
+	frappe.get_doc("Atlas Settings").check_permission("write")
+	frappe.db.set_single_value("Atlas Settings", "is_vm_migration_paused", int(frappe.parse_json(is_paused)))
+
+
+def on_doctype_update() -> None:
+	"""Index destination reservations for VM placement."""
+	frappe.db.add_index(
+		"Virtual Machine Migration",
+		["destination_metal_server", "status"],
+		"destination_metal_server_status",
+	)

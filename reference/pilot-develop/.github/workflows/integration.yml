@@ -1,0 +1,135 @@
+name: Integration Test
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+
+jobs:
+  integration:
+    # 24.04 ships nginx 1.24; production deploys emit ssl_reject_handshake,
+    # which needs nginx >= 1.19.4 (22.04 only has 1.18 and fails nginx -t).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install system dependencies
+        env:
+          MARIADB_REPO_SETUP_URL: https://r.mariadb.com/downloads/mariadb_repo_setup
+          MARIADB_VERSION: "11.8"
+        run: |
+          curl -LsSf "$MARIADB_REPO_SETUP_URL" -o /tmp/mariadb_repo_setup
+          sudo bash /tmp/mariadb_repo_setup \
+            --mariadb-server-version="mariadb-$MARIADB_VERSION"
+          sudo apt-get update -y
+          sudo apt-get install -y mariadb-server mariadb-client libmariadb-dev redis-server git nginx openssl
+          mariadbd --version
+          sudo systemctl start redis-server
+          # bench runs its own rootless, per-user MariaDB server (see
+          # MariaDBManager) — disable the system service so it doesn't hold
+          # the port where the wizard provisions a fresh server.
+          sudo systemctl disable --now mariadb
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install yarn and Pilot
+        run: |
+          npm install -g yarn
+          pip install -e ".[test,admin]"
+
+      - name: Create bench
+        run: |
+          mkdir -p benches/ci-bench
+          cp tests/fixtures/ci_bench.toml benches/ci-bench/bench.toml
+          cp tests/fixtures/ci_common_config.toml benches/common_config.toml
+
+      - name: Pilot init
+        run: pilot init -b ci-bench
+        timeout-minutes: 45
+
+      - name: Create sites
+        run: |
+          pilot new-site site1.localhost --admin-password admin
+          pilot new-site site2.localhost --admin-password admin
+
+      - name: Verify sites exist
+        run: |
+          test -f benches/ci-bench/sites/site1.localhost/site_config.json
+          test -f benches/ci-bench/sites/site2.localhost/site_config.json
+
+      - name: Start Redis services
+        run: |
+          redis-server benches/ci-bench/config/redis_cache.conf --daemonize yes
+          redis-server benches/ci-bench/config/redis_queue.conf --daemonize yes
+          sleep 2
+
+      - name: Migrate both sites
+        run: |
+          PYTHON=$GITHUB_WORKSPACE/benches/ci-bench/env/bin/python
+          cd $GITHUB_WORKSPACE/benches/ci-bench/sites
+          $PYTHON -m frappe.utils.bench_helper frappe --site site1.localhost migrate
+          $PYTHON -m frappe.utils.bench_helper frappe --site site2.localhost migrate
+
+      - name: Clear cache on both sites
+        run: |
+          PYTHON=$GITHUB_WORKSPACE/benches/ci-bench/env/bin/python
+          cd $GITHUB_WORKSPACE/benches/ci-bench/sites
+          $PYTHON -m frappe.utils.bench_helper frappe --site site1.localhost clear-cache
+          $PYTHON -m frappe.utils.bench_helper frappe --site site2.localhost clear-cache
+
+      - name: Pilot build
+        run: pilot build
+
+      # Non-production tests rely on the redis started above. Production tests
+      # manage their own redis, so they run separately after that redis is
+      # stopped to avoid a port clash.
+      - name: Run integration tests (non-production)
+        run: pytest tests/integration/ -v -m "not production"
+        env:
+          BENCH_TEST_ROOT: ${{ github.workspace }}/benches/ci-bench
+
+      - name: Stop manually-started redis
+        if: ${{ !cancelled() }}
+        run: |
+          redis-cli -p 13000 shutdown nosave || true
+          redis-cli -p 11000 shutdown nosave || true
+
+      # Run regardless of the non-production result so the production signal
+      # isn't masked by an unrelated failure in the first group.
+      - name: Run production e2e tests
+        if: ${{ !cancelled() }}
+        run: pytest tests/integration/ -v -m "production"
+        env:
+          BENCH_TEST_ROOT: ${{ github.workspace }}/benches/ci-bench
+          # Opt in to the destructive production + self-signed SSL e2e
+          # (installs services, rewrites the machine's nginx config).
+          BENCH_E2E_PRODUCTION: "1"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          export XDG_RUNTIME_DIR=/run/user/$(id -u)
+          echo "::group::systemd --user units"
+          systemctl --user list-units --all --no-pager | grep -i ci-bench || true
+          echo "::endgroup::"
+          echo "::group::failed unit status"
+          systemctl --user --no-pager status 'ci-bench-*' 'ci-bench.target' || true
+          echo "::endgroup::"
+          echo "::group::journal (user)"
+          journalctl --user -n 300 --no-pager || true
+          echo "::endgroup::"
+          echo "::group::bench logs"
+          tail -n 80 benches/ci-bench/logs/*.log 2>/dev/null || true
+          echo "::endgroup::"

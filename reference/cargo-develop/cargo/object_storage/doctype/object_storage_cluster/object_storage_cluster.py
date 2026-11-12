@@ -1,0 +1,871 @@
+# Copyright (c) 2026, Aradhya-Tripathi and contributors
+# For license information, please see license.txt
+
+from __future__ import annotations
+
+import typing
+from functools import cached_property
+
+import frappe
+from frappe import _
+from frappe.utils import now_datetime
+
+from cargo.atlas_client import base_image_id
+from cargo.cargo.doctype.machine.machine import DEAD_MACHINE_STATES
+from cargo.cargo.doctype.machine.machine import Machine as MachineDoc
+from cargo.client_models import GATEWAY, STORAGE, NodeSpec, PlacementRule, Role
+from cargo.object_storage.doctype.object_storage_cluster.setup import Setup
+from cargo.object_storage.health import queue_cluster_metrics_exporters
+from cargo.proxy_client import ProxyClient, ProxyError
+from cargo.ssh import SSH_TIMEOUT, OutputLog
+from cargo.workflow_engine.doctype.press_workflow.decorators import flow, task
+from cargo.workflow_engine.doctype.press_workflow.workflow_builder import WorkflowBuilder
+
+if typing.TYPE_CHECKING:
+	from frappe.integrations.doctype.webhook.webhook import Webhook
+
+	from cargo.cargo.doctype.cargo_settings.cargo_settings import CargoSettings
+	from cargo.workflow_engine.doctype.press_workflow.press_workflow import PressWorkflow
+
+# Garage wants a 32-byte hex string for its rpc_secret, which is 64 characters of one.
+SECRET_LENGTH = 64
+MACHINE_STEP_TIMEOUT = 3 * SSH_TIMEOUT
+SOURCE_HEADER = "X-FC-Source"
+REGION_HEADER = "X-FC-Region"
+SOURCE = "cargo"
+REPORTED_STATUSES = ("Active", "Failed")
+CLUSTER_SECRETS = ("rpc_secret", "admin_token", "metrics_token")
+S3_SITE_NAME = "s3-svc"
+S3_ADMIN_SITE_NAME = "s3-admin-svc"
+PROXY_SITE_NAMES = (S3_SITE_NAME, S3_ADMIN_SITE_NAME)
+MIN_SCRAPE_SECONDS = 60
+
+if typing.TYPE_CHECKING:
+	from cargo.cargo.doctype.machine.machine import Machine
+
+
+class ObjectStorageCluster(WorkflowBuilder):
+	"""One Garage cluster: the machines it needs, and the secrets they run on."""
+
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from cargo.cargo.doctype.object_storage_node.object_storage_node import ObjectStorageNode
+
+		activated_on: DF.Datetime | None
+		admin_port: DF.Int
+		admin_token: DF.Password | None
+		auto_setup_attempts: DF.Int
+		auto_spawn: DF.Check
+		data_dir: DF.Data
+		error: DF.LongText | None
+		garage_arch: DF.Data
+		garage_binary: DF.Data
+		garage_version: DF.Data
+		health: DF.Literal["Unknown", "Healthy", "Degraded", "Critical"]
+		health_reason: DF.Data | None
+		last_metadata_snapshot_at: DF.Datetime | None
+		machines: DF.Table[ObjectStorageNode]
+		metadata_dir: DF.Data
+		metrics_scrape_seconds: DF.Int
+		metrics_token: DF.Password | None
+		replication_factor: DF.Int
+		rpc_port: DF.Int
+		rpc_secret: DF.Password | None
+		s3_port: DF.Int
+		setup_log: DF.Code | None
+		status: DF.Literal["Draft", "Setting Up", "Active", "Failed"]
+	# end: auto-generated types
+
+	@property
+	def region(self) -> str:
+		"""One Cargo to a region, so Cargo Settings owns it and no cluster carries its own."""
+		return frappe.db.get_single_value("Cargo Settings", "region", cache=True)
+
+	@cached_property
+	def gateway_node(self) -> Machine | None:
+		"""The one machine that has the gateway role."""
+		return next(
+			(frappe.get_doc("Machine", row.machine) for row in self.machines if row.role == GATEWAY), None
+		)
+
+	@cached_property
+	def storage_nodes(self) -> list[Machine]:
+		"""Every machine that has the storage role."""
+		return [frappe.get_doc("Machine", row.machine) for row in self.machines if row.role == STORAGE]
+
+	@cached_property
+	def all_nodes(self) -> list[Machine]:
+		"""All machines in this cluster."""
+		return [frappe.get_doc("Machine", row.machine) for row in self.machines]
+
+	@property
+	def gateway_address(self) -> str:
+		"""Where this cluster answers: every S3 and admin call goes through the gateway."""
+		gateway = self.gateway_node
+		if not gateway:
+			frappe.throw(_("This cluster has no gateway to reach it at."))
+
+		if not gateway.address:
+			frappe.throw(_("This cluster's gateway has not booted yet."))
+
+		return gateway.address
+
+	@cached_property
+	def garage_setup(self) -> Setup:
+		"""This cluster's Garage setup client"""
+		return Setup(self)
+
+	@property
+	def wildcard_domain(self) -> str:
+		domain = frappe.db.get_single_value("Cargo Settings", "wildcard_domain", cache=True)
+		if not domain:
+			frappe.throw(_("Wildcard Domain must be set in Cargo Settings."))
+
+		return domain
+
+	@property
+	def proxy_domains(self) -> tuple[str, ...]:
+		return tuple(f"{site_name}.{self.wildcard_domain}" for site_name in PROXY_SITE_NAMES)
+
+	@property
+	def service_endpoint(self) -> str:
+		"""The S3 URL users reach this cluster at, served by nginx on the gateway."""
+		return f"https://{S3_SITE_NAME}.{self.wildcard_domain}"
+
+	def validate(self) -> None:
+		if self.status == "Active":
+			ensure_no_other_active_cluster(self)
+
+		if self.metrics_scrape_seconds < MIN_SCRAPE_SECONDS:
+			frappe.throw(
+				_("Metrics Scrape Interval must be at least {0} seconds.").format(MIN_SCRAPE_SECONDS)
+			)
+
+	def on_update(self) -> None:
+		"""A new scrape interval only reaches the nodes when Vector is installed again."""
+		if self.is_live and self.has_value_changed("metrics_scrape_seconds"):
+			queue_cluster_metrics_exporters(self.name)
+
+	def before_insert(self) -> None:
+		if all(self.get(name) for name in CLUSTER_SECRETS):
+			return
+
+		for name in CLUSTER_SECRETS:
+			if not self.get(name):
+				self.update({name: frappe.generate_hash(length=SECRET_LENGTH)})
+
+	def after_insert(self) -> None:
+		"""Ensure webhook for this cluster is configured"""
+		configure_storage_cluster_webhook(self)
+
+	def add_node(self, role: Role, cpu_millicores: int, ram_gb: int, disk_gb: int) -> Machine:
+		"""Ask Atlas for one machine and put it in this cluster. Throws, rolling the row back."""
+		spec = NodeSpec(role=role, cpu_millicores=cpu_millicores, ram_gb=ram_gb, disk_gb=disk_gb)
+		tags, placement_rules = None, None
+		if role == STORAGE:
+			tags, placement_rules = self.storage_node_tags, self.get_storage_node_placement_rules()
+
+		machine: Machine = MachineDoc.request(
+			self,
+			spec,
+			base_image=base_image_id(),
+			zone=self.region,
+			tags=tags,
+			placement_rules=placement_rules,
+			is_termination_protected=True,
+		)
+
+		self.append("machines", {"machine": machine.name, "role": role})
+		self.save()
+
+		return machine
+
+	@property
+	def storage_node_tags(self) -> dict[str, str]:
+		"""The Atlas tags on each storage node of this cluster."""
+		return {"cargo-storage-cluster": self.name, "role": STORAGE}
+
+	def get_storage_node_placement_rules(self) -> list[PlacementRule]:
+		"""Keep a new storage node away from the others of this cluster, as Cargo Settings asks."""
+		settings: CargoSettings = frappe.get_cached_doc("Cargo Settings")
+		if settings.storage_node_spread == "Off":
+			return []
+
+		return [
+			PlacementRule(
+				resource="virtual_machine",
+				operator="has_not",
+				tags=self.storage_node_tags,
+				within=(settings.storage_node_spread_within or "").strip(),
+			)
+		]
+
+	@frappe.whitelist()
+	def add_gateway_node(self, cpu_millicores: int, ram_gb: int, disk_gb: int) -> None:
+		"""Can add a gateway node to this cluster? Throws if not."""
+		can_add_gateway_node(self)
+
+		self.add_node(GATEWAY, cpu_millicores=cpu_millicores, ram_gb=ram_gb, disk_gb=disk_gb)
+
+	@frappe.whitelist()
+	def add_storage_node(self, cpu_millicores: int, ram_gb: int, disk_gb: int) -> None:
+		"""Add a storage node to this cluster."""
+		can_add_storage_node(self)
+
+		self.add_node(STORAGE, cpu_millicores=cpu_millicores, ram_gb=ram_gb, disk_gb=disk_gb)
+
+	@frappe.whitelist()
+	def setup(self) -> None:
+		"""Set up what's not setup yet. THat's it idempotently called by the user whenever ready from desk."""
+		can_trigger_setup(self)
+
+		# Always the whole flow, even with every node joined: gateway routing and proxy routes
+		# are re-applied on each run, and a cluster is only Active once both have succeeded.
+		self.clear_logs()
+		self.mark_cluster_status("Setting Up", None)
+		# Here we will start a flow of triggers.
+		self._setup.run_as_workflow()
+
+	@flow
+	def _setup(self) -> None:
+		machines_to_setup = self.discover_machines_to_setup()
+		failed_storage_node_setup = []
+		for machine in machines_to_setup:
+			machine_doc = frappe.get_doc("Machine", machine)
+			was_successful = self.start_setup_on_machine(machine_doc)
+
+			# The machines are left alone: setup is idempotent, so a retry picks up whatever
+			# has not joined. Releasing them is the operator's call.
+			if not was_successful and machine_doc.role == GATEWAY:
+				self.mark_cluster_status("Failed", _("Gateway machine failed to setup."))
+				return
+
+			if not was_successful and machine_doc.role == STORAGE:
+				failed_storage_node_setup.append(machine_doc.name)
+
+			if len(self.all_nodes) - len(failed_storage_node_setup) < self.replication_factor:
+				self.mark_cluster_status(
+					"Failed",
+					_(
+						"Not enough storage nodes were setup successfully to satisfy the "
+						"replication factor. Failed nodes: {0}"
+					).format(", ".join(failed_storage_node_setup)),
+				)
+				return
+
+		self.record_cluster_peers()
+		self.apply_layout()
+
+		# nginx before the proxy: the proxy only gets routes to a gateway ready to take them.
+		if not self.configure_gateway_routing():
+			self.mark_cluster_status(
+				"Failed",
+				_(
+					"Gateway routing (nginx) failed. Garage itself is up: see the Setup Log, then set up again."
+				),
+			)
+			return
+
+		if not self.verify_connected_nodes():
+			return
+		if not self.publish_proxy_routes():
+			return
+
+		self.mark_cluster_status("Active", None)
+
+	@task
+	def discover_machines_to_setup(self) -> list[str]:
+		"""Gateway first: every other node reaches the cluster through its admin API, so one
+		set up before it has nothing to join."""
+		healthy_nodes = self.garage_setup.healthy_nodes()
+		machines_to_setup = [machine for machine in self.all_nodes if machine.name not in healthy_nodes]
+
+		return [
+			machine.name for machine in sorted(machines_to_setup, key=lambda machine: machine.role != GATEWAY)
+		]
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def start_setup_on_machine(self, machine: Machine) -> bool:
+		"""Install Garage on one machine and fold it into the cluster."""
+		with OutputLog(self, "setup_log", append=True) as log:
+			try:
+				garage = self.garage_setup
+				garage.setup_machine(garage.machine(machine.name), on_output=log.write)
+			except Exception:
+				frappe.log_error(
+					title=f"{machine.name} failed to set up",
+					message=frappe.get_traceback(with_context=True),
+				)
+				return False
+
+			# Metrics are not worth failing a node over; the next Datum token retries it.
+			try:
+				garage.install_metrics_exporter(garage.machine(machine.name), on_output=log.write)
+			except Exception:
+				frappe.log_error(title=f"Could not install the metrics exporter on {machine.name}")
+
+		return True
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def configure_gateway_routing(self) -> bool:
+		"""nginx on the gateway's port 80, in front of Garage. A step of its own, run on every
+		setup, so setting up again is also how a failed one is retried."""
+		with OutputLog(self, "setup_log", append=True) as log:
+			try:
+				garage = self.garage_setup
+				garage.setup_nginx_on_machine(garage.machine(self.gateway_node.name), on_output=log.write)
+			except Exception:
+				frappe.log_error(
+					title=f"{self.name} gateway routing failed",
+					message=frappe.get_traceback(with_context=True),
+				)
+				return False
+
+		return True
+
+	@task
+	def record_cluster_peers(self) -> None:
+		"""Give every node that joined the same peers, now that they all exist."""
+		garage = self.garage_setup
+		connected = garage.get_connected_nodes()
+		if not connected.peers:
+			return
+
+		for machine in garage.machines:
+			if machine["name"] in connected.machines:
+				garage.record_peers(machine, connected.peers)
+
+	@task
+	def apply_layout(self) -> None:
+		"""Give every node that joined its place. Part of setting up, not a step of its own:
+		a joined node carries no storage role until this lands, so a cluster without it
+		holds nothing."""
+		self.garage_setup.apply_staged_layout()
+
+	@task
+	def verify_connected_nodes(self) -> bool:
+		"""What actually joined, as Garage sees it. Health labels the rest; this only decides
+		whether the cluster came up at all."""
+		healthy_nodes = self.garage_setup.healthy_nodes()
+		joined_storage = [node for node in self.storage_nodes if node.name in healthy_nodes]
+
+		if len(joined_storage) < self.replication_factor:
+			self.mark_cluster_status(
+				"Failed",
+				_("Only {0} storage nodes joined the cluster, {1} needed for a full copy.").format(
+					len(joined_storage), self.replication_factor
+				),
+			)
+			return False
+
+		return True
+
+	@task
+	def publish_proxy_routes(self) -> bool:
+		"""Publish the regional S3 routes to this cluster's gateway."""
+		try:
+			client = ProxyClient.from_settings()
+			for domain in self.proxy_domains:
+				client.map_domain(domain, self.gateway_address)
+		except (ProxyError, frappe.ValidationError) as error:
+			self.mark_cluster_status("Failed", _(f"Proxy route setup failed: {error}"))
+			return False
+
+		return True
+
+	@frappe.whitelist()
+	def reveal_admin_token(self) -> str:
+		"""The garage admin token"""
+		frappe.only_for("System Manager")
+
+		return self.get_password("admin_token")
+
+	@frappe.whitelist()
+	def release_machines(self, machines: list[str]) -> None:
+		"""Hand the named machines back to Atlas and drop them from this cluster. A machine that
+		joined Garage is drained first, so its data reaches the other nodes before it goes."""
+		joined_machines = can_release_machines(self, machines)
+
+		unjoined_machines = []
+		for name in machines:
+			if name not in joined_machines:
+				unjoined_machines.append(name)
+
+		if unjoined_machines:
+			self.terminate_machines(unjoined_machines)
+
+		if joined_machines:
+			self._drain_and_release.run_as_workflow(joined_machines)
+
+	@flow
+	def _drain_and_release(self, machines: list[str]) -> None:
+		self.remove_from_layout(machines)
+		self.wait_for_drain()
+		self.terminate_machines(machines)
+
+	@task(queue="short")
+	def remove_from_layout(self, machines: list[str]) -> None:
+		self.garage_setup.remove_machines_from_layout(machines)
+
+	@task(queue="short")
+	def wait_for_drain(self) -> None:
+		"""Wait for Garage to move the metadata, then the blocks, off the removed nodes. A
+		deferred task is run again about once a minute."""
+		garage = self.garage_setup
+		if garage.is_draining():
+			# A removed node that died during the drain cannot hand anything over.
+			garage.skip_dead_nodes_left_out_of_layout()
+			self.defer_current_task(_("Garage is still moving metadata off the removed nodes."))
+			return
+
+		nodes_moving_blocks = garage.get_nodes_moving_blocks()
+		if nodes_moving_blocks:
+			self.defer_current_task(
+				_("Garage is still moving blocks on nodes {0}. See `garage worker list`.").format(
+					", ".join(nodes_moving_blocks)
+				)
+			)
+
+	@task(queue="short")
+	def terminate_machines(self, machines: list[str]) -> None:
+		"""Terminate the machines at Atlas and drop their rows. Releasing is the one deliberate
+		way out, so it lifts their termination protection. A machine Atlas refuses to
+		terminate keeps its row."""
+		failed_terminations = []
+		for name in machines:
+			machine_doc: Machine = frappe.get_doc("Machine", name)
+			terminated = machine_doc.terminate(release_protection=True)
+			if not terminated:
+				failed_terminations.append(name)
+
+		kept_rows = []
+		for row in self.machines:
+			if row.machine not in machines or row.machine in failed_terminations:
+				kept_rows.append(row)
+
+		self.machines = kept_rows
+		self.save()
+
+	@frappe.whitelist()
+	def restore_metadata_snapshot(self, snapshot: str, machine: str | None = None) -> None:
+		"""Roll one machine's metadata, or every machine's, back to a snapshot Garage took. One
+		machine catches up from its peers; the whole cluster loses everything written since."""
+		machines = can_restore_metadata(self, snapshot, machine)
+		self._restore_metadata.run_as_workflow(snapshot, machines)
+
+	@flow
+	def _restore_metadata(self, snapshot: str, machines: list[str]) -> None:
+		# Every machine stops before any comes back: a restored node would otherwise take the
+		# newer entries straight back from a peer still running on them.
+		self.stop_garage_on_machines(machines)
+		self.swap_in_metadata_snapshot(snapshot, machines)
+		self.repair_metadata_tables(machines)
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def stop_garage_on_machines(self, machines: list[str]) -> None:
+		with OutputLog(self, "setup_log", append=True) as log:
+			garage = self.garage_setup
+			for name in machines:
+				log.write(f"\n=== stopping Garage on {name} ===\n")
+				garage.stop_garage(garage.machine(name), on_output=log.write)
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def swap_in_metadata_snapshot(self, snapshot: str, machines: list[str]) -> None:
+		with OutputLog(self, "setup_log", append=True) as log:
+			garage = self.garage_setup
+			for name in machines:
+				log.write(f"\n=== restoring {name} to snapshot {snapshot} ===\n")
+				garage.restore_metadata(garage.machine(name), snapshot, on_output=log.write)
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def repair_metadata_tables(self, machines: list[str]) -> None:
+		"""Only once every node is back: a node that restarts serves before its peers reconnect,
+		and a repair started then has nothing to sync from."""
+		garage = self.garage_setup
+		running = set(garage.get_running_node_ids())
+		if any(node_id not in running for node_id, _ in garage.get_layout_nodes()):
+			self.defer_current_task(_("Waiting for every node to reconnect before repairing tables."))
+			return
+
+		with OutputLog(self, "setup_log", append=True) as log:
+			for name in machines:
+				log.write(f"\n=== repairing tables on {name} ===\n")
+				garage.repair_tables(garage.machine(name), on_output=log.write)
+
+	def on_workflow_failure(self, workflow: PressWorkflow) -> None:
+		"""A failed growth is not retried, and Garage keeps the old capacities until it is fixed.
+		A failed restore stops where it failed, with every swapped database kept beside it."""
+		if workflow.main_method_name == "_grow_storage_disks":
+			frappe.log_error(
+				f"Storage disk growth failed on {self.name}",
+				message=f"Fix the cause; the next scheduled check grows the disks again.\n\n{workflow.workflow_traceback}",
+				reference_doctype=workflow.doctype,
+				reference_name=workflow.name,
+			)
+
+		if workflow.main_method_name == "_restore_metadata":
+			frappe.log_error(
+				f"Metadata restore failed on {self.name}",
+				message=(
+					"A machine whose database was swapped keeps the old one as db.lmdb.bak-<time> in "
+					f"its metadata directory. See the Setup Log.\n\n{workflow.workflow_traceback}"
+				),
+				reference_doctype=workflow.doctype,
+				reference_name=workflow.name,
+			)
+
+	@flow
+	def _grow_storage_disks(self, disk_gb: int) -> None:
+		self.request_disk_growth(disk_gb)
+		self.wait_for_disk_growth(disk_gb)
+		self.grow_storage_filesystems()
+		self.apply_storage_capacities()
+
+	@task(queue="short")
+	def request_disk_growth(self, disk_gb: int) -> None:
+		"""Ask Atlas for the larger disk on every storage node still short of it."""
+		for machine in self.storage_nodes:
+			if machine.status == "Running" and machine.disk_size_gb < disk_gb:
+				machine.grow_disk(disk_gb)
+
+	@task(queue="short")
+	def wait_for_disk_growth(self, disk_gb: int) -> None:
+		"""Atlas grows a disk after it answers. Read each node now rather than wait for the sync."""
+		from cargo.atlas_client import AtlasClient
+
+		client = AtlasClient.from_settings()
+		short = []
+		for machine in self.storage_nodes:
+			if machine.status != "Running":
+				continue
+			machine.sync(client)
+			if machine.disk_size_gb < disk_gb:
+				short.append(machine.name)
+
+		if short:
+			self.defer_current_task(
+				_("Atlas has not grown the disks of {0} to {1} GB yet.").format(", ".join(short), disk_gb)
+			)
+
+	@task(queue="long", timeout=MACHINE_STEP_TIMEOUT)
+	def grow_storage_filesystems(self) -> None:
+		garage = self.garage_setup
+		for machine in garage.machines:
+			if machine["role"] == STORAGE:
+				garage.grow_filesystem(machine)
+
+	@task(queue="short")
+	def apply_storage_capacities(self) -> None:
+		"""Garage weighs a node by the capacity in its layout, which still names the old disk."""
+		garage = self.garage_setup
+		if garage.stage_storage_capacities():
+			garage.apply_layout(garage.layout_version() + 1)
+
+	def sync_machines(self) -> None:
+		"""What this cluster's machines changing status means for it. `sync_all_machines`
+		calls this once one changes. A stopped node is not dead: the health refresh reports it."""
+		# A cluster being built has promised nothing yet!
+		if not self.is_live:
+			return
+
+		# Gateway machine dead?
+		if self.gateway_node and self.gateway_node.status in DEAD_MACHINE_STATES:
+			self.mark_cluster_status("Failed", _("Gateway machine is dead."))
+			return
+
+		# Machines less than the replication factor are dead?
+		if (
+			len([node for node in self.storage_nodes if node.status not in DEAD_MACHINE_STATES])
+			< self.replication_factor
+		):
+			self.mark_cluster_status(
+				"Failed", _("Not enough storage nodes are alive to satisfy the replication factor.")
+			)
+			return
+
+	@property
+	def is_live(self) -> bool:
+		"""A cluster that has served once. Past that, losing a machine is a real failure."""
+		return bool(self.activated_on)
+
+	def mark_cluster_status(self, status: str, reason: str | None = None) -> None:
+		"""Mark the cluster's status and reason."""
+		if status == "Active":
+			if not self.activated_on:
+				self.activated_on = now_datetime()
+
+			# A cluster that served is worth automatic setup again if it later fails.
+			self.auto_setup_attempts = 0
+
+		self.status = status
+		self.error = reason
+		self.save()
+
+	def clear_logs(self):
+		self.setup_log = None
+
+
+def can_add_gateway_node(cluster: ObjectStorageCluster) -> None:
+	"""Whether this cluster can add a gateway node."""
+	if cluster.gateway_node:
+		frappe.throw(_("This cluster already has a gateway node."))
+
+
+def can_add_storage_node(cluster: ObjectStorageCluster) -> None:
+	"""Whether this cluster can add a storage node."""
+	if cluster.status == "Setting Up":
+		frappe.throw(_("Cannot add storage node to a cluster that is setting up."))
+
+
+def can_trigger_setup(cluster: ObjectStorageCluster) -> None:
+	"""Throw unless every machine is Running and storage nodes cover the replication factor."""
+	ensure_no_other_active_cluster(cluster)
+	ensure_no_running_workflow(cluster)
+
+	if not cluster.gateway_node or cluster.gateway_node.status != "Running":
+		frappe.throw(_("This cluster needs a running gateway node before it can be set up."))
+
+	running_storage_nodes = [node for node in cluster.storage_nodes if node.status == "Running"]
+	if len(running_storage_nodes) != len(cluster.storage_nodes):
+		frappe.throw(
+			_("Only {0} of {1} storage nodes are running. All must be running to set up.").format(
+				len(running_storage_nodes), len(cluster.storage_nodes)
+			)
+		)
+
+	if len(running_storage_nodes) < cluster.replication_factor:
+		frappe.throw(
+			_("This cluster has {0} storage nodes, but its replication factor needs {1}.").format(
+				len(running_storage_nodes), cluster.replication_factor
+			)
+		)
+
+
+def ensure_no_other_active_cluster(cluster: ObjectStorageCluster) -> None:
+	# Check-then-act: an operator activates a cluster by hand, so two at once is not a real race.
+	active_cluster = frappe.db.exists(
+		"Object Storage Cluster",
+		{"status": "Active", "name": ("!=", cluster.name)},
+	)
+	if active_cluster:
+		frappe.throw(_("Object Storage Cluster {0} is already Active.").format(active_cluster))
+
+
+def can_release_machines(cluster: ObjectStorageCluster, machines: list[str]) -> list[str]:
+	"""Throws if the machines cannot be released. Returns the ones Garage may still hold data
+	for, which are drained before they go."""
+	cluster.check_permission("write")
+
+	if cluster.status == "Setting Up":
+		frappe.throw(_("Cannot release machines from a cluster that is setting up."))
+
+	ensure_no_running_workflow(cluster)
+	ensure_machines_belong(cluster, machines)
+
+	joined = get_joined_machines(cluster)
+	joined_machines = [name for name in machines if name in joined]
+	ensure_gateway_stays(cluster, machines, joined)
+	ensure_enough_storage_nodes_stay(cluster, joined_machines, joined)
+
+	# A node already taken out of the layout no longer reads as joined, but Garage may still
+	# be moving its data. So while Garage is draining, every machine is drained first.
+	if joined and cluster.garage_setup.is_draining():
+		return list(machines)
+
+	return joined_machines
+
+
+def can_restore_metadata(cluster: ObjectStorageCluster, snapshot: str, machine: str | None) -> list[str]:
+	"""Throws unless the snapshot may be restored. Returns the machines it is restored on: the
+	one named, or every machine of the cluster."""
+	frappe.only_for("System Manager")
+
+	if not cluster.is_live:
+		frappe.throw(_("Only a cluster that has served has metadata to restore."))
+
+	ensure_no_running_workflow(cluster)
+
+	if machine:
+		ensure_machines_belong(cluster, [machine])
+		ensure_peers_serve(cluster, machine)
+		machines = [machine]
+	else:
+		ensure_every_machine_runs(cluster)
+		machines = [node.name for node in cluster.all_nodes]
+
+	ensure_snapshot_on_machines(cluster, snapshot, machines)
+	return machines
+
+
+def ensure_every_machine_runs(cluster: ObjectStorageCluster) -> None:
+	stopped = [node.name for node in cluster.all_nodes if node.status != "Running"]
+	if stopped:
+		frappe.throw(
+			_("Every machine must be running to restore the whole cluster. Not running: {0}").format(
+				", ".join(stopped)
+			)
+		)
+
+
+def ensure_snapshot_on_machines(cluster: ObjectStorageCluster, snapshot: str, machines: list[str]) -> None:
+	"""The name must be one the node lists under snapshots/, so it cannot point anywhere else."""
+	garage = cluster.garage_setup
+	missing = []
+	for name in machines:
+		snapshots = garage.get_metadata_snapshots(garage.machine(name))
+		if snapshot not in snapshots:
+			missing.append(f"{name} has {', '.join(snapshots) or 'none'}")
+
+	if missing:
+		frappe.throw(_("Snapshot {0} is not on every machine: {1}").format(snapshot, "; ".join(missing)))
+
+
+def ensure_peers_serve(cluster: ObjectStorageCluster, machine: str) -> None:
+	"""The node is down while its database is swapped, and catches up from its peers after, so
+	every other storage node must be serving."""
+	if frappe.db.get_value("Machine", machine, "status") != "Running":
+		frappe.throw(_("{0} is not running.").format(machine))
+
+	garage = cluster.garage_setup
+	# A gateway being restored may be the very thing that is down, so a storage node answers.
+	if cluster.gateway_node and cluster.gateway_node.name == machine:
+		witness = next((node for node in cluster.storage_nodes if node.status == "Running"), None)
+		if not witness:
+			frappe.throw(_("No running storage node can say whether the others serve."))
+		garage = Setup(cluster, address=witness.address)
+
+	joined = garage.healthy_nodes()
+	down = [node.name for node in cluster.storage_nodes if node.name != machine and node.name not in joined]
+	if down:
+		frappe.throw(
+			_("Restoring {0} needs every other storage node serving. Not serving: {1}").format(
+				machine, ", ".join(down)
+			)
+		)
+
+
+def ensure_machines_belong(cluster: ObjectStorageCluster, machines: list[str]) -> None:
+	if not machines:
+		frappe.throw(_("Name the machines to release."))
+
+	cluster_machines = [row.machine for row in cluster.machines]
+	unknown = [name for name in machines if name not in cluster_machines]
+	if unknown:
+		frappe.throw(_("{0} is not a machine of this cluster.").format(", ".join(unknown)))
+
+
+def get_joined_machines(cluster: ObjectStorageCluster) -> set[str]:
+	"""The machines Garage reports as up. On a live cluster a silent Garage is refused, so it
+	cannot read as "nothing joined"."""
+	# Nothing can have joined yet: no gateway to join through, or no secrets to join with.
+	if not cluster.gateway_node or not all(
+		cluster.get_password(name, raise_exception=False) for name in CLUSTER_SECRETS
+	):
+		return set()
+
+	joined = cluster.garage_setup.healthy_nodes()
+	if cluster.is_live and not joined:
+		frappe.throw(_("Unable to release nodes currently garage is blocked."))
+
+	return joined
+
+
+def ensure_gateway_stays(cluster: ObjectStorageCluster, machines: list[str], joined: set[str]) -> None:
+	"""Every request goes through the gateway once the cluster is live or the gateway joined."""
+	for row in cluster.machines:
+		if row.role != GATEWAY or row.machine not in machines:
+			continue
+
+		if cluster.is_live or row.machine in joined:
+			frappe.throw(_("Cannot release the gateway machine of this cluster."))
+
+
+def ensure_enough_storage_nodes_stay(
+	cluster: ObjectStorageCluster, joined_machines: list[str], joined: set[str]
+) -> None:
+	"""The joined storage nodes that stay must still hold a full copy each."""
+	if not joined_machines:
+		return
+
+	remaining_storage_nodes = []
+	for row in cluster.machines:
+		if row.role == STORAGE and row.machine in joined and row.machine not in joined_machines:
+			remaining_storage_nodes.append(row.machine)
+
+	if len(remaining_storage_nodes) < cluster.replication_factor:
+		frappe.throw(
+			_(
+				"Releasing would leave {0} storage nodes in the cluster, and the replication factor needs {1}."
+			).format(len(remaining_storage_nodes), cluster.replication_factor)
+		)
+
+
+def get_running_workflow(cluster: ObjectStorageCluster) -> str | None:
+	return frappe.db.exists(
+		"Press Workflow",
+		{
+			"linked_doctype": cluster.doctype,
+			"linked_docname": cluster.name,
+			"status": ("in", ["Queued", "Running"]),
+		},
+	)
+
+
+def ensure_no_running_workflow(cluster: ObjectStorageCluster) -> None:
+	"""A setup run or a drain owns the cluster's layout until it ends."""
+	if running_workflow := get_running_workflow(cluster):
+		frappe.throw(_("Workflow {0} is still running on this cluster.").format(running_workflow))
+
+
+def webhook_name_for(cluster: str) -> str:
+	"""The delivery that reports one cluster's status."""
+	return f"object_storage_cluster-{cluster}"
+
+
+def configure_storage_cluster_webhook(cluster: ObjectStorageCluster) -> None:
+	"""Point a Frappe Webhook at Central so this cluster reports its own status changes."""
+	settings: CargoSettings = frappe.get_cached_doc("Cargo Settings")
+	if not settings.central_webhook_url:
+		raise frappe.ValidationError(
+			_("Central has not enrolled this Cargo yet, so there is nowhere to report to.")
+		)
+
+	secret = settings.get_password("central_webhook_secret", raise_exception=True)
+	name = webhook_name_for(cluster.name)
+	webhook: Webhook = (
+		frappe.get_doc("Webhook", name) if frappe.db.exists("Webhook", name) else frappe.new_doc("Webhook")
+	)
+	webhook.name = name
+	webhook.update(
+		{
+			"webhook_doctype": cluster.doctype,
+			"webhook_docevent": "on_update",
+			"request_url": settings.central_webhook_url,
+			"request_method": "POST",
+			"request_structure": "JSON",
+			"condition": f"doc.status in {REPORTED_STATUSES}",
+			"webhook_json": frappe.as_json(
+				{
+					"region": settings.region,
+					"region_id": settings.region_id,
+					"service": "storage",
+					"status": "{{ 'Available' if doc.status == 'Active' else 'Not Available' }}",
+					"service_endpoint": cluster.service_endpoint,
+				}
+			),
+			"webhook_headers": [
+				{"key": SOURCE_HEADER, "value": SOURCE},
+				{"key": REGION_HEADER, "value": settings.region},
+			],
+			"enable_security": True,
+			"webhook_secret": secret,
+			"enabled": settings.central_webhook_enabled,
+		}
+	)
+	webhook.save(ignore_permissions=True)

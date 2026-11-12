@@ -1,0 +1,102 @@
+# Benches (created by `pilot new`)
+/benches/
+
+# Rootless per-host database servers (created by `pilot init`)
+/databases/
+
+# Local ad-hoc screenshots
+/screenshots/
+
+# Host-level daemons/state, written beside the install (monitor, uptime,
+# registry cache, shared WAF ruleset)
+/system/
+
+# Local agent scratch files
+/plan_refactor.md
+
+# Git provider PAT store (plaintext token — never commit)
+.bench.git.info
+
+# JWKS dev issuer (testing only — private key in plaintext)
+jwks-dev-server/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+wheels/
+uv.lock
+
+# Written only into release tarballs, never committed
+/VERSION
+
+# Virtual environments
+env/
+venv/
+.venv/
+.admin-venv/
+
+# Redis
+*.rdb
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+*.log
+
+# macOS
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+*.swp
+*~
+
+# Admin
+admin/frontend/dashboard/node_modules/
+admin/frontend/editor/node_modules/
+admin/frontend/in-app-embed/node_modules/
+admin/frontend/cloud-sdk/node_modules/
+admin/backend/static/dashboard/
+admin/backend/static/editor/
+admin/backend/static/in-app-embed/
+admin/frontend/node_modules
+admin/frontend/components.d.ts
+admin/frontend/dashboard/components.d.ts
+admin/frontend/editor/components.d.ts
+admin/frontend/in-app-embed/components.d.ts
+admin/frontend/in-app-embed/src/env.d.ts
+admin/frontend/dashboard/src/types/
+*.timestamp-*
+.env
+.env.local
+.vite/
+.mypy_cache
+.ruff_cache
+.claude
+.opencode
+/logs/
+
+registry-cache*
+
+# Downloaded OWASP CRS ruleset (local data)
+/modsecurity-crs/
+
+# Agent Skills
+.agents
+skills-lock.json
+
+# Local planning docs, never commit
+plan_*.md
+
+admin/frontend/dashboard/test-results/
+admin/frontend/dashboard/e2e/.auth/

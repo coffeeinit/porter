@@ -1,0 +1,222 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "hash",
+ "creation": "2026-06-03 00:00:00.000000",
+ "description": "A team's payment method. Cards (off-session, any amount) and UPI Autopay mandates (ceiling = trust-tier cap).",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "team",
+  "gateway",
+  "method_type",
+  "column_break_flags",
+  "status",
+  "is_default",
+  "priority",
+  "reauth_required",
+  "fallback_reason",
+  "section_break_gateway",
+  "gateway_method_id",
+  "gateway_customer_id",
+  "gateway_mandate_id",
+  "setup_reference",
+  "display_label",
+  "section_break_card",
+  "card_network",
+  "expiry_month",
+  "expiry_year",
+  "column_break_mandate",
+  "mandate_max_amount",
+  "mandate_currency",
+  "validated_at"
+ ],
+ "fields": [
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "options": "Team",
+   "in_list_view": 1,
+   "label": "Team",
+   "reqd": 1
+  },
+  {
+   "fieldname": "gateway",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Gateway",
+   "options": "Payment Gateway",
+   "reqd": 1
+  },
+  {
+   "fieldname": "method_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Method Type",
+   "options": "Card\nUPI Autopay\nPrepaid Credits",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_flags",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Pending Validation",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending Validation\nActive\nPaused\nCancelled\nExpired\nFailed"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_default",
+   "fieldtype": "Check",
+   "label": "Is Default",
+   "description": "Mirror of priority == 0 (the primary)."
+  },
+  {
+   "default": "0",
+   "fieldname": "priority",
+   "fieldtype": "Int",
+   "in_list_view": 1,
+   "label": "Priority",
+   "description": "Fallback order: 0 = primary, 1 = first backup, ... (team-scoped, dense)."
+  },
+  {
+   "default": "0",
+   "fieldname": "reauth_required",
+   "fieldtype": "Check",
+   "label": "Re-authorisation Required",
+   "description": "Trust-tier cap rose above this mandate's ceiling; team held at the old ceiling until the customer re-consents."
+  },
+  {
+   "fieldname": "fallback_reason",
+   "fieldtype": "Select",
+   "label": "Fallback Reason",
+   "options": "\nRupay\nNetwork Unsupported\nStripe Decline\nCustomer Choice",
+   "read_only": 1,
+   "description": "Why this method is not on the default rail for its currency (ADR 0023). Network Unsupported means Stripe would not register a mandate on that card network. Empty for a method on the default rail."
+  },
+  {
+   "fieldname": "section_break_gateway",
+   "fieldtype": "Section Break",
+   "label": "Gateway References"
+  },
+  {
+   "fieldname": "gateway_method_id",
+   "fieldtype": "Data",
+   "label": "Gateway Method ID",
+   "description": "Stripe pm_xxx / Razorpay mandate (token) id"
+  },
+  {
+   "fieldname": "gateway_customer_id",
+   "fieldtype": "Data",
+   "label": "Gateway Customer ID",
+   "description": "Gateway-side customer reference (Stripe cus_xxx / Razorpay cust_xxx) — used by both cards and mandates"
+  },
+  {
+   "fieldname": "gateway_mandate_id",
+   "fieldtype": "Data",
+   "label": "Gateway Mandate ID",
+   "read_only": 1,
+   "description": "Mandate the off-session debit quotes (Stripe India mandate_xxx). Empty where the rail needs no mandate to charge."
+  },
+  {
+   "fieldname": "setup_reference",
+   "fieldtype": "Data",
+   "label": "Setup Reference",
+   "description": "Gateway setup handle (Stripe SetupIntent id) captured at initiation, for reconcile"
+  },
+  {
+   "fieldname": "display_label",
+   "fieldtype": "Data",
+   "label": "Display Label",
+   "description": "e.g. Visa ····4242"
+  },
+  {
+   "fieldname": "section_break_card",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "card_network",
+   "fieldtype": "Data",
+   "label": "Card Network",
+   "read_only": 1,
+   "description": "Visa / Mastercard / RuPay / UPI. Taken from what the customer picked or what the gateway reported — never inferred from the card number, which we never see."
+  },
+  {
+   "fieldname": "expiry_month",
+   "fieldtype": "Int",
+   "label": "Expiry Month"
+  },
+  {
+   "fieldname": "expiry_year",
+   "fieldtype": "Int",
+   "label": "Expiry Year"
+  },
+  {
+   "fieldname": "column_break_mandate",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "mandate_max_amount",
+   "fieldtype": "Currency",
+   "label": "Mandate Max Amount",
+   "description": "Mandate ceiling = team's trust-tier cap at authorisation time."
+  },
+  {
+   "fieldname": "mandate_currency",
+   "fieldtype": "Data",
+   "label": "Mandate Currency"
+  },
+  {
+   "fieldname": "validated_at",
+   "fieldtype": "Datetime",
+   "label": "Validated At"
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [
+  {
+   "group": "Payments",
+   "link_doctype": "Payment Attempt",
+   "link_fieldname": "payment_method"
+  },
+  {
+   "group": "Subscriptions",
+   "link_doctype": "Subscription",
+   "link_fieldname": "default_payment_method"
+  },
+  {
+   "group": "Gateway",
+   "link_doctype": "Webhook Event",
+   "link_fieldname": "payment_method"
+  }
+ ],
+ "modified": "2026-10-26 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Payment Method",
+ "naming_rule": "Random",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

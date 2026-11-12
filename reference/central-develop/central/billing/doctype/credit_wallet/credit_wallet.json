@@ -1,0 +1,77 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:{team}-{currency}",
+ "creation": "2026-06-03 00:00:00.000000",
+ "description": "Per-(team, currency) lock anchor for credit-ledger bookings. The composite key lives in the NAME so the primary key itself enforces one wallet per team per currency, and the booking's FOR UPDATE stays on the clustered PK (a secondary composite index would reintroduce the lock-order deadlock the anchor exists to avoid). Carries the authoritative balance for that currency, maintained under the row's lock. A CHECK (balance >= 0) constraint makes a negative balance impossible for every caller, not only those routed through credits.py (ADR 0018). The append-only Credit Ledger Entry remains the audit trail; balance stays in lockstep with the newest entry's running_balance for the same currency.",
+ "doctype": "DocType",
+ "editable_grid": 0,
+ "engine": "InnoDB",
+ "field_order": [
+  "team",
+  "currency",
+  "balance",
+  "last_entry"
+ ],
+ "fields": [
+  {
+   "fieldname": "team",
+   "fieldtype": "Link",
+   "options": "Team",
+   "in_list_view": 1,
+   "label": "Team",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "currency",
+   "fieldtype": "Link",
+   "options": "Currency",
+   "in_list_view": 1,
+   "label": "Currency",
+   "reqd": 1
+  },
+  {
+   "fieldname": "balance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Balance",
+   "non_negative": 1,
+   "description": "Moves only through Credit Ledger Entries. Fix a wrong balance by booking a ledger entry.",
+   "read_only": 1
+  },
+  {
+   "fieldname": "last_entry",
+   "fieldtype": "Link",
+   "options": "Credit Ledger Entry",
+   "label": "Last Ledger Entry",
+   "read_only": 1,
+   "description": "The ledger entry that set the current balance. Credits stop moving if the two disagree."
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-10-21 15:09:23.868122",
+ "modified_by": "Administrator",
+ "module": "Billing",
+ "name": "Credit Wallet",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

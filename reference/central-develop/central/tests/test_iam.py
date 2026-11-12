@@ -1,0 +1,209 @@
+import frappe
+from frappe.tests import IntegrationTestCase
+
+from central.iam import (
+	can,
+	expand_capabilities,
+	get_effective_permissions,
+	get_user_team_names,
+	resolve_team,
+	resolve_user_grants,
+)
+
+
+def ensure_user(email: str) -> str:
+	if frappe.db.exists("User", email):
+		return email
+
+	user = frappe.get_doc(
+		{
+			"doctype": "User",
+			"email": email,
+			"first_name": email.split("@", 1)[0],
+			"enabled": 1,
+			"send_welcome_email": 0,
+			"roles": [{"role": "Central User"}],
+		}
+	)
+	user.insert()
+	return email
+
+
+class TestCentralIAM(IntegrationTestCase):
+	def setUp(self):
+		frappe.set_user("Administrator")
+		self.owner = ensure_user("iam.owner@example.test")
+		self.viewer = ensure_user("iam.viewer@example.test")
+		self.developer = ensure_user("iam.developer@example.test")
+
+	def make_team(self, team_name: str, user: str, role: str):
+		team = frappe.get_doc(
+			{
+				"doctype": "Team",
+				"team_name": team_name,
+				"owner_user": self.owner,
+				"members": [
+					{"user": self.owner, "role": "Owner", "status": "Active"},
+					{"user": user, "role": role, "status": "Active"},
+				],
+			}
+		)
+		team.insert()
+		return team
+
+	def test_fixtures_create_capability_catalog_and_system_roles(self):
+		# 16 capabilities across two live planes: central (8) + atlas (8). v5 merges
+		# server:open into server:view. The bench plane remains deferred.
+		self.assertEqual(frappe.db.count("Capability"), 17)
+		self.assertEqual(frappe.db.count("Capability", {"plane": "central"}), 8)
+		self.assertEqual(frappe.db.count("Capability", {"plane": "atlas"}), 9)
+		self.assertEqual(frappe.db.count("Capability", {"plane": "bench"}), 0)
+		# The retired roles are gone; the five-rung ladder is all that remains.
+		self.assertEqual(frappe.db.count("Team Role", {"is_system": 1}), 5)
+		for retired in ("Operator", "Site Manager", "Support"):
+			self.assertFalse(frappe.db.exists("Team Role", retired))
+
+		owner_caps = set(frappe.get_all("Role Capability", {"parent": "Owner"}, pluck="capability"))
+		admin_caps = set(frappe.get_all("Role Capability", {"parent": "Admin"}, pluck="capability"))
+		developer_caps = set(frappe.get_all("Role Capability", {"parent": "Developer"}, pluck="capability"))
+		viewer_caps = set(frappe.get_all("Role Capability", {"parent": "Viewer"}, pluck="capability"))
+		billing_caps = set(frappe.get_all("Role Capability", {"parent": "Billing"}, pluck="capability"))
+
+		# Full server lifecycle is shared by Owner, Admin, and Developer.
+		for caps in (owner_caps, admin_caps, developer_caps):
+			for cap in (
+				"server:create",
+				"server:power",
+				"server:network",
+				"server:resize",
+				"server:snapshot",
+				"server:ssh-key",
+				"server:terminate",
+				"server:console",
+			):
+				self.assertIn(cap, caps)
+		# Team management is Owner/Admin; deleting the team is Owner-only.
+		for caps in (owner_caps, admin_caps):
+			self.assertIn("team:manage_members", caps)
+		self.assertNotIn("team:manage_members", developer_caps)
+		self.assertIn("team:delete", owner_caps)
+		self.assertNotIn("team:delete", admin_caps)
+		# Billing is day-to-day team administration, so Owner/Admin/Billing carry it.
+		for cap in ("billing:view", "billing:manage"):
+			self.assertIn(cap, owner_caps)
+			self.assertIn(cap, admin_caps)
+			self.assertIn(cap, billing_caps)
+			self.assertNotIn(cap, developer_caps)
+		# Viewer can read services; Billing can configure them as well.
+		self.assertEqual(viewer_caps, {"cluster:view", "server:view", "service:view"})
+		self.assertEqual(
+			billing_caps,
+			{
+				"billing:view",
+				"billing:manage",
+				"cluster:view",
+				"server:view",
+				"service:view",
+				"service:manage",
+			},
+		)
+
+		# Every system role can view and open servers, and see the cluster they live in.
+		for caps in (owner_caps, admin_caps, developer_caps, viewer_caps, billing_caps):
+			self.assertIn("cluster:view", caps)
+			self.assertIn("server:view", caps)
+
+	def test_capability_implications_close_a_grant(self):
+		# server:create can't stand alone — it pulls in the server:view + cluster:view
+		# needed to use it.
+		expanded = set(expand_capabilities(["server:create"]))
+		self.assertEqual(expanded, {"server:create", "server:view", "cluster:view"})
+
+		# Already-closed sets are returned unchanged (order preserved, no dupes).
+		closed = ["server:view", "cluster:view"]
+		self.assertEqual(expand_capabilities(closed), closed)
+
+	def test_central_user_can_read_capability_catalog(self):
+		frappe.set_user(self.viewer)
+		names = frappe.get_list("Capability", pluck="name")
+
+		self.assertIn("server:view", names)
+		self.assertTrue(frappe.has_permission("Capability", "read", "server:view"))
+		self.assertFalse(frappe.has_permission("Capability", "write", "server:view"))
+
+	def test_multiple_roles_in_one_team_resolve_one_default_team(self):
+		member = f"iam.multi.{frappe.generate_hash(length=8)}@example.test"
+		frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": member,
+				"first_name": "Multi Role",
+				"enabled": 0,
+				"send_welcome_email": 0,
+			}
+		).insert()
+		team = frappe.get_doc(
+			{
+				"doctype": "Team",
+				"team_name": "IAM Multi Role Team",
+				"owner_user": self.owner,
+				"members": [
+					{"user": self.owner, "role": "Owner", "status": "Active"},
+					{"user": member, "role": "Viewer", "status": "Active"},
+					{"user": member, "role": "Billing", "status": "Active"},
+				],
+			}
+		).insert()
+
+		self.assertEqual(get_user_team_names(member), [team.name])
+		self.assertEqual(resolve_team(member), team.name)
+
+	def test_user_claim_is_team_scoped(self):
+		team_a = self.make_team("IAM Team A", self.viewer, "Viewer")
+		team_b = self.make_team("IAM Team B", self.developer, "Developer")
+
+		viewer_grants = resolve_user_grants(self.viewer)
+
+		self.assertIn(team_a.name, viewer_grants)
+		self.assertNotIn(team_b.name, viewer_grants)
+		self.assertTrue(can(self.viewer, team_a.name, "server:view"))
+		self.assertFalse(can(self.viewer, team_a.name, "server:terminate"))
+
+	def test_developer_operates_servers_but_not_team_or_billing(self):
+		team = self.make_team("IAM Dev Team", self.developer, "Developer")
+
+		self.assertTrue(can(self.developer, team.name, "server:create"))
+		self.assertTrue(can(self.developer, team.name, "server:terminate"))
+		self.assertFalse(can(self.developer, team.name, "team:manage_members"))
+		self.assertFalse(can(self.developer, team.name, "billing:manage"))
+
+	def test_effective_permissions_shape_matches_resolved_grants(self):
+		team = self.make_team("IAM Effective Team", self.viewer, "Viewer")
+
+		effective = get_effective_permissions(self.viewer, team.name)
+
+		self.assertEqual(effective["user"], self.viewer)
+		self.assertEqual(
+			effective["teams"][team.name]["caps"],
+			["cluster:view", "server:view", "service:view"],
+		)
+		self.assertEqual(effective["teams"][team.name]["grants"][0]["source"], "member")
+
+	def test_new_user_gets_the_central_user_role_and_no_team(self):
+		email = f"iam.signup.{frappe.generate_hash(length=8)}@example.test"
+		user = frappe.get_doc(
+			{
+				"doctype": "User",
+				"email": email,
+				"first_name": "IAM Signup",
+				"enabled": 1,
+				"send_welcome_email": 0,
+			}
+		)
+		user.insert()
+
+		user.reload()
+		self.assertIn("Central User", {row.role for row in user.roles})
+		self.assertEqual(user.user_type, "Website User")
+		self.assertFalse(frappe.db.exists("Team", {"owner_user": email}))
+		self.assertEqual(resolve_user_grants(email), {})
