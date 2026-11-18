@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Sign in · MicroVM Maker</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<form class="login" id="f" autocomplete="off">
+  <div class="brand"><span class="wsmark"><svg class="i" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.6-7.96A6 6 0 0 1 18 9.5 4.5 4.5 0 0 1 17.5 18H7Z"/></svg></span><span>MicroVM Maker<small>Firecracker · v{{ version }}</small></span></div>
+  <p class="muted small">Enter the access token printed when the server first started. Lost it? Run <code>python3 app.py --reset-token</code> on the host.</p>
+  <label for="t">Access token</label>
+  <input id="t" type="password" autofocus required spellcheck="false" autocomplete="current-password">
+  <p id="err" class="small" style="color:var(--bad);min-height:20px;margin:8px 0 0"></p>
+  <div class="actions" style="margin-top:6px"><button class="primary" type="submit">Sign in</button></div>
+</form>
+<script src="/static/login.js"></script>
+</body>
+</html>

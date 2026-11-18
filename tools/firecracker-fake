@@ -1,0 +1,2 @@
+#!/bin/bash
+exec -a firecracker python3 "$(dirname "$0")/fake_firecracker.py" "$@"

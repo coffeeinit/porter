@@ -1,0 +1,294 @@
+#!/usr/bin/python3 -I
+"""mvm-priv - the ONLY thing MicroVM Maker ever runs as root.
+
+Installed root-owned (0755) at /usr/local/sbin/mvm-priv and allowed through sudoers for
+exactly one user. It has a fixed list of sub-commands, takes no shell strings, reads its
+settings from root-owned /etc/mvm/priv.conf (the web app cannot change them) and validates
+every argument.
+
+  info                         print configuration + capabilities (JSON)
+  status                       host network / firewall state (JSON)
+  net-add VID                  create tap<VID>, owned by the VM user, attach to the bridge
+  net-del VID                  delete tap<VID>
+  net-list                     list tap devices on the bridge
+  jail-start VID VCPU MEM [nocg]   exec the official jailer for VM VID (stdout/stderr pass through)
+  jail-rm VID                  remove the jail directory of VM VID
+  fw-apply                     (re)apply bridge, forwarding, NAT and firewall rules (idempotent)
+  pf-add HOSTPORT IP GUESTPORT [tcp|udp]   publish a guest port on the host
+  pf-del HOSTPORT IP GUESTPORT [tcp|udp]
+"""
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+CONF = Path("/etc/mvm/priv.conf")
+VID = re.compile(r"^[a-f0-9]{8}$")
+SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+def die(msg, code=2):
+    print(f"mvm-priv: {msg}", file=sys.stderr)
+    sys.exit(code)
+
+
+def load():
+    try:
+        c = json.loads(CONF.read_text())
+    except (OSError, ValueError) as e:
+        die(f"cannot read {CONF}: {e}")
+    st = CONF.stat()
+    if st.st_uid != 0 or st.st_mode & 0o022:
+        die(f"{CONF} must be root-owned and not group/world writable")
+    d = {"fc": "/usr/local/bin/firecracker", "jailer": "/usr/local/bin/jailer", "chroot_base": "/srv/jailer",
+         "uid": None, "gid": None, "bridge": "mvmbr0", "net": "172.30.0", "isolate": True, "block_private": True,
+         "pf_min_port": 1024}
+    d.update(c)
+    if not isinstance(d["uid"], int) or not isinstance(d["gid"], int) or d["uid"] == 0:
+        die("priv.conf needs numeric non-root uid/gid for the VM user")
+    if not re.fullmatch(r"[a-zA-Z0-9_.-]{1,15}", d["bridge"]):
+        die("bad bridge name in priv.conf")
+    if not re.fullmatch(r"\d{1,3}\.\d{1,3}\.\d{1,3}", d["net"]):
+        die("bad net prefix in priv.conf")
+    return d
+
+
+def run(argv, check=True, quiet=False):
+    r = subprocess.run(argv, capture_output=True, text=True, env={"PATH": SAFE_PATH})
+    if check and r.returncode:
+        die(f"{' '.join(argv[:3])}: {(r.stderr or r.stdout).strip()}", 1)
+    return r
+
+
+def vid_arg(v):
+    if not VID.match(v or ""):
+        die("bad VM id")
+    return v
+
+
+def int_arg(v, lo, hi, what):
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        die(f"bad {what}")
+    if not lo <= n <= hi:
+        die(f"{what} out of range")
+    return n
+
+
+def ip_arg(v, cfg):
+    m = re.fullmatch(re.escape(cfg["net"]) + r"\.(\d{1,3})", v or "")
+    if not m or not 100 <= int(m.group(1)) <= 254:
+        die("guest ip must be inside the VM subnet (.100-.254)")
+    return v
+
+
+def exists(p):
+    return Path(p).exists()
+
+
+# ------------------------------------------------------------------ network
+def tap_name(vid):
+    return f"tap{vid}"
+
+
+def cmd_net_add(cfg, vid):
+    t = tap_name(vid_arg(vid))
+    if not exists(f"/sys/class/net/{cfg['bridge']}"):
+        die(f"bridge {cfg['bridge']} missing - run: sudo ./install.sh")
+    run(["ip", "link", "del", t], check=False)
+    run(["ip", "tuntap", "add", "dev", t, "mode", "tap", "user", str(cfg["uid"]), "group", str(cfg["gid"])])
+    run(["ip", "link", "set", t, "master", cfg["bridge"]])
+    if cfg["isolate"]:                                   # no VM-to-VM traffic on the bridge
+        run(["bridge", "link", "set", "dev", t, "isolated", "on"], check=False)
+    run(["ip", "link", "set", t, "up"])
+
+
+def cmd_net_del(cfg, vid):
+    run(["ip", "link", "del", tap_name(vid_arg(vid))], check=False)
+
+
+def cmd_net_list(cfg):
+    r = run(["ip", "-o", "link", "show", "master", cfg["bridge"]], check=False)
+    for line in r.stdout.splitlines():
+        m = re.match(r"\d+:\s+(tap[a-f0-9]{8})[@:]", line)
+        if m:
+            print(m.group(1))
+
+
+# ------------------------------------------------------------------ jailer
+def jail_dir(cfg, vid):
+    return Path(cfg["chroot_base"]) / Path(cfg["fc"]).name / vid
+
+
+def cgroup_v2():
+    return exists("/sys/fs/cgroup/cgroup.controllers")
+
+
+def cmd_jail_start(cfg, vid, vcpu, mem, nocg=None):
+    vid = vid_arg(vid)
+    vcpu, mem = int_arg(vcpu, 1, 128, "vcpu"), int_arg(mem, 64, 1 << 20, "mem")
+    for b in (cfg["fc"], cfg["jailer"]):
+        if not os.access(b, os.X_OK):
+            die(f"{b} not found or not executable")
+    if jail_dir(cfg, vid).exists():
+        die("jail already exists - run jail-rm first")
+    Path(cfg["chroot_base"]).mkdir(parents=True, exist_ok=True)
+    args = [cfg["jailer"], "--id", vid, "--exec-file", cfg["fc"], "--uid", str(cfg["uid"]), "--gid", str(cfg["gid"]),
+            "--chroot-base-dir", cfg["chroot_base"], "--resource-limit", "no-file=2048"]
+    if nocg != "nocg" and cgroup_v2():
+        args += ["--cgroup-version", "2",
+                 "--cgroup", f"cpu.max={vcpu * 100000} 100000",
+                 "--cgroup", f"memory.max={(mem + 512) * 1048576}",
+                 "--cgroup", "pids.max=512"]
+    os.execve(cfg["jailer"], args, {"PATH": SAFE_PATH})
+
+
+def cmd_jail_rm(cfg, vid):
+    d = jail_dir(cfg, vid_arg(vid))
+    base = Path(cfg["chroot_base"]).resolve()
+    if not d.exists() and not d.is_symlink():
+        return
+    if d.is_symlink() or not d.resolve().is_relative_to(base) or d.resolve() == base:
+        die("refusing to remove that path")
+    # refuse while a firecracker for this id is alive
+    for p in Path("/proc").glob("[0-9]*/cmdline"):
+        try:
+            parts = p.read_bytes().split(b"\0")
+        except OSError:
+            continue
+        if parts and parts[0].rsplit(b"/", 1)[-1].startswith(b"firecracker") and b"--id" in parts and parts[parts.index(b"--id") + 1:parts.index(b"--id") + 2] == [vid.encode()]:
+            die("firecracker for this VM is still running", 3)
+    shutil.rmtree(d, ignore_errors=False)
+
+
+# ------------------------------------------------------------------ firewall
+def ipt(*a, check=True):
+    return run(["iptables", *a], check=check)
+
+
+def ensure(table, chain, rule, insert=False):
+    pre = ["-t", table] if table != "filter" else []
+    if ipt(*pre, "-C", chain, *rule, check=False).returncode:
+        ipt(*pre, "-I" if insert else "-A", chain, *(["1"] if insert else []), *rule)
+
+
+def fresh_chain(table, name):
+    pre = ["-t", table] if table != "filter" else []
+    if ipt(*pre, "-n", "-L", name, check=False).returncode:
+        ipt(*pre, "-N", name)
+    ipt(*pre, "-F", name)
+
+
+def cmd_fw_apply(cfg):
+    br, net = cfg["bridge"], cfg["net"]
+    subnet = f"{net}.0/24"
+    if not exists(f"/sys/class/net/{br}"):
+        run(["ip", "link", "add", br, "type", "bridge"])
+    if f"{net}.1/24" not in run(["ip", "-4", "addr", "show", "dev", br], check=False).stdout:
+        run(["ip", "addr", "add", f"{net}.1/24", "dev", br])
+    run(["ip", "link", "set", br, "up"])
+    Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
+    ensure("nat", "POSTROUTING", ["-s", subnet, "!", "-o", br, "-j", "MASQUERADE"])
+    # --- forwarding policy for guests
+    fresh_chain("filter", "MVM-FWD")
+    ipt("-A", "MVM-FWD", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+    if cfg["isolate"]:
+        ipt("-A", "MVM-FWD", "-i", br, "-o", br, "-j", "DROP")
+    if cfg["block_private"]:                             # guests may reach the internet, not your LAN
+        for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16", "100.64.0.0/10"):
+            ipt("-A", "MVM-FWD", "-i", br, "-d", cidr, "-j", "DROP")
+    ipt("-A", "MVM-FWD", "-i", br, "!", "-o", br, "-j", "ACCEPT")
+    ipt("-A", "MVM-FWD", "-o", br, "-m", "conntrack", "--ctstate", "DNAT", "-j", "ACCEPT")   # published ports
+    ipt("-A", "MVM-FWD", "-j", "DROP")
+    ensure("filter", "FORWARD", ["-i", br, "-j", "MVM-FWD"], insert=True)
+    ensure("filter", "FORWARD", ["-o", br, "-j", "MVM-FWD"], insert=True)
+    # --- guests may not talk to services on the host itself (ssh, this web UI, ...)
+    fresh_chain("filter", "MVM-IN")
+    ipt("-A", "MVM-IN", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT")
+    ipt("-A", "MVM-IN", "-p", "icmp", "--icmp-type", "echo-request", "-j", "ACCEPT")
+    ipt("-A", "MVM-IN", "-j", "DROP")
+    ensure("filter", "INPUT", ["-i", br, "-j", "MVM-IN"], insert=True)
+    # --- chains for published ports (rules added by pf-add)
+    for chain in ("PREROUTING", "OUTPUT"):
+        if ipt("-t", "nat", "-n", "-L", "MVM-PF", check=False).returncode:
+            ipt("-t", "nat", "-N", "MVM-PF")
+        ensure("nat", chain, ["-m", "addrtype", "--dst-type", "LOCAL", "-j", "MVM-PF"])
+
+
+def pf_rule(cfg, hp, ip, gp, proto):
+    return ["MVM-PF", "!", "-d", "127.0.0.0/8", "-p", proto, "--dport", str(hp), "-j", "DNAT", "--to-destination", f"{ip}:{gp}"]
+
+
+def pf_args(cfg, a):
+    if len(a) < 3:
+        die("usage: pf-add HOSTPORT IP GUESTPORT [tcp|udp]")
+    hp = int_arg(a[0], int(cfg["pf_min_port"]), 65535, "host port")
+    ip = ip_arg(a[1], cfg)
+    gp = int_arg(a[2], 1, 65535, "guest port")
+    proto = a[3] if len(a) > 3 else "tcp"
+    if proto not in ("tcp", "udp"):
+        die("proto must be tcp or udp")
+    return hp, ip, gp, proto
+
+
+def cmd_pf_add(cfg, *a):
+    hp, ip, gp, proto = pf_args(cfg, a)
+    cmd_fw_apply_chains_only(cfg)
+    ensure("nat", pf_rule(cfg, hp, ip, gp, proto)[0], pf_rule(cfg, hp, ip, gp, proto)[1:])
+
+
+def cmd_pf_del(cfg, *a):
+    hp, ip, gp, proto = pf_args(cfg, a)
+    r = pf_rule(cfg, hp, ip, gp, proto)
+    ipt("-t", "nat", "-D", r[0], *r[1:], check=False)
+
+
+def cmd_fw_apply_chains_only(cfg):
+    if ipt("-t", "nat", "-n", "-L", "MVM-PF", check=False).returncode:
+        cmd_fw_apply(cfg)
+
+
+def cmd_status(cfg):
+    br, net = cfg["bridge"], cfg["net"]
+    st = {"bridge": br, "bridge_exists": exists(f"/sys/class/net/{br}"), "bridge_ip": False,
+          "ip_forward": Path("/proc/sys/net/ipv4/ip_forward").read_text().strip() == "1",
+          "nat": ipt("-t", "nat", "-C", "POSTROUTING", "-s", f"{net}.0/24", "!", "-o", br, "-j", "MASQUERADE", check=False).returncode == 0,
+          "fwd_chain": ipt("-n", "-L", "MVM-FWD", check=False).returncode == 0,
+          "in_chain": ipt("-n", "-L", "MVM-IN", check=False).returncode == 0,
+          "isolate": cfg["isolate"], "block_private": cfg["block_private"]}
+    if st["bridge_exists"]:
+        st["bridge_ip"] = f"{net}.1/24" in run(["ip", "-4", "addr", "show", "dev", br], check=False).stdout
+    print(json.dumps(st))
+
+
+def cmd_info(cfg):
+    print(json.dumps({"version": 3, "fc": cfg["fc"], "fc_ok": os.access(cfg["fc"], os.X_OK),
+                      "jailer": cfg["jailer"], "jailer_ok": os.access(cfg["jailer"], os.X_OK),
+                      "chroot_base": cfg["chroot_base"], "uid": cfg["uid"], "gid": cfg["gid"], "bridge": cfg["bridge"],
+                      "net": cfg["net"], "cgroup_v2": cgroup_v2(), "isolate": cfg["isolate"],
+                      "block_private": cfg["block_private"], "pf_min_port": cfg["pf_min_port"]}))
+
+
+COMMANDS = {"info": cmd_info, "status": cmd_status, "net-add": cmd_net_add, "net-del": cmd_net_del,
+            "net-list": cmd_net_list, "jail-start": cmd_jail_start, "jail-rm": cmd_jail_rm,
+            "fw-apply": cmd_fw_apply, "pf-add": cmd_pf_add, "pf-del": cmd_pf_del}
+
+
+def main():
+    if os.geteuid() != 0:
+        die("must run as root (through sudo)")
+    if len(sys.argv) < 2 or sys.argv[1] not in COMMANDS:
+        die(__doc__ or "usage")
+    os.umask(0o022)
+    COMMANDS[sys.argv[1]](load(), *sys.argv[2:])
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except TypeError:
+        die("wrong number of arguments")

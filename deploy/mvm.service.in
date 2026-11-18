@@ -1,0 +1,24 @@
+[Unit]
+Description=MicroVM Maker web UI
+After=network-online.target mvm-net.service
+Wants=mvm-net.service
+
+[Service]
+User=@USER@
+Group=@GROUP@
+SupplementaryGroups=kvm
+WorkingDirectory=@DIR@
+ExecStart=@DIR@/.venv/bin/python -u app.py
+Restart=on-failure
+RestartSec=3
+# VMs must survive a restart of the web app (they are adopted again), so only the main process is stopped
+KillMode=process
+NoNewPrivileges=no
+PrivateTmp=no
+ProtectHome=read-only
+ReadWritePaths=@DIR@ /tmp
+LockPersonality=yes
+RestrictRealtime=yes
+
+[Install]
+WantedBy=multi-user.target
