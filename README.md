@@ -1,163 +1,91 @@
-# Porter
+# MicroVM Maker 3.2
 
-Porter is a self-hosted, MicroVM-native application platform.
+A Flask web UI + API to build, run and manage **Firecracker microVMs**. Run **replica sets** (N identical microVMs), build images from OCI/Docker images,
+Dockerfiles, Compose files and **your GitHub repo's own Dockerfile/compose yml**, boot them as hardware‑isolated VMs, and use everything
+Firecracker offers (jailer, snapshots, balloon, memory hotplug, rate limiters, MMDS, vsock, metrics).
 
-## Two deployable projects
-
-| Project | Binary | Responsibility |
-|---|---|---|
-| `porter/` | `porter` | control plane + UI + API + scheduler + embedded fleet manager |
-| `porter-agent/` | `porter-agent` | the only privileged host agent; controls Firecracker, networking, storage, local state |
-
-The shared wire contract lives in `protocol/`.
-
-V1 uses a host-installed Porter service. The first host runs both Porter and
-`porter-agent`; every additional host runs only `porter-agent`.
-
-```text
-Host machine
-  |
-  +-- porter-agent (privileged)
-        |
-        +-- porter (unprivileged host service)
-        |     -> UI / API / scheduler / fleet manager
-        |     -> porter.db on persistent storage
-        |
-        +-- workload MicroVMs
-              -> customer applications
-```
-
-Only the agent touches host resources. Porter never controls Firecracker
-directly.
-
-## Why this is robust
-
-- Porter cannot access KVM, Firecracker sockets, or TAP devices.
-- The host attack surface is one small agent.
-- Agent restarts do not kill VMs.
-- Porter restarts keep persistent state and do not require host privileges.
-- The same control-plane code works in host-service or MicroVM mode.
-- Per-node SQLite prevents guessing local VM state from processes.
-
-## Core control model
-
-Porter is built around:
-
-- desired state
-- reconciliation
-- capacity-aware scheduling
-- cordon/drain
-- rolling upgrades
-- health checks and recovery
-
-See [`docs/CONTROLLER_MODEL.md`](docs/CONTROLLER_MODEL.md).
-
-## Product target (not a completion claim)
-
-Projects/groups contain apps/workloads; each workload has immutable releases and one or more Firecracker microVM replicas, scheduled and reconciled across agent-managed hosts. Porter aims to provide healthy replica failover, autoscaling and wake-on-request, previews and release promotion/rollback, an inbuilt reverse proxy/load balancer, custom domains and DNS-provider/TLS lifecycle, and scoped MCP access. Inbuilt OpenTelemetry-style metrics, logs and traces must render in Porter’s own UI; Grafana is optional, not a prerequisite.
-
-Docker/OCI/Compose are build/import inputs only; the customer runtime is Firecracker. Porter does not provide hosted starter templates or managed databases. See [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) for verified slices and open release blockers. The root [`porternew_observability.html`](porternew_observability.html) is a mock UI concept, not a live feature list; the active UI is `porter/web/index.html`.
-
-Planned self-hosted deployment includes an operator UI/CLI, first-node bootstrap, joined agent nodes, SQLite-backed state, and host-installed control plane. Do not treat the plan as a claim that every listed capability is implemented or production-verified.
-
-**Deferred:** customers, billing, marketplace, AI operator, compliance audit,
-Kubernetes API compatibility, HA/multi-region control plane.
-
-## Quick start target
+Built against the official Firecracker docs and API spec (checked against **Firecracker v1.18**).
 
 ```bash
-# fresh Linux/KVM host
-curl -fsSL https://porter.example.com/install-agent.sh | sh
+./install.sh            # Ubuntu/Debian: packages, Firecracker+jailer (sha256-verified), guest agent, helper, network
+./run.sh                # prints a one-time ACCESS TOKEN, then open http://127.0.0.1:8080
+```
+In the UI: **Images → Get kernel**, pull `nginx:alpine`, **Launch**. Then use the Terminal / Files / Snapshots tabs.
 
-# Agent installs/starts Porter and registers this host as node 1.
-# Then from the dashboard/CLI:
-porter fleet join-token --ttl 15m
+## What's new in 3.2 — UI
 
-# additional nodes
-curl -fsSL https://porter.example.com/install-agent.sh | sh -s -- \
-  --server https://porter.example.com \
-  --token <join-token>
+Dark, neutral dashboard styled after Frappe-Cloud-style consoles: workspace header, search palette (**Ctrl/⌘ K**), notifications, grouped sidebar, white primary actions, bordered panels,
+filterable microVM list with status dots, VM page with resource **tiles** (CPU / memory / disk / network, thin meters) and live **area charts** (CPU, memory, network in/out, disk read/write with peaks and time axis),
+an **Actions** menu, "Visit site" button, and a summary card on the Overview. Light theme via the sun icon. The guest agent now also reports real filesystem usage for the Disk tile (rebuild images to pick up the new agent).
+The roadmap for traffic history, autoscaling, a fleet view, private networking and TLS ingress is in `docs/PLAN.md` (design only).
+
+## What it does
+
+| Area | Features |
+|---|---|
+| **Replica sets** (new) | N identical microVMs from one image, named `web-1…web-N`, each with `REPLICA_INDEX` / `REPLICA_SET` env · scale up/down live · start/stop/restart the whole set · **auto‑heal** (crashed or deleted replicas come back; a set you stopped stays stopped) · **rolling update** one replica at a time, waiting until each answers on the agent · optional **round‑robin TCP load balancer** on one host port that skips dead replicas (binds 127.0.0.1 unless you pick "all interfaces") |
+| **Build from GitHub** (new) | Save *repo + branch + the Dockerfile or compose yml you name* — **no framework detection**; the file is the whole build definition and the result is **images only** (compose: one image per service; `build:` services are built, `image:` services pulled). Rebuild **manually**, on a **signed push webhook** (HMAC‑SHA256, only your branch, only if enabled) or by **polling** `git ls‑remote` every N minutes. Same commit is never rebuilt twice. Optionally **roll the new image out to a replica set** after a successful build. Private repos: set `MVM_GIT_TOKEN` (sent only to github.com, never stored) |
+| **Images** | OCI registry image → ext4 (skopeo, layers unpacked *without executing anything*, ENV/WORKDIR/ENTRYPOINT/CMD/EXPOSE honoured) · Dockerfile · Git repo (https) · docker‑compose `image:` services · rootfs tarball upload · the official Firecracker CI Ubuntu rootfs · ext4 export |
+| **Dockerfile builds** | `RUN` steps run **inside a throw‑away builder microVM**, never in a host chroot. Supported: FROM (single stage), ARG, ENV, WORKDIR, COPY/ADD (local), RUN, CMD, ENTRYPOINT, EXPOSE |
+| **Lifecycle** | create / start / graceful shutdown (via agent, Ctrl‑Alt‑Del fallback) / force stop / restart / pause / resume / clone / delete / autostart. VMs survive a restart of the web app (they are adopted again) |
+| **Firecracker features** | full snapshots + restore · memory **balloon** (live) · memory **hotplug** (virtio‑mem, live) · **rate limiters** for NIC RX/TX and disk bandwidth/IOPS (live) · **MMDS v2** metadata (live push) · virtio‑rng · CPU templates, SMT, huge pages (None/Transparent/2M), dirty‑page tracking · metrics + logger |
+| **Guest agent** (vsock) | web terminal, file upload/download, live CPU/mem/net/disk charts, clean shutdown. **No SSH, no open ports, nothing needed in the image** (static `mvm-guest` is injected as `/mvm-init`) |
+| **Network** | per‑VM TAP on bridge `mvmbr0` (172.30.0.0/24), NAT out, **VM‑to‑VM isolation**, guests blocked from your LAN and from host services, optional published ports |
+| **Security** | see below |
+
+## Security model
+
+* **Auth**: 256‑bit access token (only its SHA‑256 is stored, shown once). Signed `HttpOnly; SameSite=Strict` session cookie, CSRF token on every state change, `Origin`/`Host` checks, login throttling, strict CSP + security headers, optional Bearer token for scripts. Binds to `127.0.0.1` by default; refuses to run as root.
+* **Privilege split**: the web app runs as *you*. The only root code is `mvm-priv` (≈250 lines, root‑owned, fixed sub‑commands, validates every argument, reads settings from root‑owned `/etc/mvm/priv.conf`). It replaces the old `mvm-chroot` that ran scripts as root.
+* **Isolation**: with the helper, every VM is started through the **official jailer** (chroot + pivot_root, own mount namespace, cgroup v2 cpu/memory/pids limits, unprivileged uid) on top of Firecracker's built‑in seccomp. Without it the app falls back to *direct* mode and says so in the UI.
+* **Images are never executed on the host.** Layers are extracted by a small extractor that resolves every path inside the target dir (absolute symlinks treated as chroot‑relative, `..` clamped, devices skipped) under `fakeroot` so file ownership is preserved.
+* **Audit log** of every state‑changing request; `MVM_READONLY=1` makes the UI view‑only; `MVM_DISABLE_EXEC=1` turns off terminal/file transfer.
+
+## Layout
+
+```
+app.py              Flask routes + hardening          guest/mvm-guest.c   static PID-1 init + vsock agent
+mvmlib/vmm.py       VM lifecycle, snapshots, balloon…  deploy/mvm-priv     the root helper
+mvmlib/replicas.py  replica sets, heal, rollout        mvmlib/gitsources.py  GitHub builds, webhook, polling
+mvmlib/lb.py        round-robin TCP balancer
+docs/PLAN.md        roadmap: traffic, autoscale, fleet, private net, ingress+TLS
+mvmlib/images.py    image pipeline                     tools/              fake Firecracker (tests only)
+mvmlib/rootfs_tool.py  safe layer extractor            tests/e2e.py        55 end-to-end checks
+static/ templates/  UI                                 install.sh / uninstall.sh / run.sh
 ```
 
-Remote agent connections require HTTPS; the agent rejects plaintext HTTP except to loopback addresses for local development. Standard TLS certificate verification is enabled. Mutual TLS is not implemented yet, so don't expose the control-plane API without a trusted HTTPS endpoint and appropriate network controls.
+## Configuration (environment variables)
 
-Image API/MCP builds and GitHub webhook builds are disabled by default because the current builder invokes host Docker/Git and is not isolated. `PORTER_ENABLE_UNISOLATED_BUILDS=true` is a temporary operator override for trusted sources only; do not use it as a security boundary for untrusted code.
+`MVM_HOST` (127.0.0.1) · `MVM_PORT` (8080) · `MVM_DATA` (./mvm-data) · `MVM_TOKEN` (set your own, ≥16 chars) · `MVM_ALLOWED_HOSTS` (extra Host names) · `MVM_MODE` (auto|jailer|direct) · `MVM_TLS_CERT`/`MVM_TLS_KEY` · `MVM_DNS` · `MVM_MAX_VMS/VCPU/MEM_MIB` · `MVM_STOP_ON_EXIT=1` · `MVM_PRELOAD=nginx:alpine,redis:alpine` · `MVM_KERNEL_URL` / `MVM_KERNEL_SHA256` (pin the kernel) · `MVM_READONLY` · `MVM_DISABLE_EXEC` · `MVM_CGROUPS=0`.
+Lost the token? `python3 app.py --reset-token`. For remote access put it behind an HTTPS reverse proxy (add its host name to `MVM_ALLOWED_HOSTS`).
 
-## Repository layout
+## API
 
-```text
-porter/          # control plane
-porter-agent/    # privileged host agent
-protocol/        # shared wire types
-docs/            # SRS, architecture, UI spec, plans
-```
+Everything the UI does is `/api/*` JSON (cookie+CSRF or `Authorization: Bearer <token>`):
+`GET /api/health` · `POST /api/kernel` · `GET|POST /api/images…` · `GET|POST /api/vms` · `POST /api/vms/<id>/{start,stop,kill,restart,pause,resume,clone,exec,live,snapshots,forwards}` · `GET /api/vms/<id>/{console,metrics,stats,firecracker-log,files}` · `GET|POST /api/replicasets` · `POST /api/replicasets/<id>/{scale,start,stop,restart,rollout}` · `GET|POST /api/sources` · `POST /api/sources/<id>/{build,check,rotate-secret}` · `POST /hooks/github/<id>` (public, HMAC‑authenticated) · `GET /api/jobs` · `GET /api/audit`.
 
-## Read first
+## What has and has not been verified
 
-- [`docs/SRS_V1.md`](docs/SRS_V1.md)
-- [`docs/UI_SPEC_V1.md`](docs/UI_SPEC_V1.md)
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- [`docs/CONTROLLER_MODEL.md`](docs/CONTROLLER_MODEL.md)
-- [`docs/ADR-001-CONTROL-PLANE-PLACEMENT.md`](docs/ADR-001-CONTROL-PLANE-PLACEMENT.md)
-- [`docs/CONTROL_PLANE_AS_MICROVM.md`](docs/CONTROL_PLANE_AS_MICROVM.md)
-- [`docs/FLEET_ARCHITECTURE.md`](docs/FLEET_ARCHITECTURE.md)
-- [`docs/FLEET_STATE.md`](docs/FLEET_STATE.md)
-- [`docs/CONNECTIVITY.md`](docs/CONNECTIVITY.md)
-- [`docs/PROTOCOL.md`](docs/PROTOCOL.md)
-- [`docs/BACKEND_V1_PLAN.md`](docs/BACKEND_V1_PLAN.md)
-- [`docs/ROBUSTNESS_AND_SCALE_PLAN.md`](docs/ROBUSTNESS_AND_SCALE_PLAN.md)
-- [`docs/DEVOPS_FEATURE_GAPS.md`](docs/DEVOPS_FEATURE_GAPS.md)
+Verified in development (no KVM available there):
+* guest agent protocol (exec, timeouts, file transfer, stats) with the real static binary;
+* **every Firecracker API body this app sends was accepted by the real Firecracker v1.18 binary** and matches the official spec; the real jailer started Firecracker with the helper's exact flags;
+* 98 end‑to‑end checks (auth/CSRF/origin/host, ownership‑correct image import, symlink‑escape defence, full lifecycle, snapshots, balloon/hotplug/rate‑limit/MMDS live updates, adoption after app restart) against a test double that speaks Firecracker's API and bridges to the real agent;
+* OCI → ext4 conversion from a real OCI layout; UI pages/tabs/forms via a headless DOM run.
 
-## Core rules
+**Not exercised without real hardware** — an actual guest boot has since been confirmed on a real host (nginx image); still unconfirmed on real hardware: replica sets with real VMs, the load balancer against a real service, GitHub clone/build/webhook delivery from the internet, the Dockerfile builder VM, and snapshot restore. `python3 tests/e2e.py` needs none of that.
 
-1. Firecracker is the runtime boundary.
-2. Only `porter-agent` touches host resources.
-3. Porter can run as a host service or optional MicroVM.
-4. `porter.db` is persistent; `porter-agent.db` is local actual state.
-5. Remote agent links require verified HTTPS; outbound mTLS WebSocket remains the target and is not implemented yet.
-6. WireGuard is optional; WSS is the control baseline.
-7. Every command is idempotent with an operation ID.
-8. Previews are deployment-scoped and ephemeral.
-9. No fake UI success; unimplemented features are labelled.
+## Replicas and GitHub builds: how to use and what to expect
 
+* **Replicas**: *Images → Replicas* (or the Replicas page). Give a name and count; set a load‑balancer port + the port your app listens on if you want one stable address. *Rolling update* recreates replicas from the **current image and template** one at a time (each replica is briefly down while it is replaced, so use ≥2 replicas to keep serving). Replicas have separate disks: they are identical *starting points*, not shared storage.
+* **GitHub builds**: *GitHub builds → Add a source.* Pick Dockerfile or compose, give the path in the repo, tick *Rebuild automatically* and choose polling (works with no inbound access) and/or add the webhook shown in the **Webhook** dialog (GitHub must reach the URL: put the server behind an HTTPS reverse proxy or tunnel and add its host name to `MVM_ALLOWED_HOSTS`). A push to other branches is ignored. If a build is already queued, a new push does not start a second one; the running build clones the newest commit.
+* Dockerfile/compose limits are the same as the Dockerfile tab (single stage; `RUN` runs in a builder microVM; no `ADD` from URLs). Compose networks/volumes/depends_on are ignored: the output is just images.
 
-- [`docs/AGENT_MODEL.md`](docs/AGENT_MODEL.md)
-- [`docs/PRE_IMPLEMENTATION_CHECKLIST.md`](docs/PRE_IMPLEMENTATION_CHECKLIST.md)
+## Notes & limits
 
-- [`docs/V1_IMPLEMENTATION_STATUS.md`](docs/V1_IMPLEMENTATION_STATUS.md)
+* Firecracker needs a guest kernel built for it: *Images → Get kernel* downloads the official CI kernel (6.1 line preferred). Balloon/hotplug/vsock need matching kernel options (the CI kernels have vsock + balloon).
+* Images need `/bin/sh`. `USER` in an image is recorded, the workload runs as root inside the VM (the VM is the boundary).
+* Snapshots are as large as guest RAM and must not be restored into several VMs at once (duplicate secrets/RNG state).
+* CPU templates are deprecated upstream; leave at `None` unless you need a uniform fleet.
+* Upgrading from v2: the data format changed; rebuild images (the old `mvm-data` is not reused, use a new folder or delete it). `./uninstall.sh` removes the helper, rules and services but keeps your data.
 
-- [`docs/AI_MCP.md`](docs/AI_MCP.md)
-
-- [`docs/GUEST_NETWORK.md`](docs/GUEST_NETWORK.md)
-
-- [`docs/IMAGE_BUILD_PIPELINE.md`](docs/IMAGE_BUILD_PIPELINE.md)
-
-- [`docs/AUTOSCALE_AND_IDLE.md`](docs/AUTOSCALE_AND_IDLE.md)
-
-- [`docs/PERSISTENCE_MODEL.md`](docs/PERSISTENCE_MODEL.md)
-
-- [`docs/GATEWAY_AND_DOMAINS.md`](docs/GATEWAY_AND_DOMAINS.md)
-
-- [`docs/FLEET_DETAIL_OBSERVABILITY.md`](docs/FLEET_DETAIL_OBSERVABILITY.md)
-
-- [`docs/GATEWAY_SLICE_STATUS.md`](docs/GATEWAY_SLICE_STATUS.md)
-
-- [`docs/REMAINING_WORK.md`](docs/REMAINING_WORK.md)
-
-- [`docs/IMAGE_PIPELINE_STATUS.md`](docs/IMAGE_PIPELINE_STATUS.md)
-
-- [`docs/GITHUB_COMPOSE_STATUS.md`](docs/GITHUB_COMPOSE_STATUS.md)
-
-- [`docs/HANDOFF.md`](docs/HANDOFF.md)
-- [`docs/NEXT_TASKS.md`](docs/NEXT_TASKS.md)
-
-- [`docs/PLAN_AUDIT.md`](docs/PLAN_AUDIT.md)
-- [`docs/PLAN_V2.md`](docs/PLAN_V2.md)
-
-- [`docs/ROADMAP_v0.2_v0.3.md`](docs/ROADMAP_v0.2_v0.3.md)
-
-- [`docs/FIRECRAB_REFERENCE.md`](docs/FIRECRAB_REFERENCE.md)
-
-- [`docs/ADDRESSING_POLICY.md`](docs/ADDRESSING_POLICY.md)
-
-- [`docs/E2E_HTTP_VERIFIED.md`](docs/E2E_HTTP_VERIFIED.md)
+Firecracker is © Amazon, Apache‑2.0. This project is not affiliated with AWS.

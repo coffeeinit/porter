@@ -1,5 +1,0 @@
-Atlas
-Metal Server
-Service
-VM
-Operations
